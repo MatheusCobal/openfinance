@@ -1,3 +1,5 @@
+import csv
+import io
 import logging
 import httpx
 from collections import defaultdict
@@ -8,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -229,6 +231,72 @@ def list_transactions(
 @app.get("/categories")
 def list_categories(session: Session = Depends(get_session)):
     return CategoryResolver(session).all_categories()
+
+
+@app.get("/export/transactions.csv")
+def export_transactions_csv(
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    include_future: bool = False,
+    session: Session = Depends(get_session),
+):
+    """Export transactions (filtered by the same params as /transactions) as CSV.
+
+    Streamed so memory stays flat even for tens of thousands of rows.
+    """
+    resolver = CategoryResolver(session)
+    query = select(Transaction).order_by(Transaction.date.desc())
+    if from_date is not None:
+        query = query.where(Transaction.date >= from_date)
+    if to_date is not None:
+        query = query.where(Transaction.date <= to_date)
+    if not include_future and to_date is None:
+        query = query.where(Transaction.date <= date.today())
+    transactions = session.exec(query).all()
+
+    def generate():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(
+            [
+                "date",
+                "description",
+                "amount",
+                "currency",
+                "pluggy_category",
+                "category",
+                "account_id",
+                "transaction_id",
+            ]
+        )
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate()
+
+        for tx in transactions:
+            cat = resolver.resolve(tx.category)
+            writer.writerow(
+                [
+                    tx.date.isoformat(),
+                    tx.description,
+                    f"{abs(tx.amount):.2f}",
+                    tx.currency_code,
+                    tx.category or "",
+                    cat.name,
+                    tx.account_id,
+                    tx.id,
+                ]
+            )
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate()
+
+    filename = f"transactions-{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/upcoming")

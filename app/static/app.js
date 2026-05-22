@@ -1,6 +1,9 @@
 // Fallback color if a category somehow arrives without one (shouldn't happen
 // once seed_categories.py has been run).
 const FALLBACK_COLOR = '#64748b';
+// Most users only care about the recent transactions. Render the first N
+// inside each category accordion; the rest stays one click away.
+const TX_PER_CATEGORY_INITIAL = 50;
 
 const currency = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -157,25 +160,38 @@ function renderCategories(stats, transactions) {
   const groups = groupTransactionsByCategoryId(transactions);
   const orderedCategories = stats.categories;
 
+  const renderTxRow = (tx) => `
+    <li class="flex items-baseline justify-between px-5 py-3 border-t border-slate-100">
+      <div class="min-w-0 flex-1 pr-4">
+        <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
+        <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
+      </div>
+      <p class="text-sm font-medium tabular text-slate-900 shrink-0">
+        ${currency.format(Math.abs(Number(tx.amount)))}
+      </p>
+    </li>
+  `;
+
   const html = orderedCategories
     .map((cat) => {
       const txs = groups.get(cat.id) || [];
       const color = cat.color || FALLBACK_COLOR;
-      const rows = txs
-        .map(
-          (tx) => `
-            <li class="flex items-baseline justify-between px-5 py-3 border-t border-slate-100">
-              <div class="min-w-0 flex-1 pr-4">
-                <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
-                <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
-              </div>
-              <p class="text-sm font-medium tabular text-slate-900 shrink-0">
-                ${currency.format(Math.abs(Number(tx.amount)))}
-              </p>
-            </li>
-          `,
-        )
-        .join('');
+      const visible = txs.slice(0, TX_PER_CATEGORY_INITIAL);
+      const hidden = txs.slice(TX_PER_CATEGORY_INITIAL);
+      const visibleRows = visible.map(renderTxRow).join('');
+      const hiddenRows = hidden.map(renderTxRow).join('');
+      const moreSection =
+        hidden.length > 0
+          ? `
+            <ul class="tx-hidden hidden">${hiddenRows}</ul>
+            <button
+              class="ver-mais w-full text-center text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-slate-50 py-3 border-t border-slate-100"
+              data-count="${hidden.length}"
+            >
+              Ver mais ${hidden.length} ${hidden.length === 1 ? 'transação' : 'transações'}
+            </button>
+          `
+          : '';
 
       return `
         <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
@@ -190,13 +206,24 @@ function renderCategories(stats, transactions) {
             <span class="text-xs text-slate-500 tabular">${cat.count} ${cat.count === 1 ? 'compra' : 'compras'}</span>
             <span class="font-semibold tabular text-slate-900 ml-3">${currency.format(cat.total)}</span>
           </summary>
-          <ul>${rows}</ul>
+          <ul>${visibleRows}</ul>
+          ${moreSection}
         </details>
       `;
     })
     .join('');
 
   container.innerHTML = html;
+
+  // Wire up the "Ver mais" buttons to reveal the hidden rows.
+  container.querySelectorAll('button.ver-mais').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const details = btn.closest('details');
+      const hiddenList = details.querySelector('ul.tx-hidden');
+      if (hiddenList) hiddenList.classList.remove('hidden');
+      btn.remove();
+    });
+  });
 }
 
 function escapeHtml(str) {
@@ -276,12 +303,23 @@ function renderPeriodFilter() {
   });
 }
 
+function updateExportLink() {
+  const { from, to } = rangeForPeriod(activePeriod);
+  const params = new URLSearchParams();
+  if (from) params.set('from_date', from);
+  if (to) params.set('to_date', to);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const link = document.getElementById('export');
+  if (link) link.href = `/export/transactions.csv${qs}`;
+}
+
 async function loadData() {
   const { from, to } = rangeForPeriod(activePeriod);
   const params = new URLSearchParams();
   if (from) params.set('from_date', from);
   if (to) params.set('to_date', to);
   const qs = params.toString() ? `?${params.toString()}` : '';
+  updateExportLink();
 
   const [statsResponse, transactionsResponse] = await Promise.all([
     fetch(`/stats${qs}`),

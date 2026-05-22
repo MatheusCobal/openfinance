@@ -29,12 +29,34 @@ function pluralCompras(n) {
   return n === 1 ? '1 compra' : `${n.toLocaleString('pt-BR')} compras`;
 }
 
-function findLastNonZeroMonth(byMonth, months) {
+function findRecentMonthsWithData(byMonth, months) {
+  // Returns [last, prev] — the two most recent months with non-zero values.
+  // Skipping zero-value months avoids "+inf%" deltas when comparing to an
+  // empty period.
+  let last = null;
+  let prev = null;
   for (let i = months.length - 1; i >= 0; i--) {
-    const m = months[i];
-    if ((byMonth[m] || 0) > 0) return m;
+    const v = byMonth[months[i]] || 0;
+    if (v > 0) {
+      if (last === null) {
+        last = months[i];
+      } else {
+        prev = months[i];
+        break;
+      }
+    }
   }
-  return null;
+  return { last, prev };
+}
+
+function deltaHtml(lastValue, prevValue, prevMonth) {
+  if (!prevMonth || prevValue <= 0) return '';
+  const diff = lastValue - prevValue;
+  const pct = (diff / prevValue) * 100;
+  const sign = diff >= 0 ? '+' : '';
+  // Spending less is "green" (good), spending more is "red".
+  const color = diff > 0 ? 'text-red-600' : diff < 0 ? 'text-emerald-600' : 'text-slate-500';
+  return ` <span class="${color} font-medium">${sign}${pct.toFixed(0)}%</span><span class="text-slate-400"> vs ${escapeHtml(formatMonthLabel(prevMonth))}</span>`;
 }
 
 function renderCard(category, months) {
@@ -43,10 +65,11 @@ function renderCard(category, months) {
     (a, b) => a + b,
     0,
   );
-  const lastMonth = findLastNonZeroMonth(category.by_month, months);
-  const lastValue = lastMonth ? category.by_month[lastMonth] : 0;
-  const lastLabel = lastMonth
-    ? `${formatMonthLabel(lastMonth)}: ${currency.format(lastValue)}`
+  const { last, prev } = findRecentMonthsWithData(category.by_month, months);
+  const lastValue = last ? category.by_month[last] : 0;
+  const prevValue = prev ? category.by_month[prev] : 0;
+  const lastHtml = last
+    ? `${escapeHtml(formatMonthLabel(last))}: ${escapeHtml(currency.format(lastValue))}${deltaHtml(lastValue, prevValue, prev)}`
     : 'sem movimentação';
 
   return `
@@ -59,7 +82,7 @@ function renderCard(category, months) {
         <p class="font-bold tabular text-slate-900 shrink-0 ml-3">${currency.format(category.total)}</p>
       </div>
       <p class="text-xs text-slate-500 mb-4">
-        ${pluralCompras(totalCount)} · último: ${escapeHtml(lastLabel)}
+        ${pluralCompras(totalCount)} · ${lastHtml}
       </p>
       <div class="relative h-44">
         <canvas id="chart-${category.id}"></canvas>
