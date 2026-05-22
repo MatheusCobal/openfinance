@@ -1,0 +1,75 @@
+from datetime import date
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+from app.config import settings
+
+
+class PluggyClient:
+    def __init__(self) -> None:
+        self.base_url = settings.pluggy_base_url
+        self._api_key: Optional[str] = None
+
+    def _authenticate(self) -> None:
+        response = httpx.post(
+            f"{self.base_url}/auth",
+            json={
+                "clientId": settings.pluggy_client_id,
+                "clientSecret": settings.pluggy_client_secret,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        self._api_key = response.json()["apiKey"]
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        if self._api_key is None:
+            self._authenticate()
+        headers = {"X-API-KEY": self._api_key, **kwargs.pop("headers", {})}
+        response = httpx.request(
+            method, f"{self.base_url}{path}", headers=headers, timeout=30.0, **kwargs
+        )
+        # API key expires after 2h — retry once on 401/403.
+        if response.status_code in (401, 403):
+            self._authenticate()
+            headers["X-API-KEY"] = self._api_key
+            response = httpx.request(
+                method, f"{self.base_url}{path}", headers=headers, timeout=30.0, **kwargs
+            )
+        response.raise_for_status()
+        return response
+
+    def create_connect_token(
+        self,
+        client_user_id: Optional[str] = None,
+        item_id: Optional[str] = None,
+    ) -> str:
+        # `clientUserId` ties the item to one of your users (Pluggy uses it for analytics + dedup).
+        # `itemId` switches the widget into "update mode" to refresh credentials of an existing item.
+        body: Dict[str, Any] = {}
+        if client_user_id is not None:
+            body["clientUserId"] = client_user_id
+        if item_id is not None:
+            body["itemId"] = item_id
+        response = self._request("POST", "/connect_token", json=body or None)
+        return response.json()["accessToken"]
+
+    def get_item(self, item_id: str) -> Dict[str, Any]:
+        return self._request("GET", f"/items/{item_id}").json()
+
+    def list_accounts(self, item_id: str) -> List[Dict[str, Any]]:
+        response = self._request("GET", "/accounts", params={"itemId": item_id})
+        return response.json()["results"]
+
+    def list_transactions(
+        self, account_id: str, from_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"accountId": account_id, "pageSize": 500}
+        if from_date is not None:
+            params["from"] = from_date.isoformat()
+        response = self._request("GET", "/transactions", params=params)
+        return response.json()["results"]
+
+
+pluggy = PluggyClient()

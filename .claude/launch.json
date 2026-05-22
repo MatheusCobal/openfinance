@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "openfinance",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": ["app.main:app", "--host", "127.0.0.1", "--port", "8765", "--log-level", "warning"],
+      "port": 8765,
+      "env": {
+        "PLUGGY_CLIENT_ID": "dummy",
+        "PLUGGY_CLIENT_SECRET": "dummy"
+      }
+    }
+  ]
+}

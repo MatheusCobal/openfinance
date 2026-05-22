@@ -1,0 +1,231 @@
+import logging
+import httpx
+from collections import defaultdict
+from contextlib import asynccontextmanager
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from sqlmodel import Session, select
+
+from app.database import engine, get_session, init_db
+from app.models import Account, Item, Transaction
+from app.pluggy_client import pluggy
+
+logger = logging.getLogger("openfinance")
+
+STATIC_DIR = Path(__file__).parent / "static"
+UNCATEGORIZED = "Sem categoria"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="OpenFinance Collector", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+class ConnectTokenRequest(BaseModel):
+    clientUserId: Optional[str] = None
+    itemId: Optional[str] = None
+
+
+@app.post("/connect-token")
+def connect_token(body: Optional[ConnectTokenRequest] = None):
+    body = body or ConnectTokenRequest()
+    try:
+        token = pluggy.create_connect_token(
+            client_user_id=body.clientUserId, item_id=body.itemId
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            raise HTTPException(
+                401,
+                "Pluggy rejected the credentials. Check PLUGGY_CLIENT_ID and "
+                "PLUGGY_CLIENT_SECRET in your .env file.",
+            )
+        raise HTTPException(
+            502, f"Pluggy returned {exc.response.status_code}: {exc.response.text}"
+        )
+    return {"accessToken": token}
+
+
+def _upsert_item(item_id: str, session: Session) -> Item:
+    data = pluggy.get_item(item_id)
+    item = session.get(Item, item_id)
+    if item is None:
+        item = Item(
+            id=data["id"],
+            connector_id=data["connector"]["id"],
+            connector_name=data["connector"].get("name"),
+            status=data["status"],
+        )
+        session.add(item)
+    else:
+        item.status = data["status"]
+        item.connector_name = data["connector"].get("name")
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+def _sync_item(item_id: str, session: Session) -> Dict[str, int]:
+    raw_accounts = pluggy.list_accounts(item_id)
+    credit_accounts = [a for a in raw_accounts if a["type"] == "CREDIT"]
+
+    new_transactions = 0
+    for raw_account in credit_accounts:
+        if not session.get(Account, raw_account["id"]):
+            session.add(
+                Account(
+                    id=raw_account["id"],
+                    item_id=item_id,
+                    name=raw_account["name"],
+                    type=raw_account["type"],
+                    subtype=raw_account.get("subtype"),
+                    marketing_name=raw_account.get("marketingName"),
+                    number=raw_account.get("number"),
+                )
+            )
+
+        for raw_tx in pluggy.list_transactions(raw_account["id"]):
+            if session.get(Transaction, raw_tx["id"]):
+                continue
+            session.add(
+                Transaction(
+                    id=raw_tx["id"],
+                    account_id=raw_account["id"],
+                    date=date.fromisoformat(raw_tx["date"][:10]),
+                    amount=Decimal(str(raw_tx["amount"])),
+                    description=raw_tx["description"],
+                    category=raw_tx.get("category"),
+                    currency_code=raw_tx.get("currencyCode") or "BRL",
+                )
+            )
+            new_transactions += 1
+
+    session.commit()
+    return {
+        "credit_accounts": len(credit_accounts),
+        "new_transactions": new_transactions,
+    }
+
+
+@app.post("/items/{item_id}")
+def register_item(item_id: str, session: Session = Depends(get_session)):
+    return _upsert_item(item_id, session)
+
+
+@app.post("/items/{item_id}/sync")
+def sync_item(item_id: str, session: Session = Depends(get_session)):
+    item = session.get(Item, item_id)
+    if item is None:
+        # Auto-register if Pluggy knows about it but we don't yet
+        # (happens when the widget completes and frontend skips registration).
+        item = _upsert_item(item_id, session)
+    return _sync_item(item_id, session)
+
+
+@app.post("/webhooks/pluggy")
+async def pluggy_webhook(request: Request, background_tasks: BackgroundTasks):
+    # Pluggy needs a 2xx within ~5 seconds. We acknowledge immediately and
+    # process in the background.
+    payload: Dict[str, Any] = await request.json()
+    event = payload.get("event")
+    item_id = payload.get("itemId")
+    logger.info("pluggy webhook event=%s item=%s", event, item_id)
+
+    if event in {"item/created", "item/updated"} and item_id:
+        background_tasks.add_task(_handle_item_event, item_id)
+
+    return {"received": True}
+
+
+def _handle_item_event(item_id: str) -> None:
+    try:
+        with Session(engine) as session:
+            _upsert_item(item_id, session)
+            result = _sync_item(item_id, session)
+        logger.info("synced item=%s result=%s", item_id, result)
+    except Exception:
+        logger.exception("failed to process item event item=%s", item_id)
+
+
+@app.get("/items")
+def list_items(session: Session = Depends(get_session)):
+    return session.exec(select(Item)).all()
+
+
+@app.get("/accounts")
+def list_accounts(session: Session = Depends(get_session)):
+    return session.exec(select(Account)).all()
+
+
+@app.get("/transactions")
+def list_transactions(
+    account_id: Optional[str] = None,
+    category: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    query = select(Transaction).order_by(Transaction.date.desc())
+    if account_id is not None:
+        query = query.where(Transaction.account_id == account_id)
+    if category is not None:
+        query = query.where(Transaction.category == category)
+    return session.exec(query).all()
+
+
+@app.get("/stats")
+def stats(session: Session = Depends(get_session)):
+    transactions = session.exec(select(Transaction)).all()
+
+    totals_by_category = defaultdict(lambda: Decimal("0"))
+    counts_by_category = defaultdict(int)
+    totals_by_month = defaultdict(lambda: Decimal("0"))
+    total_spent = Decimal("0")
+
+    for tx in transactions:
+        # Pluggy returns negative amounts for outflows on credit card statements;
+        # treat the absolute value as the spend.
+        amount = abs(tx.amount)
+        category = tx.category or UNCATEGORIZED
+        totals_by_category[category] += amount
+        counts_by_category[category] += 1
+        totals_by_month[tx.date.strftime("%Y-%m")] += amount
+        total_spent += amount
+
+    categories = [
+        {"name": name, "total": float(total), "count": counts_by_category[name]}
+        for name, total in sorted(
+            totals_by_category.items(), key=lambda kv: kv[1], reverse=True
+        )
+    ]
+    months = [
+        {"month": month, "total": float(total)}
+        for month, total in sorted(totals_by_month.items())
+    ]
+
+    return {
+        "total_spent": float(total_spent),
+        "transaction_count": len(transactions),
+        "categories": categories,
+        "months": months,
+    }

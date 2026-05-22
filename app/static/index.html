@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Compras · OpenFinance</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B3%3C/text%3E%3C/svg%3E" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            },
+          },
+        },
+      };
+    </script>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <style>
+      body {
+        font-feature-settings: 'cv11', 'ss01';
+        -webkit-font-smoothing: antialiased;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
+      details > summary {
+        list-style: none;
+        cursor: pointer;
+      }
+      details > summary::-webkit-details-marker {
+        display: none;
+      }
+      details[open] .chevron {
+        transform: rotate(90deg);
+      }
+      .chevron {
+        transition: transform 0.15s ease;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 font-sans">
+    <div class="mx-auto max-w-6xl px-6 py-10">
+      <header class="flex items-center justify-between mb-10 gap-4">
+        <div>
+          <h1 class="text-3xl font-bold tracking-tight">Compras</h1>
+          <p class="text-sm text-slate-500 mt-1" id="subtitle">
+            Carregando…
+          </p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            id="refresh"
+            class="text-sm font-medium text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5"
+            title="Recarregar dados"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="size-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M4 4v5h5M20 20v-5h-5M5 9a8 8 0 0114-3M19 15a8 8 0 01-14 3"
+              />
+            </svg>
+            Atualizar
+          </button>
+          <button
+            id="connect"
+            class="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-lg px-4 py-2 inline-flex items-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="size-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+            Conectar banco
+          </button>
+        </div>
+      </header>
+
+      <div
+        id="toast"
+        class="hidden fixed top-6 right-6 z-50 max-w-sm rounded-xl bg-slate-900 text-white text-sm px-4 py-3 shadow-lg"
+      ></div>
+
+      <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="summary">
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total gasto</p>
+          <p class="mt-2 text-2xl font-bold tabular" id="stat-total">—</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Transações</p>
+          <p class="mt-2 text-2xl font-bold tabular" id="stat-count">—</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Ticket médio</p>
+          <p class="mt-2 text-2xl font-bold tabular" id="stat-avg">—</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Categoria top</p>
+          <p class="mt-2 text-2xl font-bold truncate" id="stat-top">—</p>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-1">
+          <h2 class="font-semibold text-slate-900 mb-4">Por categoria</h2>
+          <div class="relative h-64">
+            <canvas id="chart-categories"></canvas>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-2">
+          <h2 class="font-semibold text-slate-900 mb-4">Por mês</h2>
+          <div class="relative h-64">
+            <canvas id="chart-months"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="font-semibold text-slate-900 mb-3">Transações por categoria</h2>
+        <div id="categories" class="space-y-3"></div>
+        <div id="empty" class="hidden text-center py-16">
+          <p class="text-slate-500">Nenhuma transação encontrada.</p>
+          <p class="text-sm text-slate-400 mt-1">
+            Rode um sync em <code class="bg-slate-200 rounded px-1.5 py-0.5">POST /items/{id}/sync</code> para começar.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
