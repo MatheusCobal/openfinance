@@ -44,6 +44,11 @@ def historico():
     return FileResponse(STATIC_DIR / "historico.html")
 
 
+@app.get("/proximos", include_in_schema=False)
+def proximos():
+    return FileResponse(STATIC_DIR / "proximos.html")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -218,6 +223,77 @@ def list_transactions(
 @app.get("/categories")
 def list_categories(session: Session = Depends(get_session)):
     return CategoryResolver(session).all_categories()
+
+
+@app.get("/upcoming")
+def upcoming(session: Session = Depends(get_session)):
+    """Future-dated transactions (parcelas a vencer) grouped by month → category.
+
+    Payload is small because future_count is bounded by the number of installment
+    schedules a user has — typically a few hundred rows at most. No pagination.
+    """
+    resolver = CategoryResolver(session)
+    today = date.today()
+    future_txs = session.exec(
+        select(Transaction)
+        .where(Transaction.date > today)
+        .order_by(Transaction.date)
+    ).all()
+
+    # month -> category_id -> list[Transaction]
+    by_month_cat: Dict[str, Dict[int, list]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    category_info_by_id: Dict[int, Category] = {}
+    for tx in future_txs:
+        month = tx.date.strftime("%Y-%m")
+        cat = resolver.resolve(tx.category)
+        by_month_cat[month][cat.id].append(tx)
+        category_info_by_id[cat.id] = cat
+
+    months_out = []
+    for month in sorted(by_month_cat.keys()):
+        cat_groups = by_month_cat[month]
+        categories_out = []
+        month_total = Decimal("0")
+        month_count = 0
+
+        for cat_id, txs in cat_groups.items():
+            cat = category_info_by_id[cat_id]
+            cat_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+            month_total += cat_total
+            month_count += len(txs)
+            categories_out.append(
+                {
+                    "id": cat.id,
+                    "name": cat.name,
+                    "color": cat.color,
+                    "total": float(cat_total),
+                    "count": len(txs),
+                    "transactions": [
+                        {
+                            "id": tx.id,
+                            "date": tx.date.isoformat(),
+                            "amount": float(abs(tx.amount)),
+                            "description": tx.description,
+                            "pluggy_category": tx.category,
+                        }
+                        for tx in txs
+                    ],
+                }
+            )
+
+        categories_out.sort(key=lambda c: c["total"], reverse=True)
+        months_out.append(
+            {
+                "month": month,
+                "total": float(month_total),
+                "count": month_count,
+                "categories": categories_out,
+            }
+        )
+
+    return {"total_count": len(future_txs), "months": months_out}
 
 
 @app.get("/stats/monthly")

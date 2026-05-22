@@ -3,10 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Histórico · OpenFinance</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E" />
+    <title>Próximos · OpenFinance</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%AD%3C/text%3E%3C/svg%3E" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -30,20 +29,44 @@
       .tabular {
         font-variant-numeric: tabular-nums;
       }
+      details > summary {
+        list-style: none;
+        cursor: pointer;
+      }
+      details > summary::-webkit-details-marker {
+        display: none;
+      }
+      details[open] .chevron {
+        transform: rotate(90deg);
+      }
+      .chevron {
+        transition: transform 0.15s ease;
+      }
+      /* Horizontal-scrolling chip strip without an ugly scrollbar */
+      .chip-strip {
+        scrollbar-width: thin;
+      }
+      .chip-strip::-webkit-scrollbar {
+        height: 6px;
+      }
+      .chip-strip::-webkit-scrollbar-thumb {
+        background: #e2e8f0;
+        border-radius: 3px;
+      }
     </style>
   </head>
   <body class="bg-slate-50 text-slate-900 font-sans">
     <div class="mx-auto max-w-6xl px-6 py-10">
-      <header class="flex items-center justify-between mb-10 gap-4">
+      <header class="flex items-center justify-between mb-8 gap-4">
         <div>
           <nav class="flex items-center gap-4 text-sm mb-3">
             <a href="/" class="text-slate-500 hover:text-slate-900">Dashboard</a>
             <span class="text-slate-300">/</span>
-            <span class="text-slate-900 font-medium">Histórico</span>
+            <a href="/historico" class="text-slate-500 hover:text-slate-900">Histórico</a>
             <span class="text-slate-300">/</span>
-            <a href="/proximos" class="text-slate-500 hover:text-slate-900">Próximos</a>
+            <span class="text-slate-900 font-medium">Próximos</span>
           </nav>
-          <h1 class="text-3xl font-bold tracking-tight">Histórico por categoria</h1>
+          <h1 class="text-3xl font-bold tracking-tight">Próximos gastos</h1>
           <p class="text-sm text-slate-500 mt-1" id="subtitle">Carregando…</p>
         </div>
         <button
@@ -69,16 +92,34 @@
         </button>
       </header>
 
-      <section id="cards" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></section>
+      <div
+        id="chip-strip"
+        class="chip-strip flex gap-2 overflow-x-auto pb-2 mb-6"
+      ></div>
+
+      <div
+        id="month-summary"
+        class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6 hidden"
+      >
+        <div class="flex items-baseline justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-wider text-slate-500 font-medium" id="month-label">—</p>
+            <p class="mt-1 text-3xl font-bold tabular" id="month-total">—</p>
+          </div>
+          <p class="text-sm text-slate-500 tabular" id="month-count">—</p>
+        </div>
+      </div>
+
+      <section id="categories" class="space-y-3"></section>
 
       <div id="empty" class="hidden text-center py-16">
-        <p class="text-slate-500">Nenhuma transação encontrada.</p>
+        <p class="text-slate-500">Nenhuma parcela futura encontrada.</p>
         <p class="text-sm text-slate-400 mt-1">
-          Conecte um banco no <a href="/" class="text-indigo-600 hover:text-indigo-700">dashboard</a> primeiro.
+          Você está em dia ou ainda não conectou contas com parcelamento.
         </p>
       </div>
     </div>
 
-    <script src="/static/historico.js"></script>
+    <script src="/static/proximos.js"></script>
   </body>
 </html>
