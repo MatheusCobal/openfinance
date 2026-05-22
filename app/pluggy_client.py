@@ -65,11 +65,30 @@ class PluggyClient:
     def list_transactions(
         self, account_id: str, from_date: Optional[date] = None
     ) -> List[Dict[str, Any]]:
-        params: Dict[str, Any] = {"accountId": account_id, "pageSize": 500}
-        if from_date is not None:
-            params["from"] = from_date.isoformat()
-        response = self._request("GET", "/transactions", params=params)
-        return response.json()["results"]
+        # Pluggy caps pageSize at 500. We paginate until we've fetched
+        # everything; MAX_PAGES is a safety net against a runaway loop (25k
+        # transactions per account is way past any realistic credit card
+        # history).
+        MAX_PAGES = 50
+        all_results: List[Dict[str, Any]] = []
+        page = 1
+        while page <= MAX_PAGES:
+            params: Dict[str, Any] = {
+                "accountId": account_id,
+                "pageSize": 500,
+                "page": page,
+            }
+            if from_date is not None:
+                params["from"] = from_date.isoformat()
+            response = self._request("GET", "/transactions", params=params)
+            body = response.json()
+            results = body.get("results", [])
+            all_results.extend(results)
+            total_pages = body.get("totalPages", 1)
+            if not results or page >= total_pages:
+                break
+            page += 1
+        return all_results
 
 
 pluggy = PluggyClient()

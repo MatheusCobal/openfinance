@@ -215,6 +215,53 @@ def list_categories(session: Session = Depends(get_session)):
     return CategoryResolver(session).all_categories()
 
 
+@app.get("/stats/monthly")
+def stats_monthly(session: Session = Depends(get_session)):
+    """Category × month breakdown. Useful for a per-category history view."""
+    resolver = CategoryResolver(session)
+    today = date.today()
+    transactions = session.exec(select(Transaction)).all()
+    past_transactions = [tx for tx in transactions if tx.date <= today]
+
+    # (category_id, month) -> total
+    matrix: Dict[int, Dict[str, Decimal]] = defaultdict(
+        lambda: defaultdict(lambda: Decimal("0"))
+    )
+    counts: Dict[int, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    category_info_by_id: Dict[int, Category] = {}
+    months_set: set = set()
+
+    for tx in past_transactions:
+        cat = resolver.resolve(tx.category)
+        month = tx.date.strftime("%Y-%m")
+        matrix[cat.id][month] += abs(tx.amount)
+        counts[cat.id][month] += 1
+        category_info_by_id[cat.id] = cat
+        months_set.add(month)
+
+    months = sorted(months_set)
+
+    categories = []
+    for cat_id, by_month in matrix.items():
+        cat = category_info_by_id[cat_id]
+        category_total = sum(by_month.values())
+        categories.append(
+            {
+                "id": cat.id,
+                "name": cat.name,
+                "color": cat.color,
+                "sort_order": cat.sort_order,
+                "total": float(category_total),
+                "by_month": {m: float(by_month.get(m, Decimal("0"))) for m in months},
+                "counts_by_month": {m: counts[cat_id].get(m, 0) for m in months},
+            }
+        )
+
+    categories.sort(key=lambda c: c["total"], reverse=True)
+
+    return {"months": months, "categories": categories}
+
+
 @app.get("/stats")
 def stats(session: Session = Depends(get_session)):
     resolver = CategoryResolver(session)
