@@ -208,10 +208,75 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+const PERIODS = [
+  { key: 'all', label: 'Tudo' },
+  { key: 'month', label: 'Este mês' },
+  { key: '30d', label: '30 dias' },
+  { key: '90d', label: '90 dias' },
+];
+
+let activePeriod = 'all';
+
+function isoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function rangeForPeriod(period) {
+  // Returns {from, to} ISO date strings, or {} for "all".
+  const today = new Date();
+  const todayIso = isoDate(today);
+  if (period === 'month') {
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { from: isoDate(first), to: todayIso };
+  }
+  if (period === '30d') {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 30);
+    return { from: isoDate(start), to: todayIso };
+  }
+  if (period === '90d') {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 90);
+    return { from: isoDate(start), to: todayIso };
+  }
+  return {};
+}
+
+function renderPeriodFilter() {
+  const container = document.getElementById('period-filter');
+  if (!container) return;
+  container.innerHTML = PERIODS.map((p) => {
+    const isActive = p.key === activePeriod;
+    const base =
+      'px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors';
+    const cls = isActive
+      ? `${base} bg-indigo-600 text-white shadow-sm`
+      : `${base} bg-white border border-slate-200 text-slate-700 hover:bg-slate-100`;
+    return `<button class="${cls}" data-period="${p.key}">${p.label}</button>`;
+  }).join('');
+  container.querySelectorAll('button[data-period]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.period === activePeriod) return;
+      activePeriod = btn.dataset.period;
+      renderPeriodFilter();
+      loadData().catch((err) => {
+        console.error(err);
+        document.getElementById('subtitle').textContent = 'Erro ao carregar dados';
+      });
+    });
+  });
+}
+
 async function loadData() {
+  const { from, to } = rangeForPeriod(activePeriod);
+  const params = new URLSearchParams();
+  if (from) params.set('from_date', from);
+  if (to) params.set('to_date', to);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+
   const [statsResponse, transactionsResponse] = await Promise.all([
-    fetch('/stats'),
-    fetch('/transactions'),
+    fetch(`/stats${qs}`),
+    fetch(`/transactions${qs}`),
   ]);
   if (!statsResponse.ok || !transactionsResponse.ok) {
     throw new Error('Falha ao carregar dados');
@@ -309,6 +374,7 @@ document.getElementById('refresh').addEventListener('click', () => {
 
 document.getElementById('connect').addEventListener('click', openConnectWidget);
 
+renderPeriodFilter();
 loadData().catch((err) => {
   console.error(err);
   document.getElementById('subtitle').textContent = 'Erro ao carregar dados';

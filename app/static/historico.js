@@ -94,6 +94,15 @@ function renderChart(category, months) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if (elements.length === 0) return;
+        const idx = elements[0].index;
+        const month = months[idx];
+        if (counts[idx] > 0) openDrilldown(category, month);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -122,6 +131,107 @@ function renderChart(category, months) {
 
   charts.set(category.id, chart);
 }
+
+function monthBounds(yyyymm) {
+  const [year, month] = yyyymm.split('-').map(Number);
+  const last = new Date(year, month, 0).getDate(); // 0 = last day of previous month
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    from: `${year}-${pad(month)}-01`,
+    to: `${year}-${pad(month)}-${pad(last)}`,
+  };
+}
+
+const dayFormatter = new Intl.DateTimeFormat('pt-BR', {
+  day: '2-digit',
+  month: 'short',
+});
+
+function formatDayLabel(isoDate) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  return dayFormatter.format(new Date(year, month - 1, day));
+}
+
+const monthLongFormatter = new Intl.DateTimeFormat('pt-BR', {
+  month: 'long',
+  year: 'numeric',
+});
+
+function formatMonthLong(yyyymm) {
+  const [year, month] = yyyymm.split('-').map(Number);
+  const label = monthLongFormatter.format(new Date(year, month - 1, 1));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+async function openDrilldown(category, month) {
+  const modal = document.getElementById('drilldown');
+  const color = category.color || FALLBACK_COLOR;
+  const total = category.by_month[month] || 0;
+  const count = category.counts_by_month[month] || 0;
+
+  document.getElementById('drilldown-color').style.background = color;
+  document.getElementById('drilldown-title').textContent =
+    `${category.name} · ${formatMonthLong(month)}`;
+  document.getElementById('drilldown-subtitle').textContent =
+    `${currency.format(total)} · ${pluralCompras(count)}`;
+
+  const body = document.getElementById('drilldown-body');
+  body.innerHTML =
+    '<p class="text-center text-sm text-slate-500 py-12">Carregando…</p>';
+  modal.classList.remove('hidden');
+
+  try {
+    const { from, to } = monthBounds(month);
+    const params = new URLSearchParams({
+      category_id: String(category.id),
+      from_date: from,
+      to_date: to,
+    });
+    const response = await fetch(`/transactions?${params}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const txs = await response.json();
+
+    if (txs.length === 0) {
+      body.innerHTML =
+        '<p class="text-center text-sm text-slate-500 py-12">Sem transações nesse mês.</p>';
+      return;
+    }
+
+    const rows = txs
+      .map(
+        (tx) => `
+          <li class="flex items-baseline justify-between px-6 py-3 border-t border-slate-100">
+            <div class="min-w-0 flex-1 pr-4">
+              <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
+              <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
+            </div>
+            <p class="text-sm font-medium tabular text-slate-900 shrink-0">
+              ${currency.format(Math.abs(Number(tx.amount)))}
+            </p>
+          </li>
+        `,
+      )
+      .join('');
+    body.innerHTML = `<ul>${rows}</ul>`;
+  } catch (err) {
+    console.error(err);
+    body.innerHTML =
+      '<p class="text-center text-sm text-red-600 py-12">Erro ao carregar transações.</p>';
+  }
+}
+
+function closeDrilldown() {
+  document.getElementById('drilldown').classList.add('hidden');
+}
+
+document.getElementById('drilldown-close').addEventListener('click', closeDrilldown);
+document.getElementById('drilldown').addEventListener('click', (e) => {
+  // Click on the backdrop (the modal root itself, not the dialog inside it).
+  if (e.target.id === 'drilldown') closeDrilldown();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeDrilldown();
+});
 
 async function loadData() {
   const response = await fetch('/stats/monthly');

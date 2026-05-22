@@ -194,6 +194,8 @@ def list_accounts(session: Session = Depends(get_session)):
 def list_transactions(
     account_id: Optional[str] = None,
     category_id: Optional[int] = None,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
     include_future: bool = False,
     session: Session = Depends(get_session),
 ):
@@ -201,7 +203,11 @@ def list_transactions(
     query = select(Transaction).order_by(Transaction.date.desc())
     if account_id is not None:
         query = query.where(Transaction.account_id == account_id)
-    if not include_future:
+    if from_date is not None:
+        query = query.where(Transaction.date >= from_date)
+    if to_date is not None:
+        query = query.where(Transaction.date <= to_date)
+    if not include_future and to_date is None:
         query = query.where(Transaction.date <= date.today())
     transactions = session.exec(query).all()
 
@@ -344,13 +350,31 @@ def stats_monthly(session: Session = Depends(get_session)):
 
 
 @app.get("/stats")
-def stats(session: Session = Depends(get_session)):
+def stats(
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    session: Session = Depends(get_session),
+):
     resolver = CategoryResolver(session)
     today = date.today()
-    all_transactions = session.exec(select(Transaction)).all()
-    # Parcelas a vencer (datas futuras) entram no banco, mas não no "gasto".
-    # Visualização separada pra elas é um próximo passo.
-    past_transactions = [tx for tx in all_transactions if tx.date <= today]
+    effective_to = to_date if to_date is not None else today
+
+    query = select(Transaction)
+    if from_date is not None:
+        query = query.where(Transaction.date >= from_date)
+    query = query.where(Transaction.date <= effective_to)
+    past_transactions = session.exec(query).all()
+
+    # Future-count is only meaningful when the caller didn't constrain the
+    # upper bound; otherwise the "future" relative to today is irrelevant
+    # to what they asked for.
+    future_count = 0
+    if to_date is None:
+        future_count = len(
+            session.exec(
+                select(Transaction).where(Transaction.date > today)
+            ).all()
+        )
 
     totals_by_category_id: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     counts_by_category_id: Dict[int, int] = defaultdict(int)
@@ -392,7 +416,7 @@ def stats(session: Session = Depends(get_session)):
     return {
         "total_spent": float(total_spent),
         "transaction_count": len(past_transactions),
-        "future_transaction_count": len(all_transactions) - len(past_transactions),
+        "future_transaction_count": future_count,
         "categories": categories,
         "months": months,
     }
