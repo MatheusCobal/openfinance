@@ -1,10 +1,6 @@
-const PALETTE = [
-  '#4f46e5', '#059669', '#dc2626', '#d97706', '#7c3aed',
-  '#0891b2', '#db2777', '#65a30d', '#ea580c', '#0284c7',
-  '#9333ea', '#16a34a', '#e11d48', '#ca8a04', '#2563eb',
-];
-
-const UNCATEGORIZED = 'Sem categoria';
+// Fallback color if a category somehow arrives without one (shouldn't happen
+// once seed_categories.py has been run).
+const FALLBACK_COLOR = '#64748b';
 
 const currency = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -24,11 +20,6 @@ const dayFormatter = new Intl.DateTimeFormat('pt-BR', {
 let categoryChart = null;
 let monthChart = null;
 
-function colorFor(name, index) {
-  if (name === UNCATEGORIZED) return '#94a3b8';
-  return PALETTE[index % PALETTE.length];
-}
-
 function formatMonthLabel(yyyymm) {
   const [year, month] = yyyymm.split('-').map(Number);
   return monthFormatter.format(new Date(year, month - 1, 1));
@@ -39,10 +30,12 @@ function formatDayLabel(isoDate) {
   return dayFormatter.format(new Date(year, month - 1, day));
 }
 
-function groupTransactionsByCategory(transactions) {
+function groupTransactionsByCategoryId(transactions) {
+  // Groups by custom_category_id (the resolved category from the backend),
+  // not by tx.category which is Pluggy's raw English string.
   const groups = new Map();
   for (const tx of transactions) {
-    const key = tx.category || UNCATEGORIZED;
+    const key = tx.custom_category_id;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(tx);
   }
@@ -67,7 +60,7 @@ function renderSummary(stats) {
 
 function renderCategoryChart(categories) {
   const ctx = document.getElementById('chart-categories');
-  const colors = categories.map((c, i) => colorFor(c.name, i));
+  const colors = categories.map((c) => c.color || FALLBACK_COLOR);
 
   if (categoryChart) categoryChart.destroy();
 
@@ -161,13 +154,13 @@ function renderCategories(stats, transactions) {
   }
   empty.classList.add('hidden');
 
-  const groups = groupTransactionsByCategory(transactions);
+  const groups = groupTransactionsByCategoryId(transactions);
   const orderedCategories = stats.categories;
 
   const html = orderedCategories
-    .map((cat, index) => {
-      const txs = groups.get(cat.name) || [];
-      const color = colorFor(cat.name, index);
+    .map((cat) => {
+      const txs = groups.get(cat.id) || [];
+      const color = cat.color || FALLBACK_COLOR;
       const rows = txs
         .map(
           (tx) => `
