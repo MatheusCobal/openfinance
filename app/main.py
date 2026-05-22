@@ -39,6 +39,11 @@ def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/historico", include_in_schema=False)
+def historico():
+    return FileResponse(STATIC_DIR / "historico.html")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
