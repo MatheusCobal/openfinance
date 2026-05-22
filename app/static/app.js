@@ -208,14 +208,19 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// Label for the year chip is computed at load time so it auto-updates when
+// the calendar year flips.
+const CURRENT_YEAR = new Date().getFullYear();
+
 const PERIODS = [
-  { key: 'all', label: 'Tudo' },
   { key: 'month', label: 'Este mês' },
   { key: '30d', label: '30 dias' },
   { key: '90d', label: '90 dias' },
+  { key: 'year', label: String(CURRENT_YEAR) },
+  { key: 'all', label: 'Tudo' },
 ];
 
-let activePeriod = 'all';
+let activePeriod = 'month';
 
 function isoDate(date) {
   return date.toISOString().slice(0, 10);
@@ -238,6 +243,10 @@ function rangeForPeriod(period) {
     const start = new Date(today);
     start.setDate(start.getDate() - 90);
     return { from: isoDate(start), to: todayIso };
+  }
+  if (period === 'year') {
+    const first = new Date(today.getFullYear(), 0, 1);
+    return { from: isoDate(first), to: todayIso };
   }
   return {};
 }
