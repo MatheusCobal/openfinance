@@ -269,6 +269,9 @@ async function openConnectWidget() {
       includeSandbox: false,
       language: 'pt',
       countries: ['BR'],
+      // 200 = MeuPluggy connector. Add more IDs here if you enable other
+      // connectors in dashboard.pluggy.ai and want them to appear in the widget.
+      connectorIds: [200],
       onSuccess: async (data) => {
         const itemId = data?.item?.id;
         if (!itemId) {
