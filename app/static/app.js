@@ -263,7 +263,12 @@ async function openConnectWidget() {
 
     const widget = new PluggyConnect({
       connectToken: accessToken,
-      includeSandbox: true,
+      // Set includeSandbox to true if you want to test against Pluggy Bank again.
+      // In production we let the dashboard's enabled connectors (e.g. MeuPluggy)
+      // drive what's shown.
+      includeSandbox: false,
+      language: 'pt',
+      countries: ['BR'],
       onSuccess: async (data) => {
         const itemId = data?.item?.id;
         if (!itemId) {
