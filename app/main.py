@@ -13,8 +13,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.categorization import CategoryResolver
 from app.database import engine, get_session, init_db
-from app.models import Account, Item, Transaction
+from app.models import Account, Category, CategoryRule, Item, Transaction
 from app.pluggy_client import pluggy
 
 logger = logging.getLogger("openfinance")
@@ -182,42 +183,79 @@ def list_accounts(session: Session = Depends(get_session)):
 @app.get("/transactions")
 def list_transactions(
     account_id: Optional[str] = None,
-    category: Optional[str] = None,
+    category_id: Optional[int] = None,
+    include_future: bool = False,
     session: Session = Depends(get_session),
 ):
+    resolver = CategoryResolver(session)
     query = select(Transaction).order_by(Transaction.date.desc())
     if account_id is not None:
         query = query.where(Transaction.account_id == account_id)
-    if category is not None:
-        query = query.where(Transaction.category == category)
-    return session.exec(query).all()
+    if not include_future:
+        query = query.where(Transaction.date <= date.today())
+    transactions = session.exec(query).all()
+
+    def to_dict(tx: Transaction) -> Dict[str, Any]:
+        cat = resolver.resolve(tx.category)
+        return {
+            **tx.model_dump(mode="json"),
+            "custom_category_id": cat.id,
+            "custom_category_name": cat.name,
+            "custom_category_color": cat.color,
+        }
+
+    rows = [to_dict(tx) for tx in transactions]
+    if category_id is not None:
+        rows = [r for r in rows if r["custom_category_id"] == category_id]
+    return rows
+
+
+@app.get("/categories")
+def list_categories(session: Session = Depends(get_session)):
+    return CategoryResolver(session).all_categories()
 
 
 @app.get("/stats")
 def stats(session: Session = Depends(get_session)):
-    transactions = session.exec(select(Transaction)).all()
+    resolver = CategoryResolver(session)
+    today = date.today()
+    all_transactions = session.exec(select(Transaction)).all()
+    # Parcelas a vencer (datas futuras) entram no banco, mas não no "gasto".
+    # Visualização separada pra elas é um próximo passo.
+    past_transactions = [tx for tx in all_transactions if tx.date <= today]
 
-    totals_by_category = defaultdict(lambda: Decimal("0"))
-    counts_by_category = defaultdict(int)
-    totals_by_month = defaultdict(lambda: Decimal("0"))
+    totals_by_category_id: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    counts_by_category_id: Dict[int, int] = defaultdict(int)
+    category_info_by_id: Dict[int, Category] = {}
+    totals_by_month: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     total_spent = Decimal("0")
 
-    for tx in transactions:
+    for tx in past_transactions:
         # Pluggy returns negative amounts for outflows on credit card statements;
         # treat the absolute value as the spend.
         amount = abs(tx.amount)
-        category = tx.category or UNCATEGORIZED
-        totals_by_category[category] += amount
-        counts_by_category[category] += 1
+        cat = resolver.resolve(tx.category)
+        totals_by_category_id[cat.id] += amount
+        counts_by_category_id[cat.id] += 1
+        category_info_by_id[cat.id] = cat
         totals_by_month[tx.date.strftime("%Y-%m")] += amount
         total_spent += amount
 
-    categories = [
-        {"name": name, "total": float(total), "count": counts_by_category[name]}
-        for name, total in sorted(
-            totals_by_category.items(), key=lambda kv: kv[1], reverse=True
-        )
-    ]
+    categories = sorted(
+        [
+            {
+                "id": cat_id,
+                "name": category_info_by_id[cat_id].name,
+                "color": category_info_by_id[cat_id].color,
+                "sort_order": category_info_by_id[cat_id].sort_order,
+                "total": float(total),
+                "count": counts_by_category_id[cat_id],
+            }
+            for cat_id, total in totals_by_category_id.items()
+        ],
+        key=lambda c: c["total"],
+        reverse=True,
+    )
     months = [
         {"month": month, "total": float(total)}
         for month, total in sorted(totals_by_month.items())
@@ -225,7 +263,8 @@ def stats(session: Session = Depends(get_session)):
 
     return {
         "total_spent": float(total_spent),
-        "transaction_count": len(transactions),
+        "transaction_count": len(past_transactions),
+        "future_transaction_count": len(all_transactions) - len(past_transactions),
         "categories": categories,
         "months": months,
     }

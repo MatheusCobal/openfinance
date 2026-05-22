@@ -31,3 +31,16 @@ class Transaction(SQLModel, table=True):
     description: str
     category: Optional[str] = None
     currency_code: str = "BRL"
+
+
+class Category(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    color: str
+    sort_order: int = 0
+
+
+class CategoryRule(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    pluggy_category: str = Field(unique=True, index=True)
+    category_id: int = Field(foreign_key="category.id", index=True)
