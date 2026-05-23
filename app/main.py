@@ -1,15 +1,15 @@
 import csv
 import io
 import logging
-import httpx
 from calendar import monthrange
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +20,7 @@ from app.categorization import CategoryResolver
 from app.database import engine, get_session, init_db
 from app.models import (
     Account,
+    AccountSync,
     Budget,
     BudgetOverride,
     Category,
@@ -35,6 +36,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 UNCATEGORIZED = "Sem categoria"
 MAX_BUDGET_MONTH = 2100
 MIN_BUDGET_MONTH = 2000
+SYNC_LOOKBACK_DAYS = 7
 
 
 @asynccontextmanager
@@ -148,45 +150,121 @@ def _upsert_item(item_id: str, session: Session) -> Item:
     return item
 
 
+def _upsert_account(raw_account: Dict[str, Any], item_id: str, session: Session) -> None:
+    account = session.get(Account, raw_account["id"])
+    values = {
+        "item_id": item_id,
+        "name": raw_account["name"],
+        "type": raw_account["type"],
+        "subtype": raw_account.get("subtype"),
+        "marketing_name": raw_account.get("marketingName"),
+        "number": raw_account.get("number"),
+    }
+    if account is None:
+        session.add(Account(id=raw_account["id"], **values))
+        return
+    for field, value in values.items():
+        setattr(account, field, value)
+    session.add(account)
+
+
+def _last_past_transaction_date(account_id: str, session: Session) -> Optional[date]:
+    return session.exec(
+        select(Transaction.date)
+        .where(
+            Transaction.account_id == account_id,
+            Transaction.date <= date.today(),
+        )
+        .order_by(Transaction.date.desc())
+        .limit(1)
+    ).first()
+
+
+def _sync_from_date(sync_state: AccountSync) -> Optional[date]:
+    if sync_state.last_transaction_date is None:
+        return None
+    return sync_state.last_transaction_date - timedelta(days=SYNC_LOOKBACK_DAYS)
+
+
+def _upsert_transaction(
+    raw_tx: Dict[str, Any],
+    account_id: str,
+    session: Session,
+) -> tuple[bool, bool, date]:
+    tx_date = date.fromisoformat(raw_tx["date"][:10])
+    amount = Decimal(str(raw_tx["amount"]))
+    values = {
+        "account_id": account_id,
+        "date": tx_date,
+        "amount": amount,
+        "description": raw_tx.get("description") or "",
+        "category": raw_tx.get("category"),
+        "currency_code": raw_tx.get("currencyCode") or "BRL",
+    }
+    existing = session.get(Transaction, raw_tx["id"])
+    if existing is None:
+        session.add(Transaction(id=raw_tx["id"], **values))
+        return True, False, tx_date
+
+    changed = False
+    for field, value in values.items():
+        if getattr(existing, field) != value:
+            setattr(existing, field, value)
+            changed = True
+    if changed:
+        session.add(existing)
+    return False, changed, tx_date
+
+
 def _sync_item(item_id: str, session: Session) -> Dict[str, int]:
     raw_accounts = pluggy.list_accounts(item_id)
     credit_accounts = [a for a in raw_accounts if a["type"] == "CREDIT"]
 
     new_transactions = 0
+    updated_transactions = 0
+    fetched_transactions = 0
     for raw_account in credit_accounts:
-        if not session.get(Account, raw_account["id"]):
-            session.add(
-                Account(
-                    id=raw_account["id"],
-                    item_id=item_id,
-                    name=raw_account["name"],
-                    type=raw_account["type"],
-                    subtype=raw_account.get("subtype"),
-                    marketing_name=raw_account.get("marketingName"),
-                    number=raw_account.get("number"),
-                )
-            )
+        account_id = raw_account["id"]
+        _upsert_account(raw_account, item_id, session)
 
-        for raw_tx in pluggy.list_transactions(raw_account["id"]):
-            if session.get(Transaction, raw_tx["id"]):
-                continue
-            session.add(
-                Transaction(
-                    id=raw_tx["id"],
-                    account_id=raw_account["id"],
-                    date=date.fromisoformat(raw_tx["date"][:10]),
-                    amount=Decimal(str(raw_tx["amount"])),
-                    description=raw_tx["description"],
-                    category=raw_tx.get("category"),
-                    currency_code=raw_tx.get("currencyCode") or "BRL",
-                )
+        sync_state = session.get(AccountSync, account_id)
+        if sync_state is None:
+            sync_state = AccountSync(
+                account_id=account_id,
+                last_transaction_date=_last_past_transaction_date(account_id, session),
             )
-            new_transactions += 1
+            session.add(sync_state)
+
+        max_past_tx_date = sync_state.last_transaction_date
+        for raw_tx in pluggy.list_transactions(
+            account_id,
+            from_date=_sync_from_date(sync_state),
+        ):
+            fetched_transactions += 1
+            is_new, is_updated, tx_date = _upsert_transaction(
+                raw_tx,
+                account_id,
+                session,
+            )
+            if is_new:
+                new_transactions += 1
+            if is_updated:
+                updated_transactions += 1
+            if tx_date <= date.today() and (
+                max_past_tx_date is None or tx_date > max_past_tx_date
+            ):
+                max_past_tx_date = tx_date
+
+        sync_state.last_transaction_date = max_past_tx_date
+        sync_state.last_synced_at = datetime.utcnow()
+        session.add(sync_state)
 
     session.commit()
     return {
         "credit_accounts": len(credit_accounts),
+        "fetched_transactions": fetched_transactions,
         "new_transactions": new_transactions,
+        "updated_transactions": updated_transactions,
     }
 
 
@@ -426,6 +504,9 @@ def budgets_progress(
     total_target = Decimal("0")
     total_actual_spent = Decimal("0")
     total_future_spent = Decimal("0")
+    unbudgeted_actual_spent = Decimal("0")
+    unbudgeted_future_spent = Decimal("0")
+    unbudgeted_count = 0
     for cat in resolver.all_categories():
         default_target = budgets[cat.id].monthly_target if cat.id in budgets else None
         month_target = (
@@ -446,15 +527,21 @@ def budgets_progress(
         actual_spent = actual_spent_by_category[cat.id]
         future_spent = future_spent_by_category[cat.id]
         projected_spent = actual_spent + future_spent
-        total_actual_spent += actual_spent
-        total_future_spent += future_spent
+        actual_count = actual_counts_by_category[cat.id]
+        future_count = future_counts_by_category[cat.id]
 
         actual_progress_pct = None
         progress_pct = None
         if target is not None and target > 0:
             total_target += target
+            total_actual_spent += actual_spent
+            total_future_spent += future_spent
             actual_progress_pct = (float(actual_spent) / float(target)) * 100
             progress_pct = (float(projected_spent) / float(target)) * 100
+        else:
+            unbudgeted_actual_spent += actual_spent
+            unbudgeted_future_spent += future_spent
+            unbudgeted_count += actual_count + future_count
         items.append(
             {
                 "category_id": cat.id,
@@ -472,12 +559,9 @@ def budgets_progress(
                 "future_spent": float(future_spent),
                 "projected_spent": float(projected_spent),
                 "spent": float(projected_spent),
-                "actual_count": actual_counts_by_category[cat.id],
-                "future_count": future_counts_by_category[cat.id],
-                "count": (
-                    actual_counts_by_category[cat.id]
-                    + future_counts_by_category[cat.id]
-                ),
+                "actual_count": actual_count,
+                "future_count": future_count,
+                "count": actual_count + future_count,
                 "actual_progress_pct": actual_progress_pct,
                 "progress_pct": progress_pct,
                 "actual_status": _budget_status(actual_progress_pct),
@@ -502,6 +586,12 @@ def budgets_progress(
             "actual_spent": float(total_actual_spent),
             "future_spent": float(total_future_spent),
             "projected_spent": float(total_actual_spent + total_future_spent),
+            "unbudgeted_actual_spent": float(unbudgeted_actual_spent),
+            "unbudgeted_future_spent": float(unbudgeted_future_spent),
+            "unbudgeted_projected_spent": float(
+                unbudgeted_actual_spent + unbudgeted_future_spent
+            ),
+            "unbudgeted_count": unbudgeted_count,
             "actual_progress_pct": (
                 (float(total_actual_spent) / float(total_target)) * 100
                 if total_target > 0

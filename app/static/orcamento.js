@@ -9,12 +9,16 @@ const monthLongFormatter = new Intl.DateTimeFormat('pt-BR', {
 });
 
 const FALLBACK_COLOR = '#64748b';
+const MIN_YEAR = 2000;
+const MAX_FUTURE_MONTHS = 24;
+const MAX_PAST_MONTHS = 120;
 
 let progressData = null;
 let editingCategory = null;
 let selectedMonth = currentYearMonth();
 let deleteArmed = false;
 let deleteResetTimer = null;
+let loadToken = 0;
 
 function currentYearMonth() {
   const now = new Date();
@@ -27,6 +31,22 @@ function shiftYearMonth(yyyymm, delta) {
   const date = new Date(year, month - 1 + delta, 1);
   const nextMonth = String(date.getMonth() + 1).padStart(2, '0');
   return `${date.getFullYear()}-${nextMonth}`;
+}
+
+function monthDelta(from, to) {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
+function canShiftMonth(delta) {
+  const target = shiftYearMonth(selectedMonth, delta);
+  const [year] = target.split('-').map(Number);
+  if (year < MIN_YEAR) return false;
+  const ahead = monthDelta(currentYearMonth(), target);
+  if (ahead > MAX_FUTURE_MONTHS) return false;
+  if (ahead < -MAX_PAST_MONTHS) return false;
+  return true;
 }
 
 function formatMonthLong(yyyymm) {
@@ -93,6 +113,8 @@ function showToast(message, variant = 'info') {
 
 function renderMonthControls() {
   document.getElementById('month-pill').textContent = formatMonthLong(selectedMonth);
+  document.getElementById('prev-month').disabled = !canShiftMonth(-1);
+  document.getElementById('next-month').disabled = !canShiftMonth(1);
 }
 
 function renderCard(item) {
@@ -165,8 +187,16 @@ function renderSummary() {
   document.getElementById('summary-text').textContent =
     `${currency.format(data.projected_spent)} / ${currency.format(data.target)}`;
   document.getElementById('summary-pct').textContent = `${pct.toFixed(0)}%`;
-  document.getElementById('summary-detail').textContent =
-    `Realizado: ${currency.format(data.actual_spent)} · Futuro no mês: ${currency.format(data.future_spent)}`;
+  const detailParts = [
+    `Realizado: ${currency.format(data.actual_spent)}`,
+    `Futuro no mês: ${currency.format(data.future_spent)}`,
+  ];
+  if (data.unbudgeted_projected_spent > 0) {
+    detailParts.push(
+      `Fora do orçamento: ${currency.format(data.unbudgeted_projected_spent)}`,
+    );
+  }
+  document.getElementById('summary-detail').textContent = detailParts.join(' · ');
 
   const bar = document.getElementById('summary-bar');
   bar.style.width = `${Math.min(pct, 100)}%`;
@@ -177,11 +207,15 @@ function renderSummary() {
 }
 
 async function loadData() {
+  const myToken = ++loadToken;
   renderMonthControls();
   const params = new URLSearchParams({ year_month: selectedMonth });
   const response = await fetch(`/budgets/progress?${params}`);
+  if (myToken !== loadToken) return;
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  progressData = await response.json();
+  const data = await response.json();
+  if (myToken !== loadToken) return;
+  progressData = data;
   selectedMonth = progressData.year_month;
   renderMonthControls();
 
@@ -277,7 +311,6 @@ async function saveTarget(event) {
   const path = scope === 'month'
     ? `/budgets/${id}/months/${selectedMonth}`
     : `/budgets/${id}`;
-  closeEdit();
   try {
     const response = await fetch(path, {
       method: 'PUT',
@@ -291,11 +324,18 @@ async function saveTarget(event) {
       });
       if (!cleanup.ok) throw new Error(`HTTP ${cleanup.status}`);
     }
-    await loadData();
-    showToast('Meta salva.', 'success');
   } catch (err) {
     console.error(err);
     showToast('Erro ao salvar meta.', 'error');
+    return;
+  }
+  closeEdit();
+  showToast('Meta salva.', 'success');
+  try {
+    await loadData();
+  } catch (err) {
+    console.error(err);
+    showToast('Meta salva, mas falhou ao atualizar a tela.', 'error');
   }
 }
 
@@ -314,19 +354,26 @@ async function deleteTarget() {
   const path = editingCategory.target_scope === 'month'
     ? `/budgets/${id}/months/${selectedMonth}`
     : `/budgets/${id}`;
-  closeEdit();
   try {
     const response = await fetch(path, { method: 'DELETE' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    await loadData();
-    showToast('Meta removida.', 'success');
   } catch (err) {
     console.error(err);
     showToast('Erro ao remover meta.', 'error');
+    return;
+  }
+  closeEdit();
+  showToast('Meta removida.', 'success');
+  try {
+    await loadData();
+  } catch (err) {
+    console.error(err);
+    showToast('Meta removida, mas falhou ao atualizar a tela.', 'error');
   }
 }
 
 document.getElementById('prev-month').addEventListener('click', () => {
+  if (!canShiftMonth(-1)) return;
   selectedMonth = shiftYearMonth(selectedMonth, -1);
   loadData().catch((err) => {
     console.error(err);
@@ -335,6 +382,7 @@ document.getElementById('prev-month').addEventListener('click', () => {
 });
 
 document.getElementById('next-month').addEventListener('click', () => {
+  if (!canShiftMonth(1)) return;
   selectedMonth = shiftYearMonth(selectedMonth, 1);
   loadData().catch((err) => {
     console.error(err);

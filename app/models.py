@@ -24,6 +24,12 @@ class Account(SQLModel, table=True):
     number: Optional[str] = None
 
 
+class AccountSync(SQLModel, table=True):
+    account_id: str = Field(foreign_key="account.id", primary_key=True)
+    last_synced_at: Optional[datetime.datetime] = None
+    last_transaction_date: Optional[datetime.date] = None
+
+
 class Transaction(SQLModel, table=True):
     id: str = Field(primary_key=True)
     account_id: str = Field(foreign_key="account.id", index=True)

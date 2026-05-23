@@ -392,8 +392,12 @@ async function openConnectWidget() {
           const sync = await fetch(`/items/${itemId}/sync`, { method: 'POST' });
           const result = await sync.json();
           await loadData();
+          const updated = result.updated_transactions || 0;
+          const syncSummary = updated > 0
+            ? `${result.new_transactions} nova(s) e ${updated} atualizada(s)`
+            : `${result.new_transactions} nova(s)`;
           showToast(
-            `${result.new_transactions} nova(s) compra(s) sincronizada(s).`,
+            `${syncSummary} compra(s) sincronizada(s).`,
             'success',
           );
         } catch (err) {

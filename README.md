@@ -73,10 +73,16 @@ Pra sync automático após o refresh diário do Pluggy:
 ```bash
 brew install ngrok
 ngrok config add-authtoken SEU_TOKEN  # cadastra em dashboard.ngrok.com
-ngrok http 8000                        # em terminal separado, junto com o fastapi dev
+ngrok http 8000 --url https://SEU_DOMINIO.ngrok-free.dev  # terminal separado, junto com o fastapi dev
 ```
 
-Pega a URL pública (`https://...ngrok-free.dev`) e cadastra como webhook no dashboard.pluggy.ai apontando pra `/webhooks/pluggy`. O endpoint trata `item/created` e `item/updated`.
+Cadastra a URL do webhook no dashboard.pluggy.ai:
+
+```text
+https://SEU_DOMINIO.ngrok-free.dev/webhooks/pluggy
+```
+
+O endpoint trata `item/created` e `item/updated`. O ngrok precisa ficar rodando enquanto o app local estiver recebendo webhooks.
 
 ## Estrutura
 
@@ -89,7 +95,7 @@ openfinance/
 └── app/
     ├── config.py              .env via pydantic-settings
     ├── database.py            engine SQLite
-    ├── models.py              Item, Account, Transaction, Category, CategoryRule, Budget, BudgetOverride
+    ├── models.py              Item, Account, AccountSync, Transaction, Category, CategoryRule, Budget, BudgetOverride
     ├── pluggy_client.py       httpx wrapper paginado
     ├── categorization.py      resolver pluggy_category → Category
     ├── main.py                rotas FastAPI
@@ -106,4 +112,5 @@ openfinance/
 - Sem testes automatizados
 - Sem Alembic — schema mudou? Drop o `openfinance.db` e reconecta
 - Filtro de contas hardcoded em `type == "CREDIT"` (só cartão; conta corrente fica de fora)
-- Webhooks de free-tier ngrok têm URL rotativa (precisa atualizar no Pluggy se reiniciar o túnel)
+- Sync incremental por conta com janela de segurança de 7 dias para capturar alterações recentes
+- Webhooks dependem do processo do ngrok estar rodando junto com o app local
