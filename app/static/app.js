@@ -339,6 +339,27 @@ const PERIODS = [
 
 let activePeriod = 'month';
 
+function shouldShowMonthChart() {
+  return activePeriod === 'year' || activePeriod === 'prev_year';
+}
+
+function updateChartPanels() {
+  const monthPanel = document.getElementById('month-chart-panel');
+  const categoryPanel = document.getElementById('category-chart-panel');
+  const showMonthChart = shouldShowMonthChart();
+
+  if (monthPanel) monthPanel.classList.toggle('hidden', !showMonthChart);
+  if (categoryPanel) {
+    categoryPanel.classList.toggle('lg:col-span-1', showMonthChart);
+    categoryPanel.classList.toggle('lg:col-span-3', !showMonthChart);
+  }
+
+  if (!showMonthChart && monthChart) {
+    monthChart.destroy();
+    monthChart = null;
+  }
+}
+
 function isoDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -426,7 +447,8 @@ async function loadData() {
 
   renderSummary(stats);
   renderCategoryChart(stats.categories);
-  renderMonthChart(stats.months);
+  updateChartPanels();
+  if (shouldShowMonthChart()) renderMonthChart(stats.months);
   renderCategories(stats, transactions);
 }
 

@@ -10,6 +10,15 @@ const monthFormatter = new Intl.DateTimeFormat('pt-BR', {
 
 const charts = new Map();
 const FALLBACK_COLOR = '#64748b';
+const INVOICE_COLOR = '#475569';
+const HISTORY_TABS = [
+  { key: 'categories', label: 'Categorias' },
+  { key: 'invoices', label: 'Faturas cartão' },
+];
+
+let activeTab = 'categories';
+let categoryHistory = null;
+let invoiceHistory = null;
 
 function formatMonthLabel(yyyymm) {
   const [year, month] = yyyymm.split('-').map(Number);
@@ -27,6 +36,36 @@ function escapeHtml(str) {
 
 function pluralCompras(n) {
   return n === 1 ? '1 compra' : `${n.toLocaleString('pt-BR')} compras`;
+}
+
+function pluralFaturas(n) {
+  return n === 1 ? '1 pagamento' : `${n.toLocaleString('pt-BR')} pagamentos`;
+}
+
+function destroyCharts() {
+  charts.forEach((chart) => chart.destroy());
+  charts.clear();
+}
+
+function renderTabs() {
+  const container = document.getElementById('history-tabs');
+  container.innerHTML = HISTORY_TABS.map((tab) => {
+    const base =
+      'px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors';
+    const cls = tab.key === activeTab
+      ? `${base} bg-indigo-600 text-white shadow-sm`
+      : `${base} bg-white border border-slate-200 text-slate-700 hover:bg-slate-100`;
+    return `<button class="${cls}" data-tab="${tab.key}">${tab.label}</button>`;
+  }).join('');
+
+  container.querySelectorAll('button[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.tab === activeTab) return;
+      activeTab = btn.dataset.tab;
+      renderTabs();
+      renderActiveTab();
+    });
+  });
 }
 
 function findRecentMonthsWithData(byMonth, months) {
@@ -155,6 +194,64 @@ function renderChart(category, months) {
   charts.set(category.id, chart);
 }
 
+function renderInvoiceChart(data) {
+  const ctx = document.getElementById('chart-invoices');
+  if (!ctx) return;
+
+  if (charts.has('invoices')) charts.get('invoices').destroy();
+
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.months.map((item) => formatMonthLabel(item.month)),
+      datasets: [
+        {
+          data: data.months.map((item) => item.total),
+          backgroundColor: INVOICE_COLOR,
+          borderRadius: 4,
+          maxBarThickness: 32,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if (elements.length === 0) return;
+        const monthData = data.months[elements[0].index];
+        if (monthData && monthData.count > 0) openInvoiceDrilldown(monthData);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const item = data.months[ctx.dataIndex];
+              return ` ${currency.format(ctx.parsed.y)} · ${pluralFaturas(item.count)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            font: { size: 10 },
+            callback: (v) => currency.format(v).replace('R$', '').trim(),
+          },
+          grid: { color: '#f1f5f9' },
+        },
+      },
+    },
+  });
+
+  charts.set('invoices', chart);
+}
+
 function monthBounds(yyyymm) {
   const [year, month] = yyyymm.split('-').map(Number);
   const last = new Date(year, month, 0).getDate(); // 0 = last day of previous month
@@ -243,6 +340,35 @@ async function openDrilldown(category, month) {
   }
 }
 
+function openInvoiceDrilldown(monthData) {
+  const modal = document.getElementById('drilldown');
+
+  document.getElementById('drilldown-color').style.background = INVOICE_COLOR;
+  document.getElementById('drilldown-title').textContent =
+    `Faturas cartão · ${formatMonthLong(monthData.month)}`;
+  document.getElementById('drilldown-subtitle').textContent =
+    `${currency.format(monthData.total)} · ${pluralFaturas(monthData.count)}`;
+
+  const rows = monthData.transactions
+    .map(
+      (tx) => `
+        <li class="flex items-baseline justify-between px-6 py-3 border-t border-slate-100">
+          <div class="min-w-0 flex-1 pr-4">
+            <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
+            <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
+          </div>
+          <p class="text-sm font-medium tabular text-slate-900 shrink-0">
+            ${currency.format(Number(tx.amount_abs))}
+          </p>
+        </li>
+      `,
+    )
+    .join('');
+
+  document.getElementById('drilldown-body').innerHTML = `<ul>${rows}</ul>`;
+  modal.classList.remove('hidden');
+}
+
 function closeDrilldown() {
   document.getElementById('drilldown').classList.add('hidden');
 }
@@ -256,25 +382,43 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeDrilldown();
 });
 
-async function loadData() {
-  const response = await fetch('/stats/monthly');
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const data = await response.json();
-
-  const cards = document.getElementById('cards');
+function renderEmpty(message, detail) {
   const empty = document.getElementById('empty');
+  empty.innerHTML = `
+    <p class="text-slate-500">${escapeHtml(message)}</p>
+    <p class="text-sm text-slate-400 mt-1">${escapeHtml(detail)}</p>
+  `;
+  empty.classList.remove('hidden');
+}
+
+function hideEmpty() {
+  document.getElementById('empty').classList.add('hidden');
+}
+
+function renderCategoryHistory() {
+  const data = categoryHistory;
+  const cards = document.getElementById('cards');
+  const invoices = document.getElementById('invoices');
   const subtitle = document.getElementById('subtitle');
+
+  destroyCharts();
+  cards.classList.remove('hidden');
+  invoices.classList.add('hidden');
+  invoices.innerHTML = '';
 
   if (data.categories.length === 0 || data.months.length === 0) {
     cards.innerHTML = '';
-    empty.classList.remove('hidden');
+    renderEmpty(
+      'Nenhuma transação encontrada.',
+      'Conecte um banco no dashboard primeiro.',
+    );
     subtitle.textContent = 'Nenhuma transação ainda';
     return;
   }
-  empty.classList.add('hidden');
+  hideEmpty();
 
   // Sort by sort_order so categories appear in a stable, intentional order
-  // (Alimentação first, Outros last), independent of total.
+  // (Mercado first, Outros last), independent of total.
   const ordered = [...data.categories].sort(
     (a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999),
   );
@@ -287,6 +431,110 @@ async function loadData() {
   cards.innerHTML = ordered.map((cat) => renderCard(cat, data.months)).join('');
   // Charts must be created AFTER the canvas elements exist in the DOM.
   ordered.forEach((cat) => renderChart(cat, data.months));
+}
+
+function renderInvoiceHistory() {
+  const data = invoiceHistory;
+  const cards = document.getElementById('cards');
+  const invoices = document.getElementById('invoices');
+  const subtitle = document.getElementById('subtitle');
+
+  destroyCharts();
+  cards.classList.add('hidden');
+  cards.innerHTML = '';
+  invoices.classList.remove('hidden');
+
+  if (data.total_count === 0 || data.months.length === 0) {
+    invoices.innerHTML = '';
+    renderEmpty(
+      'Nenhum pagamento de fatura encontrado.',
+      'Pagamentos ignorados dos dashboards aparecem aqui para auditoria.',
+    );
+    subtitle.textContent = 'Nenhum pagamento de fatura encontrado';
+    return;
+  }
+  hideEmpty();
+
+  const latest = data.months[data.months.length - 1];
+  const rows = [...data.months].reverse().map((item) => `
+    <li class="flex items-center justify-between gap-4 px-5 py-3 border-t border-slate-100">
+      <div>
+        <p class="text-sm font-medium text-slate-900">${escapeHtml(formatMonthLong(item.month))}</p>
+        <p class="text-xs text-slate-500 mt-0.5">${pluralFaturas(item.count)}</p>
+      </div>
+      <button
+        type="button"
+        class="invoice-month text-right group"
+        data-month="${item.month}"
+        title="Ver pagamentos da fatura"
+      >
+        <span class="block text-sm font-semibold tabular text-slate-900 group-hover:text-indigo-600">
+          ${currency.format(item.total)}
+        </span>
+      </button>
+    </li>
+  `).join('');
+
+  subtitle.textContent =
+    `${pluralFaturas(data.total_count)} · ${data.months.length} ` +
+    `${data.months.length === 1 ? 'mês' : 'meses'} de histórico`;
+
+  invoices.innerHTML = `
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total pago</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(data.total)}</p>
+        <p class="text-xs text-slate-500 mt-2">
+          Última fatura: ${escapeHtml(formatMonthLabel(latest.month))} · ${currency.format(latest.total)}
+        </p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-2">
+        <h2 class="font-semibold text-slate-900 mb-4">Pagamentos por mês</h2>
+        <div class="relative h-64">
+          <canvas id="chart-invoices"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4">
+        <h2 class="font-semibold text-slate-900">Histórico de faturas</h2>
+      </div>
+      <ul>${rows}</ul>
+    </div>
+  `;
+
+  invoices.querySelectorAll('button.invoice-month').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const monthData = data.months.find((item) => item.month === btn.dataset.month);
+      if (monthData) openInvoiceDrilldown(monthData);
+    });
+  });
+
+  renderInvoiceChart(data);
+}
+
+function renderActiveTab() {
+  if (!categoryHistory || !invoiceHistory) return;
+  if (activeTab === 'invoices') {
+    renderInvoiceHistory();
+  } else {
+    renderCategoryHistory();
+  }
+}
+
+async function loadData() {
+  const [categoriesResponse, invoicesResponse] = await Promise.all([
+    fetch('/stats/monthly'),
+    fetch('/ignored-transactions/monthly'),
+  ]);
+  if (!categoriesResponse.ok || !invoicesResponse.ok) {
+    throw new Error('Falha ao carregar histórico');
+  }
+
+  categoryHistory = await categoriesResponse.json();
+  invoiceHistory = await invoicesResponse.json();
+  renderTabs();
+  renderActiveTab();
 }
 
 document.getElementById('refresh').addEventListener('click', () => {

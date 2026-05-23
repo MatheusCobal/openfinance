@@ -61,6 +61,13 @@ class DescriptionCategoryRule(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
+class IgnoredDescriptionRule(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    pattern: str
+    pattern_normalized: str = Field(unique=True, index=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class Budget(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     category_id: int = Field(foreign_key="category.id", unique=True, index=True)

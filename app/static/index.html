@@ -148,13 +148,19 @@
       </section>
 
       <section class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-1">
+        <div
+          id="category-chart-panel"
+          class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-1"
+        >
           <h2 class="font-semibold text-slate-900 mb-4">Por categoria</h2>
           <div class="relative h-64">
             <canvas id="chart-categories"></canvas>
           </div>
         </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-2">
+        <div
+          id="month-chart-panel"
+          class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-2"
+        >
           <h2 class="font-semibold text-slate-900 mb-4">Por mês</h2>
           <div class="relative h-64">
             <canvas id="chart-months"></canvas>

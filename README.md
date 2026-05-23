@@ -44,13 +44,16 @@ Abre em http://127.0.0.1:8000.
 
 | Método | Caminho | O que faz |
 |---|---|---|
-| GET | `/stats` | Totais agregados (aceita `from_date`, `to_date`) |
-| GET | `/stats/monthly` | Matriz categoria × mês |
-| GET | `/transactions` | Lista de transações (filtros: `category_id`, `from_date`, `to_date`, `include_future`) |
-| GET | `/upcoming` | Parcelas futuras agrupadas por mês |
+| GET | `/stats` | Totais agregados (aceita `from_date`, `to_date`, `include_ignored`) |
+| GET | `/stats/monthly` | Matriz categoria × mês (aceita `include_ignored`) |
+| GET | `/transactions` | Lista de transações (filtros: `category_id`, `from_date`, `to_date`, `include_future`, `include_ignored`) |
+| GET | `/upcoming` | Parcelas futuras agrupadas por mês (aceita `include_ignored`) |
+| GET | `/ignored-transactions/monthly` | Histórico mensal de transações ignoradas, como pagamentos de fatura |
 | GET | `/categories` | Lista de categorias customizadas |
 | POST | `/category-rules/description` | Cria/atualiza regra manual por texto da descrição |
-| GET | `/budgets/progress` | Progresso por categoria no mês (`year_month=YYYY-MM`) |
+| GET | `/transaction-ignore-rules/description` | Lista regras de transações ignoradas por descrição |
+| POST | `/transaction-ignore-rules/description` | Cria/atualiza regra de transação ignorada por descrição |
+| GET | `/budgets/progress` | Progresso por categoria no mês (`year_month=YYYY-MM`, aceita `include_ignored`) |
 | PUT | `/budgets/{category_id}` | Cria/atualiza meta padrão da categoria |
 | DELETE | `/budgets/{category_id}` | Remove meta padrão da categoria |
 | PUT | `/budgets/{category_id}/months/{YYYY-MM}` | Cria/atualiza meta específica de um mês |
@@ -59,11 +62,11 @@ Abre em http://127.0.0.1:8000.
 | POST | `/connect-token` | Token pro widget Pluggy Connect |
 | POST | `/items/{id}/sync` | Força sincronização |
 | POST | `/webhooks/pluggy` | Recebe eventos do Pluggy (precisa URL pública via ngrok) |
-| GET | `/export/transactions.csv` | Export CSV com valor original e valor absoluto |
+| GET | `/export/transactions.csv` | Export CSV com valor original e valor absoluto (aceita `include_ignored`) |
 
 ## Categorias
 
-Categorias custom mapeadas das categorias granulares do Pluggy via `CategoryRule`. Regras manuais por descrição ficam em `DescriptionCategoryRule` e têm prioridade sobre o mapeamento automático.
+Categorias custom mapeadas das categorias granulares do Pluggy via `CategoryRule`. Regras manuais por descrição ficam em `DescriptionCategoryRule` e têm prioridade sobre o mapeamento automático. Regras em `IgnoredDescriptionRule` removem pagamentos de fatura e outros lançamentos não computáveis dos dashboards por padrão; use `include_ignored=true` para auditar tudo.
 
 Pra ajustar: edita `seed_categories.py` e roda de novo (`.venv/bin/python seed_categories.py`). É idempotente.
 
@@ -96,7 +99,7 @@ openfinance/
 └── app/
     ├── config.py              .env via pydantic-settings
     ├── database.py            engine SQLite
-    ├── models.py              Item, Account, AccountSync, Transaction, Category, CategoryRule, DescriptionCategoryRule, Budget, BudgetOverride
+    ├── models.py              Item, Account, AccountSync, Transaction, Category, CategoryRule, DescriptionCategoryRule, IgnoredDescriptionRule, Budget, BudgetOverride
     ├── pluggy_client.py       httpx wrapper paginado
     ├── categorization.py      resolver pluggy_category → Category
     ├── main.py                rotas FastAPI

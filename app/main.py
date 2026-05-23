@@ -26,6 +26,7 @@ from app.models import (
     Category,
     CategoryRule,
     DescriptionCategoryRule,
+    IgnoredDescriptionRule,
     Item,
     Transaction,
 )
@@ -106,6 +107,39 @@ def _count_description_rule_matches(
         for tx in session.exec(select(Transaction)).all()
         if pattern_normalized in normalize_description(tx.description)
     )
+
+
+def _ignored_description_patterns(session: Session) -> list[str]:
+    return [
+        rule.pattern_normalized
+        for rule in session.exec(select(IgnoredDescriptionRule)).all()
+        if rule.pattern_normalized
+    ]
+
+
+def _is_ignored_transaction(tx: Transaction, patterns: list[str]) -> bool:
+    normalized_description = normalize_description(tx.description)
+    return any(pattern in normalized_description for pattern in patterns)
+
+
+def _filter_ignored_transactions(
+    transactions: list[Transaction],
+    session: Session,
+    include_ignored: bool,
+) -> list[Transaction]:
+    if include_ignored:
+        return transactions
+    patterns = _ignored_description_patterns(session)
+    if not patterns:
+        return transactions
+    return [tx for tx in transactions if not _is_ignored_transaction(tx, patterns)]
+
+
+def _count_ignored_rule_matches(
+    pattern_normalized: str,
+    session: Session,
+) -> int:
+    return _count_description_rule_matches(pattern_normalized, session)
 
 
 def _budget_status(progress_pct: Optional[float]) -> Optional[str]:
@@ -337,6 +371,7 @@ def list_transactions(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     include_future: bool = False,
+    include_ignored: bool = False,
     session: Session = Depends(get_session),
 ):
     resolver = CategoryResolver(session)
@@ -350,6 +385,13 @@ def list_transactions(
     if not include_future and to_date is None:
         query = query.where(Transaction.date <= date.today())
     transactions = session.exec(query).all()
+    ignored_patterns = _ignored_description_patterns(session)
+    if not include_ignored and ignored_patterns:
+        transactions = [
+            tx
+            for tx in transactions
+            if not _is_ignored_transaction(tx, ignored_patterns)
+        ]
 
     def to_dict(tx: Transaction) -> Dict[str, Any]:
         cat = resolver.resolve(tx.category, tx.description)
@@ -358,6 +400,7 @@ def list_transactions(
             "custom_category_id": cat.id,
             "custom_category_name": cat.name,
             "custom_category_color": cat.color,
+            "ignored": _is_ignored_transaction(tx, ignored_patterns),
         }
 
     rows = [to_dict(tx) for tx in transactions]
@@ -374,6 +417,10 @@ def list_categories(session: Session = Depends(get_session)):
 class DescriptionCategoryRuleUpsert(BaseModel):
     pattern: str
     category_id: int
+
+
+class IgnoredDescriptionRuleUpsert(BaseModel):
+    pattern: str
 
 
 @app.post("/category-rules/description")
@@ -416,6 +463,48 @@ def upsert_description_category_rule(
         "category_id": category.id,
         "category_name": category.name,
         "category_color": category.color,
+        "affected_count": affected_count,
+    }
+
+
+@app.get("/transaction-ignore-rules/description")
+def list_ignored_description_rules(session: Session = Depends(get_session)):
+    return session.exec(
+        select(IgnoredDescriptionRule).order_by(IgnoredDescriptionRule.pattern)
+    ).all()
+
+
+@app.post("/transaction-ignore-rules/description")
+def upsert_ignored_description_rule(
+    body: IgnoredDescriptionRuleUpsert,
+    session: Session = Depends(get_session),
+):
+    pattern = body.pattern.strip()
+    pattern_normalized = normalize_description(pattern)
+    if not pattern_normalized:
+        raise HTTPException(400, "pattern must not be empty")
+
+    rule = session.exec(
+        select(IgnoredDescriptionRule).where(
+            IgnoredDescriptionRule.pattern_normalized == pattern_normalized
+        )
+    ).first()
+    if rule is None:
+        rule = IgnoredDescriptionRule(
+            pattern=pattern,
+            pattern_normalized=pattern_normalized,
+        )
+    else:
+        rule.pattern = pattern
+    session.add(rule)
+
+    affected_count = _count_ignored_rule_matches(pattern_normalized, session)
+    session.commit()
+    session.refresh(rule)
+    return {
+        "id": rule.id,
+        "pattern": rule.pattern,
+        "pattern_normalized": rule.pattern_normalized,
         "affected_count": affected_count,
     }
 
@@ -517,6 +606,7 @@ def delete_budget_override(
 @app.get("/budgets/progress")
 def budgets_progress(
     year_month: Optional[str] = None,
+    include_ignored: bool = False,
     session: Session = Depends(get_session),
 ):
     """Spending vs target for each category in the given month.
@@ -535,6 +625,11 @@ def budgets_progress(
             Transaction.date <= last_day,
         )
     ).all()
+    transactions = _filter_ignored_transactions(
+        transactions,
+        session,
+        include_ignored,
+    )
 
     actual_spent_by_category: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     future_spent_by_category: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
@@ -674,6 +769,7 @@ def export_transactions_csv(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     include_future: bool = False,
+    include_ignored: bool = False,
     session: Session = Depends(get_session),
 ):
     """Export transactions (filtered by the same params as /transactions) as CSV.
@@ -688,6 +784,7 @@ def export_transactions_csv(
         query = query.where(Transaction.date <= to_date)
     if not include_future and to_date is None:
         query = query.where(Transaction.date <= date.today())
+    ignored_patterns = _ignored_description_patterns(session)
 
     def generate():
         buffer = io.StringIO()
@@ -710,6 +807,12 @@ def export_transactions_csv(
         buffer.truncate()
 
         for tx in session.exec(query):
+            if (
+                not include_ignored
+                and ignored_patterns
+                and _is_ignored_transaction(tx, ignored_patterns)
+            ):
+                continue
             cat = resolver.resolve(tx.category, tx.description)
             writer.writerow(
                 [
@@ -737,7 +840,10 @@ def export_transactions_csv(
 
 
 @app.get("/upcoming")
-def upcoming(session: Session = Depends(get_session)):
+def upcoming(
+    include_ignored: bool = False,
+    session: Session = Depends(get_session),
+):
     """Future-dated transactions (parcelas a vencer) grouped by month → category.
 
     Payload is small because future_count is bounded by the number of installment
@@ -750,6 +856,11 @@ def upcoming(session: Session = Depends(get_session)):
         .where(Transaction.date > today)
         .order_by(Transaction.date)
     ).all()
+    future_txs = _filter_ignored_transactions(
+        future_txs,
+        session,
+        include_ignored,
+    )
 
     # month -> category_id -> list[Transaction]
     by_month_cat: Dict[str, Dict[int, list]] = defaultdict(
@@ -807,13 +918,73 @@ def upcoming(session: Session = Depends(get_session)):
     return {"total_count": len(future_txs), "months": months_out}
 
 
+@app.get("/ignored-transactions/monthly")
+def ignored_transactions_monthly(session: Session = Depends(get_session)):
+    """Monthly history of ignored transactions such as credit-card payments."""
+    today = date.today()
+    ignored_patterns = _ignored_description_patterns(session)
+    transactions = session.exec(
+        select(Transaction)
+        .where(Transaction.date <= today)
+        .order_by(Transaction.date.desc())
+    ).all()
+    ignored_transactions = [
+        tx
+        for tx in transactions
+        if ignored_patterns and _is_ignored_transaction(tx, ignored_patterns)
+    ]
+
+    by_month: Dict[str, list[Transaction]] = defaultdict(list)
+    for tx in ignored_transactions:
+        by_month[tx.date.strftime("%Y-%m")].append(tx)
+
+    months = []
+    total = Decimal("0")
+    for month in sorted(by_month.keys()):
+        txs = by_month[month]
+        month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        total += month_total
+        months.append(
+            {
+                "month": month,
+                "total": float(month_total),
+                "count": len(txs),
+                "transactions": [
+                    {
+                        "id": tx.id,
+                        "date": tx.date.isoformat(),
+                        "amount": float(tx.amount),
+                        "amount_abs": float(abs(tx.amount)),
+                        "description": tx.description,
+                        "pluggy_category": tx.category,
+                    }
+                    for tx in txs
+                ],
+            }
+        )
+
+    return {
+        "total": float(total),
+        "total_count": len(ignored_transactions),
+        "months": months,
+    }
+
+
 @app.get("/stats/monthly")
-def stats_monthly(session: Session = Depends(get_session)):
+def stats_monthly(
+    include_ignored: bool = False,
+    session: Session = Depends(get_session),
+):
     """Category × month breakdown. Useful for a per-category history view."""
     resolver = CategoryResolver(session)
     today = date.today()
     transactions = session.exec(select(Transaction)).all()
     past_transactions = [tx for tx in transactions if tx.date <= today]
+    past_transactions = _filter_ignored_transactions(
+        past_transactions,
+        session,
+        include_ignored,
+    )
 
     # (category_id, month) -> total
     matrix: Dict[int, Dict[str, Decimal]] = defaultdict(
@@ -858,6 +1029,7 @@ def stats_monthly(session: Session = Depends(get_session)):
 def stats(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
+    include_ignored: bool = False,
     session: Session = Depends(get_session),
 ):
     resolver = CategoryResolver(session)
@@ -869,16 +1041,26 @@ def stats(
         query = query.where(Transaction.date >= from_date)
     query = query.where(Transaction.date <= effective_to)
     past_transactions = session.exec(query).all()
+    past_transactions = _filter_ignored_transactions(
+        past_transactions,
+        session,
+        include_ignored,
+    )
 
     # Future-count is only meaningful when the caller didn't constrain the
     # upper bound; otherwise the "future" relative to today is irrelevant
     # to what they asked for.
     future_count = 0
     if to_date is None:
+        future_transactions = session.exec(
+            select(Transaction).where(Transaction.date > today)
+        ).all()
         future_count = len(
-            session.exec(
-                select(Transaction).where(Transaction.date > today)
-            ).all()
+            _filter_ignored_transactions(
+                future_transactions,
+                session,
+                include_ignored,
+            )
         )
 
     totals_by_category_id: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))

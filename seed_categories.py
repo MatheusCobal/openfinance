@@ -7,8 +7,9 @@ SQL if you want a clean state.
 """
 from sqlmodel import Session, select
 
+from app.categorization import normalize_description
 from app.database import engine, init_db
-from app.models import Category, CategoryRule
+from app.models import Category, CategoryRule, IgnoredDescriptionRule
 
 # Each entry: (name, color, sort_order, [pluggy_categories]).
 # Pluggy category strings come from their taxonomy and are matched exactly
@@ -202,6 +203,10 @@ CATEGORIES = [
     ),
 ]
 
+IGNORED_DESCRIPTION_PATTERNS = [
+    "PAGAMENTO COM SALDO",
+]
+
 
 def upsert_category(session: Session, name: str, color: str, sort_order: int) -> Category:
     existing = session.exec(select(Category).where(Category.name == name)).first()
@@ -228,6 +233,26 @@ def upsert_rule(session: Session, pluggy_category: str, category_id: int) -> Non
     session.add(CategoryRule(pluggy_category=pluggy_category, category_id=category_id))
 
 
+def upsert_ignored_description_rule(session: Session, pattern: str) -> None:
+    pattern_normalized = normalize_description(pattern)
+    existing = session.exec(
+        select(IgnoredDescriptionRule).where(
+            IgnoredDescriptionRule.pattern_normalized == pattern_normalized
+        )
+    ).first()
+    if existing:
+        if existing.pattern != pattern:
+            existing.pattern = pattern
+            session.add(existing)
+        return
+    session.add(
+        IgnoredDescriptionRule(
+            pattern=pattern,
+            pattern_normalized=pattern_normalized,
+        )
+    )
+
+
 def main() -> None:
     init_db()
     with Session(engine) as session:
@@ -235,11 +260,19 @@ def main() -> None:
             category = upsert_category(session, name, color, sort_order)
             for pc in pluggy_categories:
                 upsert_rule(session, pc, category.id)
+        for pattern in IGNORED_DESCRIPTION_PATTERNS:
+            upsert_ignored_description_rule(session, pattern)
         session.commit()
 
     total_categories = sum(1 for c in CATEGORIES)
     total_rules = sum(len(c[3]) for c in CATEGORIES)
-    print(f"Seeded {total_categories} categories and {total_rules} rules.")
+    total_ignored_rules = len(IGNORED_DESCRIPTION_PATTERNS)
+    print(
+        "Seeded "
+        f"{total_categories} categories, "
+        f"{total_rules} rules and "
+        f"{total_ignored_rules} ignored transaction rules."
+    )
 
 
 if __name__ == "__main__":
