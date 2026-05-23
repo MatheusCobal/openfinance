@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 
 from app.categorization import CategoryResolver
 from app.database import engine, get_session, init_db
-from app.models import Account, Category, CategoryRule, Item, Transaction
+from app.models import Account, Budget, Category, CategoryRule, Item, Transaction
 from app.pluggy_client import pluggy
 
 logger = logging.getLogger("openfinance")
@@ -49,6 +49,11 @@ def historico():
 @app.get("/proximos", include_in_schema=False)
 def proximos():
     return FileResponse(STATIC_DIR / "proximos.html")
+
+
+@app.get("/orcamento", include_in_schema=False)
+def orcamento():
+    return FileResponse(STATIC_DIR / "orcamento.html")
 
 
 @app.get("/health")
@@ -231,6 +236,139 @@ def list_transactions(
 @app.get("/categories")
 def list_categories(session: Session = Depends(get_session)):
     return CategoryResolver(session).all_categories()
+
+
+class BudgetUpsert(BaseModel):
+    monthly_target: Decimal
+
+
+@app.get("/budgets")
+def list_budgets(session: Session = Depends(get_session)):
+    return session.exec(select(Budget)).all()
+
+
+@app.put("/budgets/{category_id}")
+def upsert_budget(
+    category_id: int,
+    body: BudgetUpsert,
+    session: Session = Depends(get_session),
+):
+    if body.monthly_target < 0:
+        raise HTTPException(400, "monthly_target must be >= 0")
+    if not session.get(Category, category_id):
+        raise HTTPException(404, "category not found")
+    existing = session.exec(
+        select(Budget).where(Budget.category_id == category_id)
+    ).first()
+    if existing:
+        existing.monthly_target = body.monthly_target
+        session.add(existing)
+    else:
+        existing = Budget(category_id=category_id, monthly_target=body.monthly_target)
+        session.add(existing)
+    session.commit()
+    session.refresh(existing)
+    return existing
+
+
+@app.delete("/budgets/{category_id}", status_code=204)
+def delete_budget(category_id: int, session: Session = Depends(get_session)):
+    budget = session.exec(
+        select(Budget).where(Budget.category_id == category_id)
+    ).first()
+    if budget:
+        session.delete(budget)
+        session.commit()
+    return None
+
+
+@app.get("/budgets/progress")
+def budgets_progress(
+    year_month: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    """Spending vs target for each category in the given month.
+
+    year_month defaults to the current calendar month.
+    Includes ALL categories (even without a budget set), so the page can
+    surface unbudgeted ones to the user.
+    """
+    today = date.today()
+    if year_month is None:
+        year_month = today.strftime("%Y-%m")
+
+    # Parse the month into a date range (first/last day of that month).
+    year, month = (int(p) for p in year_month.split("-"))
+    first_day = date(year, month, 1)
+    if month == 12:
+        next_first = date(year + 1, 1, 1)
+    else:
+        next_first = date(year, month + 1, 1)
+    # Last day = day before next month's first day
+    last_day = date.fromordinal(next_first.toordinal() - 1)
+
+    resolver = CategoryResolver(session)
+    transactions = session.exec(
+        select(Transaction).where(
+            Transaction.date >= first_day,
+            Transaction.date <= last_day,
+        )
+    ).all()
+
+    # category_id -> spent
+    spent_by_category: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    counts_by_category: Dict[int, int] = defaultdict(int)
+    for tx in transactions:
+        cat = resolver.resolve(tx.category)
+        spent_by_category[cat.id] += abs(tx.amount)
+        counts_by_category[cat.id] += 1
+
+    budgets = {
+        b.category_id: b
+        for b in session.exec(select(Budget)).all()
+    }
+
+    items = []
+    for cat in resolver.all_categories():
+        target = budgets[cat.id].monthly_target if cat.id in budgets else None
+        spent = float(spent_by_category[cat.id])
+        progress_pct = None
+        status = None
+        if target is not None and target > 0:
+            progress_pct = (spent / float(target)) * 100
+            if progress_pct >= 100:
+                status = "over"
+            elif progress_pct >= 80:
+                status = "warning"
+            else:
+                status = "ok"
+        items.append(
+            {
+                "category_id": cat.id,
+                "category_name": cat.name,
+                "category_color": cat.color,
+                "category_sort_order": cat.sort_order,
+                "target": float(target) if target is not None else None,
+                "spent": spent,
+                "count": counts_by_category[cat.id],
+                "progress_pct": progress_pct,
+                "status": status,
+            }
+        )
+
+    items.sort(
+        key=lambda i: (
+            i["target"] is None,  # budgeted categories first
+            i["category_sort_order"],
+        )
+    )
+
+    return {
+        "year_month": year_month,
+        "first_day": first_day.isoformat(),
+        "last_day": last_day.isoformat(),
+        "items": items,
+    }
 
 
 @app.get("/export/transactions.csv")

@@ -44,3 +44,9 @@ class CategoryRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     pluggy_category: str = Field(unique=True, index=True)
     category_id: int = Field(foreign_key="category.id", index=True)
+
+
+class Budget(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    category_id: int = Field(foreign_key="category.id", unique=True, index=True)
+    monthly_target: Decimal
