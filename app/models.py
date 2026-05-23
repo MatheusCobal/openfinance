@@ -2,6 +2,7 @@ import datetime
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -49,4 +50,15 @@ class CategoryRule(SQLModel, table=True):
 class Budget(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     category_id: int = Field(foreign_key="category.id", unique=True, index=True)
+    monthly_target: Decimal
+
+
+class BudgetOverride(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("category_id", "year_month", name="uq_budgetoverride_month"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    category_id: int = Field(foreign_key="category.id", index=True)
+    year_month: str = Field(index=True)
     monthly_target: Decimal

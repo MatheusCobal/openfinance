@@ -35,9 +35,10 @@ Abre em http://127.0.0.1:8000.
 
 | Rota | Descrição |
 |---|---|
-| `/` | Dashboard com totais, gráficos, lista de transações por categoria. Filtros: Este mês / 30 dias / 90 dias / Ano / Tudo |
+| `/` | Dashboard com totais, gráficos, lista de transações por categoria, filtro por período e export CSV |
 | `/historico` | Cards por categoria com gráfico mensal e comparação mês a mês |
 | `/proximos` | Parcelas futuras (parcelado a vencer) organizadas por mês |
+| `/orcamento` | Metas por categoria, com meta padrão ou ajuste específico por mês |
 
 ## Endpoints principais
 
@@ -48,11 +49,16 @@ Abre em http://127.0.0.1:8000.
 | GET | `/transactions` | Lista de transações (filtros: `category_id`, `from_date`, `to_date`, `include_future`) |
 | GET | `/upcoming` | Parcelas futuras agrupadas por mês |
 | GET | `/categories` | Lista de categorias customizadas |
+| GET | `/budgets/progress` | Progresso por categoria no mês (`year_month=YYYY-MM`) |
+| PUT | `/budgets/{category_id}` | Cria/atualiza meta padrão da categoria |
+| DELETE | `/budgets/{category_id}` | Remove meta padrão da categoria |
+| PUT | `/budgets/{category_id}/months/{YYYY-MM}` | Cria/atualiza meta específica de um mês |
+| DELETE | `/budgets/{category_id}/months/{YYYY-MM}` | Remove meta específica de um mês |
 | GET | `/items` / `/accounts` | Conexões e contas |
 | POST | `/connect-token` | Token pro widget Pluggy Connect |
 | POST | `/items/{id}/sync` | Força sincronização |
 | POST | `/webhooks/pluggy` | Recebe eventos do Pluggy (precisa URL pública via ngrok) |
-| GET | `/export/transactions.csv` | Export CSV |
+| GET | `/export/transactions.csv` | Export CSV com valor original e valor absoluto |
 
 ## Categorias
 
@@ -83,14 +89,15 @@ openfinance/
 └── app/
     ├── config.py              .env via pydantic-settings
     ├── database.py            engine SQLite
-    ├── models.py              Item, Account, Transaction, Category, CategoryRule
+    ├── models.py              Item, Account, Transaction, Category, CategoryRule, Budget, BudgetOverride
     ├── pluggy_client.py       httpx wrapper paginado
     ├── categorization.py      resolver pluggy_category → Category
     ├── main.py                rotas FastAPI
     └── static/
         ├── index.html, app.js
         ├── historico.html, historico.js
-        └── proximos.html, proximos.js
+        ├── proximos.html, proximos.js
+        └── orcamento.html, orcamento.js
 ```
 
 ## Limitações intencionais
