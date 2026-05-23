@@ -1,7 +1,9 @@
 """Seed the Category and CategoryRule tables with the agreed defaults.
 
 Idempotent: running twice does not duplicate rows. Edit CATEGORIES below to
-change the mapping; rerun to apply.
+change the mapping; rerun to apply. Note: this script does NOT delete
+categories or rules that are removed from CATEGORIES — do that manually with
+SQL if you want a clean state.
 """
 from sqlmodel import Session, select
 
@@ -14,16 +16,23 @@ from app.models import Category, CategoryRule
 # "Outros" (last entry, no rules).
 CATEGORIES = [
     (
-        "Alimentação",
-        "#10b981",  # emerald
+        "Mercado",
+        "#16a34a",  # green-600
         10,
+        [
+            "Groceries",
+            "Supermarket",
+        ],
+    ),
+    (
+        "Restaurantes",
+        "#10b981",  # emerald
+        15,
         [
             "Eating out",
             "Food and drinks",
             "Food delivery",
-            "Groceries",
             "Delivery",
-            "Supermarket",
             "Restaurants",
             "Coffee shop",
             "Bakery",
@@ -60,7 +69,6 @@ CATEGORIES = [
         [
             "Healthcare",
             "Pharmacy",
-            "Pet supplies and vet",
             "Medical",
             "Dentist",
             "Hospital",
@@ -70,6 +78,15 @@ CATEGORIES = [
             "Gyms and fitness centers",
             "Wellness",
             "Wellness and fitness",
+        ],
+    ),
+    (
+        "Pets",
+        "#14b8a6",  # teal
+        35,
+        [
+            "Pet supplies and vet",
+            "Pets",
         ],
     ),
     (
@@ -91,27 +108,6 @@ CATEGORIES = [
             "Furniture",
             "Home improvement",
             "Cleaning",
-            "Services",
-            "Office supplies",
-        ],
-    ),
-    (
-        "Objetos",
-        "#8b5cf6",  # violet
-        50,
-        [
-            "Electronics",
-            "Clothing",
-            "Bookstore",
-            "Shopping",
-            "Online shopping",
-            "Accessories",
-            "Shoes",
-            "Sportswear",
-            "Sports goods",
-            "Beauty",
-            "Cosmetics",
-            "Kids and toys",
         ],
     ),
     (
@@ -121,13 +117,9 @@ CATEGORIES = [
         [
             "Entertainment",
             "Leisure",
-            "Digital services",
             "Travel",
             "Accomodation",
             "Airport and airlines",
-            "Streaming",
-            "Video streaming",
-            "Music streaming",
             "Hotels",
             "Cinema",
             "Cinema, theater and concerts",
@@ -135,9 +127,20 @@ CATEGORIES = [
             "Stadiums and arenas",
             "Mileage programs",
             "Games",
-            "Subscriptions",
             "Events",
             "Hobbies",
+        ],
+    ),
+    (
+        "Assinaturas",
+        "#06b6d4",  # cyan
+        65,
+        [
+            "Digital services",
+            "Streaming",
+            "Video streaming",
+            "Music streaming",
+            "Subscriptions",
         ],
     ),
     (
@@ -149,6 +152,7 @@ CATEGORIES = [
             "Courses",
             "Education",
             "Books",
+            "Bookstore",
             "Online courses",
             "Online Courses",
             "Tuition",
@@ -180,6 +184,20 @@ CATEGORIES = [
         [
             "Donations",
             "Insurance",
+            "Services",
+            "Office supplies",
+            # Absorbed from the old "Objetos" category:
+            "Electronics",
+            "Clothing",
+            "Shopping",
+            "Online shopping",
+            "Accessories",
+            "Shoes",
+            "Sportswear",
+            "Sports goods",
+            "Beauty",
+            "Cosmetics",
+            "Kids and toys",
         ],
     ),
 ]

@@ -1,11 +1,22 @@
+import unicodedata
 from typing import List, Optional
 
 from sqlmodel import Session, select
 
-from app.models import Category, CategoryRule
+from app.models import Category, CategoryRule, DescriptionCategoryRule
 
 FALLBACK_NAME = "Outros"
 FALLBACK_COLOR = "#64748b"
+
+
+def normalize_description(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFKD", text)
+    without_accents = "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    )
+    return " ".join(without_accents.casefold().split())
 
 
 class CategoryResolver:
@@ -23,12 +34,33 @@ class CategoryResolver:
             rule.pluggy_category: rule.category_id
             for rule in session.exec(select(CategoryRule)).all()
         }
+        self._description_rules = sorted(
+            [
+                (rule.pattern_normalized, rule.category_id)
+                for rule in session.exec(select(DescriptionCategoryRule)).all()
+                if rule.pattern_normalized
+            ],
+            key=lambda rule: len(rule[0]),
+            reverse=True,
+        )
         self._fallback = next(
             (c for c in self._categories_by_id.values() if c.name == FALLBACK_NAME),
             None,
         )
 
-    def resolve(self, pluggy_category: Optional[str]) -> Category:
+    def resolve(
+        self,
+        pluggy_category: Optional[str],
+        description: Optional[str] = None,
+    ) -> Category:
+        normalized_description = normalize_description(description)
+        if normalized_description:
+            for pattern, category_id in self._description_rules:
+                if (
+                    pattern in normalized_description
+                    and category_id in self._categories_by_id
+                ):
+                    return self._categories_by_id[category_id]
         if pluggy_category is not None:
             category_id = self._rule_to_category_id.get(pluggy_category)
             if category_id is not None and category_id in self._categories_by_id:

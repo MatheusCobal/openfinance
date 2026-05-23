@@ -49,6 +49,7 @@ Abre em http://127.0.0.1:8000.
 | GET | `/transactions` | Lista de transações (filtros: `category_id`, `from_date`, `to_date`, `include_future`) |
 | GET | `/upcoming` | Parcelas futuras agrupadas por mês |
 | GET | `/categories` | Lista de categorias customizadas |
+| POST | `/category-rules/description` | Cria/atualiza regra manual por texto da descrição |
 | GET | `/budgets/progress` | Progresso por categoria no mês (`year_month=YYYY-MM`) |
 | PUT | `/budgets/{category_id}` | Cria/atualiza meta padrão da categoria |
 | DELETE | `/budgets/{category_id}` | Remove meta padrão da categoria |
@@ -62,7 +63,7 @@ Abre em http://127.0.0.1:8000.
 
 ## Categorias
 
-9 categorias custom (Alimentação, Transporte, Saúde, Casa, Objetos, Lazer, Educação, Transferências, Outros) mapeadas das ~150 categorias granulares do Pluggy via `CategoryRule`.
+Categorias custom mapeadas das categorias granulares do Pluggy via `CategoryRule`. Regras manuais por descrição ficam em `DescriptionCategoryRule` e têm prioridade sobre o mapeamento automático.
 
 Pra ajustar: edita `seed_categories.py` e roda de novo (`.venv/bin/python seed_categories.py`). É idempotente.
 
@@ -95,7 +96,7 @@ openfinance/
 └── app/
     ├── config.py              .env via pydantic-settings
     ├── database.py            engine SQLite
-    ├── models.py              Item, Account, AccountSync, Transaction, Category, CategoryRule, Budget, BudgetOverride
+    ├── models.py              Item, Account, AccountSync, Transaction, Category, CategoryRule, DescriptionCategoryRule, Budget, BudgetOverride
     ├── pluggy_client.py       httpx wrapper paginado
     ├── categorization.py      resolver pluggy_category → Category
     ├── main.py                rotas FastAPI

@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.categorization import CategoryResolver
+from app.categorization import CategoryResolver, normalize_description
 from app.database import engine, get_session, init_db
 from app.models import (
     Account,
@@ -25,6 +25,7 @@ from app.models import (
     BudgetOverride,
     Category,
     CategoryRule,
+    DescriptionCategoryRule,
     Item,
     Transaction,
 )
@@ -94,6 +95,17 @@ def _month_range(year_month: Optional[str] = None) -> tuple[str, date, date]:
 def _validate_budget_target(monthly_target: Decimal) -> None:
     if monthly_target <= 0:
         raise HTTPException(400, "monthly_target must be > 0")
+
+
+def _count_description_rule_matches(
+    pattern_normalized: str,
+    session: Session,
+) -> int:
+    return sum(
+        1
+        for tx in session.exec(select(Transaction)).all()
+        if pattern_normalized in normalize_description(tx.description)
+    )
 
 
 def _budget_status(progress_pct: Optional[float]) -> Optional[str]:
@@ -340,7 +352,7 @@ def list_transactions(
     transactions = session.exec(query).all()
 
     def to_dict(tx: Transaction) -> Dict[str, Any]:
-        cat = resolver.resolve(tx.category)
+        cat = resolver.resolve(tx.category, tx.description)
         return {
             **tx.model_dump(mode="json"),
             "custom_category_id": cat.id,
@@ -357,6 +369,55 @@ def list_transactions(
 @app.get("/categories")
 def list_categories(session: Session = Depends(get_session)):
     return CategoryResolver(session).all_categories()
+
+
+class DescriptionCategoryRuleUpsert(BaseModel):
+    pattern: str
+    category_id: int
+
+
+@app.post("/category-rules/description")
+def upsert_description_category_rule(
+    body: DescriptionCategoryRuleUpsert,
+    session: Session = Depends(get_session),
+):
+    pattern = body.pattern.strip()
+    pattern_normalized = normalize_description(pattern)
+    if not pattern_normalized:
+        raise HTTPException(400, "pattern must not be empty")
+
+    category = session.get(Category, body.category_id)
+    if category is None:
+        raise HTTPException(404, "category not found")
+
+    rule = session.exec(
+        select(DescriptionCategoryRule).where(
+            DescriptionCategoryRule.pattern_normalized == pattern_normalized
+        )
+    ).first()
+    if rule is None:
+        rule = DescriptionCategoryRule(
+            pattern=pattern,
+            pattern_normalized=pattern_normalized,
+            category_id=body.category_id,
+        )
+    else:
+        rule.pattern = pattern
+        rule.category_id = body.category_id
+    session.add(rule)
+
+    affected_count = _count_description_rule_matches(pattern_normalized, session)
+    session.commit()
+    session.refresh(rule)
+    return {
+        "id": rule.id,
+        "pattern": rule.pattern,
+        "pattern_normalized": rule.pattern_normalized,
+        "category_id": category.id,
+        "category_name": category.name,
+        "category_color": category.color,
+        "affected_count": affected_count,
+    }
 
 
 class BudgetUpsert(BaseModel):
@@ -480,7 +541,7 @@ def budgets_progress(
     actual_counts_by_category: Dict[int, int] = defaultdict(int)
     future_counts_by_category: Dict[int, int] = defaultdict(int)
     for tx in transactions:
-        cat = resolver.resolve(tx.category)
+        cat = resolver.resolve(tx.category, tx.description)
         amount = abs(tx.amount)
         if tx.date <= today:
             actual_spent_by_category[cat.id] += amount
@@ -649,7 +710,7 @@ def export_transactions_csv(
         buffer.truncate()
 
         for tx in session.exec(query):
-            cat = resolver.resolve(tx.category)
+            cat = resolver.resolve(tx.category, tx.description)
             writer.writerow(
                 [
                     tx.date.isoformat(),
@@ -697,7 +758,7 @@ def upcoming(session: Session = Depends(get_session)):
     category_info_by_id: Dict[int, Category] = {}
     for tx in future_txs:
         month = tx.date.strftime("%Y-%m")
-        cat = resolver.resolve(tx.category)
+        cat = resolver.resolve(tx.category, tx.description)
         by_month_cat[month][cat.id].append(tx)
         category_info_by_id[cat.id] = cat
 
@@ -763,7 +824,7 @@ def stats_monthly(session: Session = Depends(get_session)):
     months_set: set = set()
 
     for tx in past_transactions:
-        cat = resolver.resolve(tx.category)
+        cat = resolver.resolve(tx.category, tx.description)
         month = tx.date.strftime("%Y-%m")
         matrix[cat.id][month] += abs(tx.amount)
         counts[cat.id][month] += 1
@@ -830,7 +891,7 @@ def stats(
         # Pluggy returns negative amounts for outflows on credit card statements;
         # treat the absolute value as the spend.
         amount = abs(tx.amount)
-        cat = resolver.resolve(tx.category)
+        cat = resolver.resolve(tx.category, tx.description)
         totals_by_category_id[cat.id] += amount
         counts_by_category_id[cat.id] += 1
         category_info_by_id[cat.id] = cat

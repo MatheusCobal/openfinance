@@ -22,6 +22,8 @@ const dayFormatter = new Intl.DateTimeFormat('pt-BR', {
 
 let categoryChart = null;
 let monthChart = null;
+let availableCategories = [];
+let transactionsById = new Map();
 
 function formatMonthLabel(yyyymm) {
   const [year, month] = yyyymm.split('-').map(Number);
@@ -149,6 +151,7 @@ function renderMonthChart(months) {
 function renderCategories(stats, transactions) {
   const container = document.getElementById('categories');
   const empty = document.getElementById('empty');
+  transactionsById = new Map(transactions.map((tx) => [tx.id, tx]));
 
   if (transactions.length === 0) {
     container.innerHTML = '';
@@ -161,14 +164,27 @@ function renderCategories(stats, transactions) {
   const orderedCategories = stats.categories;
 
   const renderTxRow = (tx) => `
-    <li class="flex items-baseline justify-between px-5 py-3 border-t border-slate-100">
+    <li class="flex items-center justify-between gap-3 px-5 py-3 border-t border-slate-100">
       <div class="min-w-0 flex-1 pr-4">
         <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
         <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
       </div>
-      <p class="text-sm font-medium tabular text-slate-900 shrink-0">
-        ${currency.format(Math.abs(Number(tx.amount)))}
-      </p>
+      <div class="flex items-center gap-3 shrink-0">
+        <p class="text-sm font-medium tabular text-slate-900">
+          ${currency.format(Math.abs(Number(tx.amount)))}
+        </p>
+        <button
+          type="button"
+          class="categorize-tx size-8 inline-flex items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+          data-tx-id="${escapeHtml(tx.id)}"
+          title="Alterar categoria"
+          aria-label="Alterar categoria"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+          </svg>
+        </button>
+      </div>
     </li>
   `;
 
@@ -224,6 +240,81 @@ function renderCategories(stats, transactions) {
       btn.remove();
     });
   });
+
+  container.querySelectorAll('button.categorize-tx').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tx = transactionsById.get(btn.dataset.txId);
+      if (tx) openCategoryModal(tx);
+    });
+  });
+}
+
+function categoryOptionsHtml(selectedId) {
+  return availableCategories
+    .map((category) => {
+      const selected = Number(category.id) === Number(selectedId) ? 'selected' : '';
+      return `
+        <option value="${category.id}" ${selected}>
+          ${escapeHtml(category.name)}
+        </option>
+      `;
+    })
+    .join('');
+}
+
+function openCategoryModal(tx) {
+  if (availableCategories.length === 0) {
+    showToast('Nenhuma categoria disponível.', 'error');
+    return;
+  }
+  document.getElementById('category-modal-description').textContent = tx.description;
+  document.getElementById('category-rule-pattern').value = tx.description;
+  document.getElementById('category-rule-category').innerHTML =
+    categoryOptionsHtml(tx.custom_category_id);
+  document.getElementById('category-modal').classList.remove('hidden');
+  document.getElementById('category-rule-pattern').focus();
+}
+
+function closeCategoryModal() {
+  document.getElementById('category-modal').classList.add('hidden');
+}
+
+async function saveCategoryRule(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const pattern = document.getElementById('category-rule-pattern').value.trim();
+  const categoryId = Number(document.getElementById('category-rule-category').value);
+
+  if (!pattern || !categoryId) {
+    showToast('Informe o texto e a categoria.', 'error');
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const response = await fetch('/category-rules/description', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pattern, category_id: categoryId }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || `Falha ao salvar regra (HTTP ${response.status})`);
+    }
+    const result = await response.json();
+    closeCategoryModal();
+    await loadData();
+    showToast(
+      `${result.affected_count} compra(s) movida(s) para ${result.category_name}.`,
+      'success',
+    );
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Erro ao salvar regra.', 'error');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function escapeHtml(str) {
@@ -241,10 +332,9 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 const PERIODS = [
   { key: 'month', label: 'Este mês' },
-  { key: '30d', label: '30 dias' },
-  { key: '90d', label: '90 dias' },
+  { key: 'prev_month', label: 'Mês anterior' },
   { key: 'year', label: String(CURRENT_YEAR) },
-  { key: 'all', label: 'Tudo' },
+  { key: 'prev_year', label: String(CURRENT_YEAR - 1) },
 ];
 
 let activePeriod = 'month';
@@ -257,26 +347,24 @@ function isoDate(date) {
 }
 
 function rangeForPeriod(period) {
-  // Returns {from, to} ISO date strings, or {} for "all".
   const today = new Date();
   const todayIso = isoDate(today);
   if (period === 'month') {
     const first = new Date(today.getFullYear(), today.getMonth(), 1);
     return { from: isoDate(first), to: todayIso };
   }
-  if (period === '30d') {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 30);
-    return { from: isoDate(start), to: todayIso };
-  }
-  if (period === '90d') {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 90);
-    return { from: isoDate(start), to: todayIso };
+  if (period === 'prev_month') {
+    const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const last = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { from: isoDate(first), to: isoDate(last) };
   }
   if (period === 'year') {
     const first = new Date(today.getFullYear(), 0, 1);
     return { from: isoDate(first), to: todayIso };
+  }
+  if (period === 'prev_year') {
+    const year = today.getFullYear() - 1;
+    return { from: `${year}-01-01`, to: `${year}-12-31` };
   }
   return {};
 }
@@ -324,15 +412,17 @@ async function loadData() {
   const qs = params.toString() ? `?${params.toString()}` : '';
   updateExportLink();
 
-  const [statsResponse, transactionsResponse] = await Promise.all([
+  const [statsResponse, transactionsResponse, categoriesResponse] = await Promise.all([
     fetch(`/stats${qs}`),
     fetch(`/transactions${qs}`),
+    fetch('/categories'),
   ]);
-  if (!statsResponse.ok || !transactionsResponse.ok) {
+  if (!statsResponse.ok || !transactionsResponse.ok || !categoriesResponse.ok) {
     throw new Error('Falha ao carregar dados');
   }
   const stats = await statsResponse.json();
   const transactions = await transactionsResponse.json();
+  availableCategories = await categoriesResponse.json();
 
   renderSummary(stats);
   renderCategoryChart(stats.categories);
@@ -427,6 +517,16 @@ document.getElementById('refresh').addEventListener('click', () => {
 });
 
 document.getElementById('connect').addEventListener('click', openConnectWidget);
+
+document.getElementById('category-rule-form').addEventListener('submit', saveCategoryRule);
+document.getElementById('category-modal-close').addEventListener('click', closeCategoryModal);
+document.getElementById('category-modal-cancel').addEventListener('click', closeCategoryModal);
+document.getElementById('category-modal').addEventListener('click', (event) => {
+  if (event.target.id === 'category-modal') closeCategoryModal();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeCategoryModal();
+});
 
 renderPeriodFilter();
 loadData().catch((err) => {
