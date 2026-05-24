@@ -6,6 +6,7 @@
     <title>Próximos · OpenFinance</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%AD%3C/text%3E%3C/svg%3E" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -94,6 +95,36 @@
         </button>
       </header>
 
+      <section id="overview" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Próxima fatura</p>
+          <p class="mt-2 text-2xl font-bold tabular" id="summary-next-total">—</p>
+          <p class="text-xs text-slate-500 mt-1" id="summary-next-label">—</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">3 meses</p>
+          <p class="mt-2 text-2xl font-bold tabular" id="summary-quarter-total">—</p>
+          <p class="text-xs text-slate-500 mt-1" id="summary-quarter-count">—</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total futuro</p>
+          <p class="mt-2 text-2xl font-bold tabular" id="summary-future-total">—</p>
+          <p class="text-xs text-slate-500 mt-1" id="summary-future-count">—</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior fatura</p>
+          <p class="mt-2 text-2xl font-bold tabular" id="summary-largest-total">—</p>
+          <p class="text-xs text-slate-500 mt-1" id="summary-largest-label">—</p>
+        </div>
+      </section>
+
+      <section id="month-chart-panel" class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6">
+        <h2 class="font-semibold text-slate-900 mb-4">Próximos meses</h2>
+        <div class="relative h-64">
+          <canvas id="month-chart"></canvas>
+        </div>
+      </section>
+
       <div
         id="chip-strip"
         class="chip-strip flex gap-2 overflow-x-auto pb-2 mb-6"
@@ -122,6 +153,6 @@
       </div>
     </div>
 
-    <script src="/static/proximos.js"></script>
-  </body>
+  <script src="/static/proximos.js?v=20260524-2"></script>
+</body>
 </html>

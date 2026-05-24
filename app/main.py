@@ -39,6 +39,15 @@ UNCATEGORIZED = "Sem categoria"
 MAX_BUDGET_MONTH = 2100
 MIN_BUDGET_MONTH = 2000
 SYNC_LOOKBACK_DAYS = 7
+CREDIT_CARD_PAYMENT_CATEGORIES = {"Credit card payment", "Card payments"}
+CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS = tuple(
+    normalize_description(pattern)
+    for pattern in (
+        "PAGAMENTO COM SALDO",
+        "Pagamento recebido",
+    )
+)
+DEFAULT_CREDIT_CARD_PAYMENT_MONTHS = 12
 
 
 @asynccontextmanager
@@ -120,6 +129,44 @@ def _ignored_description_patterns(session: Session) -> list[str]:
 def _is_ignored_transaction(tx: Transaction, patterns: list[str]) -> bool:
     normalized_description = normalize_description(tx.description)
     return any(pattern in normalized_description for pattern in patterns)
+
+
+def _month_key(value: date) -> str:
+    return value.strftime("%Y-%m")
+
+
+def _shift_month(value: date, months: int) -> date:
+    zero_based_month = value.year * 12 + value.month - 1 + months
+    year = zero_based_month // 12
+    month = zero_based_month % 12 + 1
+    return date(year, month, 1)
+
+
+def _last_month_keys(count: int, today: date) -> list[str]:
+    current_month = date(today.year, today.month, 1)
+    return [
+        _month_key(_shift_month(current_month, offset))
+        for offset in range(-(count - 1), 1)
+    ]
+
+
+def _is_credit_card_payment_transaction(
+    tx: Transaction,
+    accounts_by_id: Dict[str, Account],
+) -> bool:
+    account = accounts_by_id.get(tx.account_id)
+    if account is not None and account.type != "CREDIT":
+        return False
+    if tx.amount >= 0:
+        return False
+    if tx.category in CREDIT_CARD_PAYMENT_CATEGORIES:
+        return True
+    normalized_description = normalize_description(tx.description)
+    return any(
+        pattern in normalized_description
+        for pattern in CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS
+        if pattern
+    )
 
 
 def _filter_ignored_transactions(
@@ -967,6 +1014,71 @@ def ignored_transactions_monthly(session: Session = Depends(get_session)):
         "total": float(total),
         "total_count": len(ignored_transactions),
         "months": months,
+    }
+
+
+@app.get("/credit-card-payments/monthly")
+def credit_card_payments_monthly(
+    months: int = DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
+    session: Session = Depends(get_session),
+):
+    """Credit-card bill payments for the last N months, zero-filled by month."""
+    if months < 1 or months > 24:
+        raise HTTPException(400, "months must be between 1 and 24")
+
+    today = date.today()
+    month_keys = _last_month_keys(months, today)
+    first_year, first_month = month_keys[0].split("-")
+    start_date = date(int(first_year), int(first_month), 1)
+    accounts_by_id = {
+        account.id: account for account in session.exec(select(Account)).all()
+    }
+    transactions = session.exec(
+        select(Transaction)
+        .where(Transaction.date >= start_date, Transaction.date <= today)
+        .order_by(Transaction.date.asc())
+    ).all()
+    payment_transactions = [
+        tx
+        for tx in transactions
+        if _is_credit_card_payment_transaction(tx, accounts_by_id)
+    ]
+
+    by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
+    for tx in payment_transactions:
+        month = _month_key(tx.date)
+        if month in by_month:
+            by_month[month].append(tx)
+
+    total = Decimal("0")
+    output_months = []
+    for month in month_keys:
+        txs = by_month[month]
+        month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        total += month_total
+        output_months.append(
+            {
+                "month": month,
+                "total": float(month_total),
+                "count": len(txs),
+                "transactions": [
+                    {
+                        "id": tx.id,
+                        "date": tx.date.isoformat(),
+                        "amount": float(tx.amount),
+                        "amount_abs": float(abs(tx.amount)),
+                        "description": tx.description,
+                        "pluggy_category": tx.category,
+                    }
+                    for tx in txs
+                ],
+            }
+        )
+
+    return {
+        "total": float(total),
+        "total_count": len(payment_transactions),
+        "months": output_months,
     }
 
 

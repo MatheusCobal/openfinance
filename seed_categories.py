@@ -205,6 +205,7 @@ CATEGORIES = [
 
 IGNORED_DESCRIPTION_PATTERNS = [
     "PAGAMENTO COM SALDO",
+    "Pagamento recebido",
 ]
 
 

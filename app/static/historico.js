@@ -197,6 +197,7 @@ function renderChart(category, months) {
 function renderInvoiceChart(data) {
   const ctx = document.getElementById('chart-invoices');
   if (!ctx) return;
+  if (typeof Chart === 'undefined') return;
 
   if (charts.has('invoices')) charts.get('invoices').destroy();
 
@@ -455,41 +456,60 @@ function renderInvoiceHistory() {
   }
   hideEmpty();
 
-  const latest = data.months[data.months.length - 1];
-  const rows = [...data.months].reverse().map((item) => `
-    <li class="flex items-center justify-between gap-4 px-5 py-3 border-t border-slate-100">
-      <div>
-        <p class="text-sm font-medium text-slate-900">${escapeHtml(formatMonthLong(item.month))}</p>
-        <p class="text-xs text-slate-500 mt-0.5">${pluralFaturas(item.count)}</p>
-      </div>
-      <button
-        type="button"
-        class="invoice-month text-right group"
-        data-month="${item.month}"
-        title="Ver pagamentos da fatura"
-      >
-        <span class="block text-sm font-semibold tabular text-slate-900 group-hover:text-indigo-600">
-          ${currency.format(item.total)}
-        </span>
-      </button>
-    </li>
-  `).join('');
+  const paidMonths = data.months.filter((item) => item.count > 0);
+  const largest = paidMonths.reduce(
+    (best, item) => (!best || item.total > best.total ? item : best),
+    null,
+  );
+  const average = data.months.length > 0 ? data.total / data.months.length : 0;
+  const rows = [...data.months].reverse().map((item) => {
+    const amount = item.count > 0
+      ? `
+        <button
+          type="button"
+          class="invoice-month text-right group"
+          data-month="${item.month}"
+          title="Ver pagamentos da fatura"
+        >
+          <span class="block text-sm font-semibold tabular text-slate-900 group-hover:text-indigo-600">
+            ${currency.format(item.total)}
+          </span>
+        </button>
+      `
+      : '<span class="text-sm font-medium text-slate-400">Sem pagamento</span>';
+    return `
+      <li class="flex items-center justify-between gap-4 px-5 py-3 border-t border-slate-100">
+        <div>
+          <p class="text-sm font-medium text-slate-900">${escapeHtml(formatMonthLong(item.month))}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${pluralFaturas(item.count)}</p>
+        </div>
+        ${amount}
+      </li>
+    `;
+  }).join('');
 
   subtitle.textContent =
-    `${pluralFaturas(data.total_count)} · ${data.months.length} ` +
-    `${data.months.length === 1 ? 'mês' : 'meses'} de histórico`;
+    `Evolução das faturas · últimos ${data.months.length} meses`;
 
   invoices.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total pago</p>
         <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(data.total)}</p>
-        <p class="text-xs text-slate-500 mt-2">
-          Última fatura: ${escapeHtml(formatMonthLabel(latest.month))} · ${currency.format(latest.total)}
-        </p>
+        <p class="text-xs text-slate-500 mt-2">${pluralFaturas(data.total_count)} em ${data.months.length} meses</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-2">
-        <h2 class="font-semibold text-slate-900 mb-4">Pagamentos por mês</h2>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Média mensal</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(average)}</p>
+        <p class="text-xs text-slate-500 mt-2">Considerando meses sem pagamento</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior fatura</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(largest.total)}</p>
+        <p class="text-xs text-slate-500 mt-2">${escapeHtml(formatMonthLabel(largest.month))}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-3">
+        <h2 class="font-semibold text-slate-900 mb-4">Evolução dos pagamentos de fatura</h2>
         <div class="relative h-64">
           <canvas id="chart-invoices"></canvas>
         </div>
@@ -525,7 +545,7 @@ function renderActiveTab() {
 async function loadData() {
   const [categoriesResponse, invoicesResponse] = await Promise.all([
     fetch('/stats/monthly'),
-    fetch('/ignored-transactions/monthly'),
+    fetch('/credit-card-payments/monthly?months=12'),
   ]);
   if (!categoriesResponse.ok || !invoicesResponse.ok) {
     throw new Error('Falha ao carregar histórico');
