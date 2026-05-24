@@ -68,6 +68,14 @@ class IgnoredDescriptionRule(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
+class CreditCardInvoiceMonth(SQLModel, table=True):
+    year_month: str = Field(primary_key=True, index=True)
+    total: Decimal = Decimal("0")
+    payment_count: int = 0
+    captured_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class Budget(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     category_id: int = Field(foreign_key="category.id", unique=True, index=True)

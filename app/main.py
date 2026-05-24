@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +26,7 @@ from app.models import (
     BudgetOverride,
     Category,
     CategoryRule,
+    CreditCardInvoiceMonth,
     DescriptionCategoryRule,
     IgnoredDescriptionRule,
     Item,
@@ -167,6 +169,78 @@ def _is_credit_card_payment_transaction(
         for pattern in CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS
         if pattern
     )
+
+
+def _credit_card_payment_transactions(
+    session: Session,
+    start_date: date,
+    end_date: date,
+) -> list[Transaction]:
+    accounts_by_id = {
+        account.id: account for account in session.exec(select(Account)).all()
+    }
+    transactions = session.exec(
+        select(Transaction)
+        .where(Transaction.date >= start_date, Transaction.date <= end_date)
+        .order_by(Transaction.date.asc())
+    ).all()
+    return [
+        tx
+        for tx in transactions
+        if _is_credit_card_payment_transaction(tx, accounts_by_id)
+    ]
+
+
+def _refresh_credit_card_invoice_snapshots(
+    session: Session,
+    months: int = DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
+) -> int:
+    today = date.today()
+    month_keys = _last_month_keys(months, today)
+    first_year, first_month = month_keys[0].split("-")
+    start_date = date(int(first_year), int(first_month), 1)
+    payment_transactions = _credit_card_payment_transactions(
+        session,
+        start_date,
+        today,
+    )
+
+    by_month: Dict[str, list[Transaction]] = defaultdict(list)
+    for tx in payment_transactions:
+        by_month[_month_key(tx.date)].append(tx)
+
+    refreshed_count = 0
+    now = datetime.utcnow()
+    existing_months = {
+        snapshot.year_month
+        for snapshot in session.exec(select(CreditCardInvoiceMonth)).all()
+        if snapshot.year_month in month_keys
+    }
+    for month in month_keys:
+        txs = by_month.get(month, [])
+        if not txs and month not in existing_months:
+            continue
+        month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        statement = sqlite_insert(CreditCardInvoiceMonth).values(
+            year_month=month,
+            total=month_total,
+            payment_count=len(txs),
+            captured_at=now,
+            updated_at=now,
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=["year_month"],
+            set_={
+                "total": month_total,
+                "payment_count": len(txs),
+                "updated_at": now,
+            },
+        )
+        session.execute(statement)
+        refreshed_count += 1
+
+    session.commit()
+    return refreshed_count
 
 
 def _filter_ignored_transactions(
@@ -353,11 +427,13 @@ def _sync_item(item_id: str, session: Session) -> Dict[str, int]:
         session.add(sync_state)
 
     session.commit()
+    refreshed_invoice_months = _refresh_credit_card_invoice_snapshots(session)
     return {
         "credit_accounts": len(credit_accounts),
         "fetched_transactions": fetched_transactions,
         "new_transactions": new_transactions,
         "updated_transactions": updated_transactions,
+        "refreshed_invoice_months": refreshed_invoice_months,
     }
 
 
@@ -1022,27 +1098,26 @@ def credit_card_payments_monthly(
     months: int = DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
     session: Session = Depends(get_session),
 ):
-    """Credit-card bill payments for the last N months, zero-filled by month."""
+    """Credit-card bill payments for the last N months, backed by local snapshots."""
     if months < 1 or months > 24:
         raise HTTPException(400, "months must be between 1 and 24")
+
+    _refresh_credit_card_invoice_snapshots(session, months)
 
     today = date.today()
     month_keys = _last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
     start_date = date(int(first_year), int(first_month), 1)
-    accounts_by_id = {
-        account.id: account for account in session.exec(select(Account)).all()
+    payment_transactions = _credit_card_payment_transactions(
+        session,
+        start_date,
+        today,
+    )
+    snapshots = {
+        snapshot.year_month: snapshot
+        for snapshot in session.exec(select(CreditCardInvoiceMonth)).all()
+        if snapshot.year_month in month_keys
     }
-    transactions = session.exec(
-        select(Transaction)
-        .where(Transaction.date >= start_date, Transaction.date <= today)
-        .order_by(Transaction.date.asc())
-    ).all()
-    payment_transactions = [
-        tx
-        for tx in transactions
-        if _is_credit_card_payment_transaction(tx, accounts_by_id)
-    ]
 
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
     for tx in payment_transactions:
@@ -1051,16 +1126,20 @@ def credit_card_payments_monthly(
             by_month[month].append(tx)
 
     total = Decimal("0")
+    total_count = 0
     output_months = []
     for month in month_keys:
+        snapshot = snapshots.get(month)
         txs = by_month[month]
-        month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        month_total = snapshot.total if snapshot is not None else Decimal("0")
+        month_count = snapshot.payment_count if snapshot is not None else 0
         total += month_total
+        total_count += month_count
         output_months.append(
             {
                 "month": month,
                 "total": float(month_total),
-                "count": len(txs),
+                "count": month_count,
                 "transactions": [
                     {
                         "id": tx.id,
@@ -1077,8 +1156,35 @@ def credit_card_payments_monthly(
 
     return {
         "total": float(total),
-        "total_count": len(payment_transactions),
+        "total_count": total_count,
         "months": output_months,
+    }
+
+
+@app.get("/credit-card-payments/history")
+def credit_card_payments_history(session: Session = Depends(get_session)):
+    """All locally preserved monthly credit-card bill totals."""
+    _refresh_credit_card_invoice_snapshots(session)
+
+    snapshots = session.exec(
+        select(CreditCardInvoiceMonth).order_by(CreditCardInvoiceMonth.year_month.asc())
+    ).all()
+    total = sum((snapshot.total for snapshot in snapshots), Decimal("0"))
+    total_count = sum(snapshot.payment_count for snapshot in snapshots)
+    return {
+        "total": float(total),
+        "total_count": total_count,
+        "month_count": len(snapshots),
+        "months": [
+            {
+                "month": snapshot.year_month,
+                "total": float(snapshot.total),
+                "count": snapshot.payment_count,
+                "captured_at": snapshot.captured_at.isoformat(),
+                "updated_at": snapshot.updated_at.isoformat(),
+            }
+            for snapshot in snapshots
+        ],
     }
 
 
