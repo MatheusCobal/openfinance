@@ -129,8 +129,8 @@ def refresh_monthly_balance_snapshots(
     months: int = DEFAULT_MONTHLY_BALANCE_MONTHS,
 ) -> tuple[int, int, int]:
     """Refresh all three snapshot tables and return (income_count, invoice_count, balance_count)."""
-    income_count = refresh_bank_income_snapshots(session, months)
-    invoice_count = refresh_credit_card_invoice_snapshots(session, months)
+    refreshed_income_count = refresh_bank_income_snapshots(session, months)
+    refreshed_invoice_count = refresh_credit_card_invoice_snapshots(session, months)
 
     today = date.today()
     month_keys = last_month_keys(months, today)
@@ -169,11 +169,11 @@ def refresh_monthly_balance_snapshots(
         invoice_snapshot = invoice_snapshots.get(month)
         spend_txs = card_spend_by_month.get(month, [])
         income = income_snapshot.total if income_snapshot is not None else Decimal("0")
-        income_count = income_snapshot.income_count if income_snapshot else 0
+        income_transaction_count = income_snapshot.income_count if income_snapshot else 0
         invoice_paid = (
             invoice_snapshot.total if invoice_snapshot is not None else Decimal("0")
         )
-        invoice_count = invoice_snapshot.payment_count if invoice_snapshot else 0
+        invoice_payment_count = invoice_snapshot.payment_count if invoice_snapshot else 0
         card_spend = sum((abs(tx.amount) for tx in spend_txs), Decimal("0"))
         card_spend_count = len(spend_txs)
 
@@ -194,9 +194,9 @@ def refresh_monthly_balance_snapshots(
             invoice_paid=invoice_paid,
             net_by_purchase_month=net_by_purchase_month,
             net_cashflow=net_cashflow,
-            income_count=income_count,
+            income_count=income_transaction_count,
             card_spend_count=card_spend_count,
-            invoice_payment_count=invoice_count,
+            invoice_payment_count=invoice_payment_count,
             captured_at=now,
             updated_at=now,
         )
@@ -208,9 +208,9 @@ def refresh_monthly_balance_snapshots(
                 "invoice_paid": invoice_paid,
                 "net_by_purchase_month": net_by_purchase_month,
                 "net_cashflow": net_cashflow,
-                "income_count": income_count,
+                "income_count": income_transaction_count,
                 "card_spend_count": card_spend_count,
-                "invoice_payment_count": invoice_count,
+                "invoice_payment_count": invoice_payment_count,
                 "updated_at": now,
             },
         )
@@ -218,4 +218,4 @@ def refresh_monthly_balance_snapshots(
         refreshed_count += 1
 
     session.commit()
-    return income_count, invoice_count, refreshed_count
+    return refreshed_income_count, refreshed_invoice_count, refreshed_count
