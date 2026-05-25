@@ -4,10 +4,6 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlmodel import Session, select
-
-from app.categorization import normalize_description
-from app.models import Transaction
 
 MAX_BUDGET_MONTH = 2100
 MIN_BUDGET_MONTH = 2000
@@ -33,14 +29,3 @@ def month_range(year_month: Optional[str] = None) -> tuple[str, date, date]:
 def validate_budget_target(monthly_target: Decimal) -> None:
     if monthly_target <= 0:
         raise HTTPException(400, "monthly_target must be > 0")
-
-
-def count_description_rule_matches(
-    pattern_normalized: str,
-    session: Session,
-) -> int:
-    return sum(
-        1
-        for tx in session.exec(select(Transaction)).all()
-        if pattern_normalized in normalize_description(tx.description)
-    )

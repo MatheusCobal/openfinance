@@ -6,11 +6,7 @@ from sqlmodel import Session, select
 
 from app.models import Account, AccountSync, Item, Transaction
 from app.pluggy_client import pluggy
-from app.services.snapshots import (
-    refresh_bank_income_snapshots,
-    refresh_credit_card_invoice_snapshots,
-    refresh_monthly_balance_snapshots,
-)
+from app.services.snapshots import refresh_monthly_balance_snapshots
 from app.services.transactions import TRACKED_ACCOUNT_TYPES
 
 SYNC_LOOKBACK_DAYS = 7
@@ -155,9 +151,11 @@ def sync_item(item_id: str, session: Session) -> Dict[str, int]:
         session.add(sync_state)
 
     session.commit()
-    refreshed_invoice_months = refresh_credit_card_invoice_snapshots(session)
-    refreshed_income_months = refresh_bank_income_snapshots(session)
-    refreshed_balance_months = refresh_monthly_balance_snapshots(session)
+    # refresh_monthly_balance_snapshots internally refreshes income and invoice
+    # snapshots first, so a single call is enough — no double work.
+    refreshed_income_months, refreshed_invoice_months, refreshed_balance_months = (
+        refresh_monthly_balance_snapshots(session)
+    )
     return {
         "tracked_accounts": len(tracked_accounts),
         "credit_accounts": synced_accounts_by_type.get("CREDIT", 0),

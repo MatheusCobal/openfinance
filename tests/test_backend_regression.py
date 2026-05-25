@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.categorization import normalize_description
 from app.database import get_session
@@ -328,6 +328,71 @@ class BackendRegressionTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["pattern_normalized"], "rendimentos")
         self.assertEqual(payload["affected_count"], 1)
+
+    def test_rule_upserts_are_idempotent(self):
+        first_response = self.client.post(
+            "/category-rules/description",
+            json={"pattern": "Cobasi Canoas", "category_id": 1},
+        )
+        second_response = self.client.post(
+            "/category-rules/description",
+            json={"pattern": "  cobasi   canoas  ", "category_id": 2},
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
+        self.assertEqual(second_response.json()["category_name"], "Pets")
+
+        first_response = self.client.post(
+            "/transaction-ignore-rules/description",
+            json={"pattern": "Pagamento recebido"},
+        )
+        second_response = self.client.post(
+            "/transaction-ignore-rules/description",
+            json={"pattern": " pagamento   recebido "},
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
+
+        first_response = self.client.post(
+            "/bank-income/exclusion-rules",
+            json={"pattern": "rendimentos"},
+        )
+        second_response = self.client.post(
+            "/bank-income/exclusion-rules",
+            json={"pattern": " RENDIMENTOS "},
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
+
+        with Session(self.engine) as session:
+            description_rules = session.exec(
+                select(DescriptionCategoryRule).where(
+                    DescriptionCategoryRule.pattern_normalized
+                    == normalize_description("Cobasi Canoas")
+                )
+            ).all()
+            ignored_rules = session.exec(
+                select(IgnoredDescriptionRule).where(
+                    IgnoredDescriptionRule.pattern_normalized
+                    == normalize_description("Pagamento recebido")
+                )
+            ).all()
+            bank_rules = session.exec(
+                select(BankIncomeExclusionRule).where(
+                    BankIncomeExclusionRule.pattern_normalized
+                    == normalize_description("rendimentos")
+                )
+            ).all()
+
+        self.assertEqual(len(description_rules), 1)
+        self.assertEqual(len(ignored_rules), 1)
+        self.assertEqual(len(bank_rules), 1)
 
     def test_http_validation_rejects_invalid_transaction_account_type(self):
         response = self.client.get(

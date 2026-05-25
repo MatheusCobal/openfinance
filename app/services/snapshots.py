@@ -127,9 +127,10 @@ def refresh_bank_income_snapshots(
 def refresh_monthly_balance_snapshots(
     session: Session,
     months: int = DEFAULT_MONTHLY_BALANCE_MONTHS,
-) -> int:
-    refresh_bank_income_snapshots(session, months)
-    refresh_credit_card_invoice_snapshots(session, months)
+) -> tuple[int, int, int]:
+    """Refresh all three snapshot tables and return (income_count, invoice_count, balance_count)."""
+    income_count = refresh_bank_income_snapshots(session, months)
+    invoice_count = refresh_credit_card_invoice_snapshots(session, months)
 
     today = date.today()
     month_keys = last_month_keys(months, today)
@@ -217,4 +218,4 @@ def refresh_monthly_balance_snapshots(
         refreshed_count += 1
 
     session.commit()
-    return refreshed_count
+    return income_count, invoice_count, refreshed_count

@@ -221,10 +221,6 @@ function renderCategories(stats, transactions) {
           `
           : '';
 
-      const pct = stats.total_spent > 0
-        ? Math.round((cat.total / stats.total_spent) * 100)
-        : 0;
-
       return `
         <details class="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <summary class="flex items-center gap-3 px-5 py-4 select-none cursor-pointer" style="background:linear-gradient(135deg,${hexWithAlpha(color, 0.12)} 0%,${hexWithAlpha(color, 0.05)} 100%)">
@@ -241,12 +237,7 @@ function renderCategories(stats, transactions) {
                 <span class="font-bold text-slate-900">${escapeHtml(cat.name)}</span>
                 <span class="font-bold tabular shrink-0" style="color:${color}">${currency.format(cat.total)}</span>
               </div>
-              <div class="flex items-center gap-3 mt-1.5">
-                <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:${hexWithAlpha(color, 0.15)}">
-                  <div class="bar-fill h-full rounded-full" style="width:${pct}%;background:${color}"></div>
-                </div>
-                <span class="text-xs text-slate-500 shrink-0">${cat.count} ${cat.count === 1 ? 'compra' : 'compras'} · ${pct}%</span>
-              </div>
+              <p class="text-xs text-slate-500 mt-1">${cat.count} ${cat.count === 1 ? 'compra' : 'compras'}</p>
             </div>
           </summary>
           <ul class="bg-white">${visibleRows}</ul>
