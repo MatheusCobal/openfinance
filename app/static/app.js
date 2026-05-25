@@ -127,9 +127,9 @@ function transactionAmountHtml(tx) {
 
 // ── Monthly overview strip ──────────────────────────────────────────────
 //
-// Always shows the CURRENT calendar month, independent of the dashboard's
-// period filter, since the month overview is a status snapshot rather
-// than a historical view.
+// Follows the selected dashboard period. The home intentionally supports
+// only the current month and the previous month, so this summary remains a
+// focused monthly snapshot instead of becoming another history screen.
 
 const FLOW_TINTS = {
   emerald: { text: 'text-emerald-700', iconBg: 'bg-emerald-100' },
@@ -184,40 +184,164 @@ function pluralSaidas(n) {
   return n === 1 ? '1 saída' : `${n.toLocaleString('pt-BR')} saídas`;
 }
 
-function renderMonthlyFlow(cashflowData, balanceData) {
+function pluralCompras(n) {
+  return n === 1 ? '1 compra' : `${n.toLocaleString('pt-BR')} compras`;
+}
+
+function monthKeyForDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+function monthKeyForPeriod(period) {
+  const today = new Date();
+  if (period === 'prev_month') {
+    return monthKeyForDate(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+  }
+  return monthKeyForDate(new Date(today.getFullYear(), today.getMonth(), 1));
+}
+
+function previousMonthKey(yyyymm) {
+  const [year, month] = yyyymm.split('-').map(Number);
+  return monthKeyForDate(new Date(year, month - 2, 1));
+}
+
+function findMonth(months, key) {
+  return Array.isArray(months) ? months.find((m) => m.month === key) : null;
+}
+
+function cashflowTransactionRow(tx, tint) {
+  const amount = Math.abs(Number(tx.amount) || 0);
+  const amountColor = tint === 'emerald' ? 'text-emerald-700' : 'text-red-700';
+  const sign = tint === 'emerald' ? '+' : '−';
+  return `
+    <li class="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 first:border-t-0">
+      <div class="min-w-0 flex-1 pr-4">
+        <p class="text-sm font-medium text-slate-900 truncate">${escapeHtml(tx.description || 'Sem descrição')}</p>
+        <p class="text-xs text-slate-500 mt-0.5">
+          ${formatDayLabel(tx.date)}${tx.account_name ? ` · ${escapeHtml(tx.account_name)}` : ''}
+        </p>
+      </div>
+      <p class="text-sm font-semibold tabular shrink-0 ${amountColor}">
+        ${sign}${currency.format(amount)}
+      </p>
+    </li>
+  `;
+}
+
+function cashflowListCard({ title, total, count, transactions, tint, emptyText }) {
+  const tintClasses = tint === 'emerald'
+    ? { value: 'text-emerald-700', dot: 'bg-emerald-500' }
+    : { value: 'text-red-700', dot: 'bg-red-500' };
+  const rows = transactions.slice(0, 8).map((tx) => cashflowTransactionRow(tx, tint)).join('');
+  const hiddenCount = Math.max(0, transactions.length - 8);
+  const totalText = currency.format(total || 0);
+  const countText = count === 1 ? '1 transação' : `${count.toLocaleString('pt-BR')} transações`;
+  return `
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-4 py-4 flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="size-2 rounded-full ${tintClasses.dot}"></span>
+            <h3 class="font-semibold text-slate-900">${escapeHtml(title)}</h3>
+          </div>
+          <p class="text-xs text-slate-500 mt-1">${countText}</p>
+        </div>
+        <p class="font-bold tabular ${tintClasses.value}">${totalText}</p>
+      </div>
+      ${
+        transactions.length > 0
+          ? `<ul>${rows}</ul>${hiddenCount > 0 ? `<p class="px-4 py-3 border-t border-slate-100 text-xs text-slate-500">+ ${hiddenCount.toLocaleString('pt-BR')} ${hiddenCount === 1 ? 'movimentação' : 'movimentações'} no histórico</p>` : ''}`
+          : `<p class="px-4 py-5 border-t border-slate-100 text-sm text-slate-500">${escapeHtml(emptyText)}</p>`
+      }
+    </div>
+  `;
+}
+
+function renderCashflowWidget(cashflowMonth) {
+  const section = document.getElementById('cashflow-widget-section');
+  const container = document.getElementById('cashflow-widget');
+  if (!section || !container) return;
+
+  const transactions = Array.isArray(cashflowMonth?.transactions)
+    ? cashflowMonth.transactions
+    : [];
+  const incomes = transactions
+    .filter((tx) => Number(tx.amount) > 0)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const outflows = transactions
+    .filter((tx) => Number(tx.amount) < 0)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  const hasActivity = incomes.length > 0 || outflows.length > 0;
+  if (!hasActivity) {
+    container.innerHTML = '';
+    section.classList.add('hidden');
+    return;
+  }
+
+  container.innerHTML = [
+    cashflowListCard({
+      title: 'Entradas',
+      total: cashflowMonth.income || 0,
+      count: cashflowMonth.income_count || incomes.length,
+      transactions: incomes,
+      tint: 'emerald',
+      emptyText: 'Nenhuma entrada bancária neste mês.',
+    }),
+    cashflowListCard({
+      title: 'Saídas',
+      total: cashflowMonth.outflow || 0,
+      count: cashflowMonth.outflow_count || outflows.length,
+      transactions: outflows,
+      tint: 'red',
+      emptyText: 'Nenhuma saída bancária neste mês.',
+    }),
+  ].join('');
+  section.classList.remove('hidden');
+}
+
+function hideCashflowWidget() {
+  const section = document.getElementById('cashflow-widget-section');
+  const container = document.getElementById('cashflow-widget');
+  if (container) container.innerHTML = '';
+  if (section) section.classList.add('hidden');
+}
+
+function renderMonthlyFlow(cashflowData, balanceData, selectedMonth) {
   const section = document.getElementById('monthly-flow-section');
   const container = document.getElementById('monthly-flow');
   const periodLabel = document.getElementById('monthly-flow-period');
   if (
     !cashflowData ||
     !Array.isArray(cashflowData.months) ||
-    cashflowData.months.length === 0
+    cashflowData.months.length === 0 ||
+    !balanceData ||
+    !Array.isArray(balanceData.months)
   ) {
     section.classList.add('hidden');
+    hideCashflowWidget();
     return;
   }
-  const current = cashflowData.months[cashflowData.months.length - 1];
-  const previous = cashflowData.months.length > 1
-    ? cashflowData.months[cashflowData.months.length - 2]
-    : null;
-  const balanceCurrent = balanceData?.months?.[balanceData.months.length - 1] || {};
-  const balancePrevious = balanceData?.months?.length > 1
-    ? balanceData.months[balanceData.months.length - 2]
-    : null;
+  const previousKey = previousMonthKey(selectedMonth);
+  const current = findMonth(cashflowData.months, selectedMonth) || {};
+  const previous = findMonth(cashflowData.months, previousKey);
+  const balanceCurrent = findMonth(balanceData.months, selectedMonth) || {};
+  const balancePrevious = findMonth(balanceData.months, previousKey);
 
-  // Hide the section entirely if the current month has no activity at all
-  // (avoids showing four R$ 0,00 cards for accounts that just synced).
-  const hasActivity = (current.income || 0) > 0
-    || (current.outflow || 0) > 0
-    || (balanceCurrent.card_spend || 0) > 0;
-  if (!hasActivity) {
-    section.classList.add('hidden');
-    return;
-  }
-
-  periodLabel.textContent = formatMonthLabel(current.month);
+  periodLabel.textContent = formatMonthLabel(selectedMonth);
 
   container.innerHTML = [
+    flowCard({
+      label: 'Fatura cartão',
+      icon: '💳',
+      value: balanceCurrent.card_spend || 0,
+      prev: balancePrevious ? balancePrevious.card_spend : null,
+      countLabel: pluralCompras(balanceCurrent.card_spend_count || 0),
+      tint: 'orange',
+      higherIsBetter: false,
+    }),
     flowCard({
       label: 'Entradas',
       icon: '💰',
@@ -236,40 +360,30 @@ function renderMonthlyFlow(cashflowData, balanceData) {
       tint: 'red',
       higherIsBetter: false,
     }),
-    flowCard({
-      label: 'Saldo bancário',
-      help: 'Entradas − saídas bancárias',
-      icon: '📊',
-      value: current.net || 0,
-      tint: (current.net || 0) >= 0 ? 'emerald' : 'red',
-      isNet: true,
-    }),
-    flowCard({
-      label: 'Gastos no cartão',
-      icon: '💳',
-      value: balanceCurrent.card_spend || 0,
-      prev: balancePrevious ? balancePrevious.card_spend : null,
-      countLabel: `${(balanceCurrent.card_spend_count || 0).toLocaleString('pt-BR')} ${balanceCurrent.card_spend_count === 1 ? 'compra' : 'compras'}`,
-      tint: 'orange',
-      higherIsBetter: false,
-    }),
   ].join('');
 
+  renderCashflowWidget(current);
   section.classList.remove('hidden');
 }
 
-async function loadMonthlyFlow() {
+async function loadMonthlyFlow(expectedVersion) {
   // Loaded independently from the main stats fetch so a failure here can't
   // take down the rest of the dashboard.
+  const selectedMonth = monthKeyForPeriod(activePeriod);
   try {
     const [cashflowResponse, balanceResponse] = await Promise.all([
       fetch('/bank-cashflow/monthly?months=12'),
       fetch('/monthly-balance?months=12'),
     ]);
-    if (!cashflowResponse.ok || !balanceResponse.ok) return;
+    if (expectedVersion !== loadVersion) return;
+    if (!cashflowResponse.ok || !balanceResponse.ok) {
+      hideCashflowWidget();
+      return;
+    }
     const cashflowData = await cashflowResponse.json();
     const balanceData = await balanceResponse.json();
-    renderMonthlyFlow(cashflowData, balanceData);
+    if (expectedVersion !== loadVersion) return;
+    renderMonthlyFlow(cashflowData, balanceData, selectedMonth);
   } catch (err) {
     console.error('monthly flow load failed:', err);
   }
@@ -553,15 +667,9 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Label for the year chip is computed at load time so it auto-updates when
-// the calendar year flips.
-const CURRENT_YEAR = new Date().getFullYear();
-
 const PERIODS = [
   { key: 'month', label: 'Este mês' },
   { key: 'prev_month', label: 'Mês anterior' },
-  { key: 'year', label: String(CURRENT_YEAR) },
-  { key: 'prev_year', label: String(CURRENT_YEAR - 1) },
 ];
 
 let activePeriod = 'month';
@@ -573,7 +681,7 @@ let activePeriod = 'month';
 let loadVersion = 0;
 
 function shouldShowMonthChart() {
-  return activePeriod === 'year' || activePeriod === 'prev_year';
+  return false;
 }
 
 function updateChartPanels() {
@@ -604,14 +712,6 @@ function rangeForPeriod(period) {
     const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     const last = new Date(today.getFullYear(), today.getMonth(), 0);
     return { from: isoDate(first), to: isoDate(last) };
-  }
-  if (period === 'year') {
-    const first = new Date(today.getFullYear(), 0, 1);
-    return { from: isoDate(first), to: todayIso };
-  }
-  if (period === 'prev_year') {
-    const year = today.getFullYear() - 1;
-    return { from: `${year}-01-01`, to: `${year}-12-31` };
   }
   return {};
 }
@@ -681,7 +781,7 @@ async function loadData() {
 
   // Cash-flow strip is fetched separately so its failure (or slowness)
   // doesn't block the dashboard's primary stats from rendering.
-  loadMonthlyFlow();
+  loadMonthlyFlow(myVersion);
 }
 
 function showToast(message, variant = 'info') {
