@@ -1,0 +1,33 @@
+from pathlib import Path
+
+from fastapi import APIRouter
+from fastapi.responses import FileResponse
+
+STATIC_DIR = Path(__file__).parents[1] / "static"
+
+router = APIRouter()
+
+
+@router.get("/", include_in_schema=False)
+def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@router.get("/historico", include_in_schema=False)
+def historico():
+    return FileResponse(STATIC_DIR / "historico.html")
+
+
+@router.get("/proximos", include_in_schema=False)
+def proximos():
+    return FileResponse(STATIC_DIR / "proximos.html")
+
+
+@router.get("/orcamento", include_in_schema=False)
+def orcamento():
+    return FileResponse(STATIC_DIR / "orcamento.html")
+
+
+@router.get("/health")
+def health():
+    return {"status": "ok"}

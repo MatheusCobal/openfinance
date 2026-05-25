@@ -1,6 +1,30 @@
 // Fallback color if a category somehow arrives without one (shouldn't happen
 // once seed_categories.py has been run).
 const FALLBACK_COLOR = '#64748b';
+
+function hexWithAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hex}${a}`;
+}
+
+function categoryIcon(name) {
+  const key = String(name).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const icons = {
+    mercado:        '🛒',
+    restaurantes:   '🍽️',
+    transporte:     '🚗',
+    saude:          '🩺',
+    pets:           '🐾',
+    casa:           '🏠',
+    lazer:          '🎮',
+    assinaturas:    '📺',
+    educacao:       '📚',
+    transferencias: '🔁',
+    outros:         '📦',
+  };
+  return icons[key] ?? '💳';
+}
 // Most users only care about the recent transactions. Render the first N
 // inside each category accordion; the rest stays one click away.
 const TX_PER_CATEGORY_INITIAL = 50;
@@ -20,7 +44,6 @@ const dayFormatter = new Intl.DateTimeFormat('pt-BR', {
   month: 'short',
 });
 
-let categoryChart = null;
 let monthChart = null;
 let availableCategories = [];
 let transactionsById = new Map();
@@ -63,47 +86,36 @@ function renderSummary(stats) {
   document.getElementById('subtitle').textContent = subtitle;
 }
 
-function renderCategoryChart(categories) {
-  const ctx = document.getElementById('chart-categories');
-  const colors = categories.map((c) => c.color || FALLBACK_COLOR);
-
-  if (categoryChart) categoryChart.destroy();
-
-  categoryChart = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: categories.map((c) => c.name),
-      datasets: [
-        {
-          data: categories.map((c) => c.total),
-          backgroundColor: colors,
-          borderWidth: 0,
-          hoverOffset: 6,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '65%',
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            boxWidth: 10,
-            boxHeight: 10,
-            padding: 12,
-            font: { size: 11 },
-          },
-        },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => ` ${ctx.label}: ${currency.format(ctx.parsed)}`,
-          },
-        },
-      },
-    },
-  });
+function renderCategoryBars(categories, totalSpent) {
+  const container = document.getElementById('category-bars');
+  if (!container) return;
+  if (categories.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  const max = categories.reduce((m, c) => Math.max(m, c.total), 0) || 1;
+  container.innerHTML = categories
+    .map((cat) => {
+      const pct = Math.round((cat.total / max) * 100);
+      const pctOfTotal =
+        totalSpent > 0 ? ((cat.total / totalSpent) * 100).toFixed(1) : '0.0';
+      const color = cat.color || FALLBACK_COLOR;
+      return `
+        <div class="flex items-center gap-3">
+          <div class="w-28 shrink-0 flex items-center gap-2 min-w-0">
+            <span class="text-sm leading-none">${categoryIcon(cat.name)}</span>
+            <span class="text-sm text-slate-700 font-medium truncate">${escapeHtml(cat.name)}</span>
+          </div>
+          <div class="flex-1 h-8 rounded-xl bg-slate-100 overflow-hidden">
+            <div class="bar-fill h-full rounded-xl flex items-center" style="width:${pct}%;background:${color};min-width:${cat.total > 0 ? '2.5rem' : '0'}">
+              <span class="text-white text-xs font-bold tabular px-2.5 truncate">${currency.format(cat.total)}</span>
+            </div>
+          </div>
+          <span class="text-xs text-slate-400 tabular w-10 text-right shrink-0">${pctOfTotal}%</span>
+        </div>
+      `;
+    })
+    .join('');
 }
 
 function renderMonthChart(months) {
@@ -209,27 +221,50 @@ function renderCategories(stats, transactions) {
           `
           : '';
 
+      const pct = stats.total_spent > 0
+        ? Math.round((cat.total / stats.total_spent) * 100)
+        : 0;
+
       return `
-        <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group">
-          <summary class="flex items-center gap-3 px-5 py-4 hover:bg-slate-50">
-            <span class="chevron text-slate-400">
+        <details class="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <summary class="flex items-center gap-3 px-5 py-4 select-none cursor-pointer" style="background:linear-gradient(135deg,${hexWithAlpha(color, 0.12)} 0%,${hexWithAlpha(color, 0.05)} 100%)">
+            <span class="chevron shrink-0" style="color:${color}">
               <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
               </svg>
             </span>
-            <span class="inline-block size-3 rounded-full shrink-0" style="background:${color}"></span>
-            <span class="font-medium text-slate-900 flex-1">${escapeHtml(cat.name)}</span>
-            <span class="text-xs text-slate-500 tabular">${cat.count} ${cat.count === 1 ? 'compra' : 'compras'}</span>
-            <span class="font-semibold tabular text-slate-900 ml-3">${currency.format(cat.total)}</span>
+            <div class="size-9 rounded-xl flex items-center justify-center shrink-0 text-lg leading-none" style="background:${hexWithAlpha(color, 0.18)}">
+              ${categoryIcon(cat.name)}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-3">
+                <span class="font-bold text-slate-900">${escapeHtml(cat.name)}</span>
+                <span class="font-bold tabular shrink-0" style="color:${color}">${currency.format(cat.total)}</span>
+              </div>
+              <div class="flex items-center gap-3 mt-1.5">
+                <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:${hexWithAlpha(color, 0.15)}">
+                  <div class="bar-fill h-full rounded-full" style="width:${pct}%;background:${color}"></div>
+                </div>
+                <span class="text-xs text-slate-500 shrink-0">${cat.count} ${cat.count === 1 ? 'compra' : 'compras'} · ${pct}%</span>
+              </div>
+            </div>
           </summary>
-          <ul>${visibleRows}</ul>
+          <ul class="bg-white">${visibleRows}</ul>
           ${moreSection}
         </details>
       `;
     })
     .join('');
 
-  container.innerHTML = html;
+  container.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">${html}</div>`;
+
+  // Span full width when a category accordion is open so the transaction
+  // list has room to breathe; collapse back to one column when closed.
+  container.querySelectorAll('details').forEach((det) => {
+    det.addEventListener('toggle', () => {
+      det.style.gridColumn = det.open ? '1 / -1' : '';
+    });
+  });
 
   // Wire up the "Ver mais" buttons to reveal the hidden rows.
   container.querySelectorAll('button.ver-mais').forEach((btn) => {
@@ -326,6 +361,13 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// Append a two-digit hex alpha byte to a #RRGGBB color string so it can be
+// used as a CSS background color with partial transparency.
+function hexWithAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hex}${a}`;
+}
+
 // Label for the year chip is computed at load time so it auto-updates when
 // the calendar year flips.
 const CURRENT_YEAR = new Date().getFullYear();
@@ -345,15 +387,8 @@ function shouldShowMonthChart() {
 
 function updateChartPanels() {
   const monthPanel = document.getElementById('month-chart-panel');
-  const categoryPanel = document.getElementById('category-chart-panel');
   const showMonthChart = shouldShowMonthChart();
-
   if (monthPanel) monthPanel.classList.toggle('hidden', !showMonthChart);
-  if (categoryPanel) {
-    categoryPanel.classList.toggle('lg:col-span-1', showMonthChart);
-    categoryPanel.classList.toggle('lg:col-span-3', !showMonthChart);
-  }
-
   if (!showMonthChart && monthChart) {
     monthChart.destroy();
     monthChart = null;
@@ -395,11 +430,10 @@ function renderPeriodFilter() {
   if (!container) return;
   container.innerHTML = PERIODS.map((p) => {
     const isActive = p.key === activePeriod;
-    const base =
-      'px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors';
+    const base = 'px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors';
     const cls = isActive
-      ? `${base} bg-indigo-600 text-white shadow-sm`
-      : `${base} bg-white border border-slate-200 text-slate-700 hover:bg-slate-100`;
+      ? `${base} bg-white text-indigo-700 shadow-sm`
+      : `${base} bg-white/20 border border-white/30 text-white hover:bg-white/30`;
     return `<button class="${cls}" data-period="${p.key}">${p.label}</button>`;
   }).join('');
   container.querySelectorAll('button[data-period]').forEach((btn) => {
@@ -446,7 +480,7 @@ async function loadData() {
   availableCategories = await categoriesResponse.json();
 
   renderSummary(stats);
-  renderCategoryChart(stats.categories);
+  renderCategoryBars(stats.categories, stats.total_spent);
   updateChartPanels();
   if (shouldShowMonthChart()) renderMonthChart(stats.months);
   renderCategories(stats, transactions);

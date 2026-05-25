@@ -64,6 +64,30 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function hexWithAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hex}${a}`;
+}
+
+function categoryIcon(name) {
+  const key = String(name).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const icons = {
+    mercado:        '🛒',
+    restaurantes:   '🍽️',
+    transporte:     '🚗',
+    saude:          '🩺',
+    pets:           '🐾',
+    casa:           '🏠',
+    lazer:          '🎮',
+    assinaturas:    '📺',
+    educacao:       '📚',
+    transferencias: '🔁',
+    outros:         '📦',
+  };
+  return icons[key] ?? '💳';
+}
+
 function statusStyles(status) {
   if (status === 'over') return { bar: 'bg-red-500', text: 'text-red-600' };
   if (status === 'warning') return { bar: 'bg-amber-500', text: 'text-amber-600' };
@@ -120,57 +144,58 @@ function renderMonthControls() {
 function renderCard(item) {
   const color = item.category_color || FALLBACK_COLOR;
   const hasBudget = item.target !== null;
-  const pct = hasBudget && item.progress_pct !== null
-    ? Math.min(item.progress_pct, 100)
-    : 0;
-  const overshoot = hasBudget && item.progress_pct > 100;
-  const styles = statusStyles(item.status);
-  const txText = pluralCompras(item.count);
-  const details = [
-    `Realizado ${currency.format(item.actual_spent)}`,
-    item.future_spent > 0 ? `futuro ${currency.format(item.future_spent)}` : null,
-  ].filter(Boolean).join(' · ');
 
-  const right = hasBudget
-    ? `
-      <div class="text-right shrink-0 ml-3">
-        <p class="text-sm font-semibold tabular text-slate-900">
-          ${currency.format(item.projected_spent)} / ${currency.format(item.target)}
-        </p>
-        <p class="text-xs ${styles.text} font-medium tabular mt-0.5">
-          ${item.progress_pct.toFixed(0)}%${overshoot ? ' · ultrapassou' : ''}
-        </p>
+  // ── No budget: dashed placeholder card ───────────────────────
+  if (!hasBudget) {
+    return `
+      <div class="rounded-2xl border-2 border-dashed border-slate-200 p-5 flex items-center gap-4 category-row cursor-pointer hover:border-slate-300 hover:bg-slate-50 transition-all" data-category-id="${item.category_id}">
+        <div class="size-10 rounded-xl flex items-center justify-center shrink-0 text-xl leading-none" style="background:${hexWithAlpha(color, 0.15)}">
+          ${categoryIcon(item.category_name)}
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-slate-900">${escapeHtml(item.category_name)}</p>
+          <p class="text-xs text-slate-500 mt-0.5 tabular">${currency.format(item.actual_spent)} gastos · ${pluralCompras(item.count)}</p>
+        </div>
+        <button class="set-budget shrink-0 text-sm font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors" data-category-id="${item.category_id}">
+          + Meta
+        </button>
       </div>
-    `
-    : `
-      <button
-        class="set-budget shrink-0 ml-3 text-sm font-medium text-indigo-600 hover:text-indigo-700"
-        data-category-id="${item.category_id}"
-      >
-        Definir meta
-      </button>
     `;
+  }
+
+  // ── Has budget: rich card with tinted header ──────────────────
+  const pct = item.progress_pct !== null ? Math.min(item.progress_pct, 100) : 0;
+  const overshoot = item.progress_pct > 100;
+  const styles = statusStyles(item.status);
+  const headerBg = `linear-gradient(135deg,${hexWithAlpha(color, 0.12)} 0%,${hexWithAlpha(color, 0.05)} 100%)`;
 
   return `
-    <div
-      class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm category-row"
-      data-category-id="${item.category_id}"
-    >
-      <div class="flex items-center gap-3 mb-3">
-        <span class="inline-block size-3 rounded-full shrink-0" style="background:${color}"></span>
-        <div class="min-w-0 flex-1">
-          <h3 class="font-medium text-slate-900 truncate">${escapeHtml(item.category_name)}</h3>
-          <p class="text-xs text-slate-500 tabular mt-0.5">
-            ${txText}${hasBudget ? ` · ${escapeHtml(scopeText(item.target_scope))}` : ''} · ${escapeHtml(details)}
-          </p>
+    <div class="rounded-2xl border border-slate-200 shadow-sm overflow-hidden cursor-pointer category-row" data-category-id="${item.category_id}">
+      <div class="px-5 py-4" style="background:${headerBg}">
+        <div class="flex items-start gap-3 mb-3">
+          <div class="size-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 text-xl leading-none" style="background:${hexWithAlpha(color, 0.20)}">
+            ${categoryIcon(item.category_name)}
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-slate-900 leading-tight">${escapeHtml(item.category_name)}</p>
+            <p class="text-xs text-slate-500 mt-0.5">${pluralCompras(item.count)} · ${escapeHtml(scopeText(item.target_scope))}</p>
+          </div>
+          <div class="text-right shrink-0 ml-2">
+            <p class="text-2xl font-bold tabular ${styles.text}">${item.progress_pct.toFixed(0)}%</p>
+            <p class="text-xs text-slate-500 tabular mt-0.5">
+              ${currency.format(item.projected_spent)}<span class="text-slate-300"> / </span>${currency.format(item.target)}
+            </p>
+          </div>
         </div>
-        ${right}
+        <div class="h-3 rounded-full overflow-hidden" style="background:${hexWithAlpha(color, 0.18)}">
+          <div class="bar h-full rounded-full ${styles.bar}" style="width:${pct}%"></div>
+        </div>
       </div>
-      ${hasBudget ? `
-        <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
-          <div class="bar h-full ${styles.bar}" style="width:${pct}%"></div>
-        </div>
-      ` : ''}
+      <div class="px-5 py-3 bg-white flex items-center flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 border-t border-slate-100">
+        <span class="tabular">Realizado <span class="font-semibold text-slate-700">${currency.format(item.actual_spent)}</span></span>
+        ${item.future_spent > 0 ? `<span class="text-slate-300">·</span><span class="tabular">Futuro <span class="font-semibold text-slate-700">${currency.format(item.future_spent)}</span></span>` : ''}
+        ${overshoot ? `<span class="text-slate-300">·</span><span class="font-semibold text-red-600">Ultrapassou ${currency.format(item.projected_spent - item.target)}</span>` : ''}
+      </div>
     </div>
   `;
 }
@@ -200,10 +225,10 @@ function renderSummary() {
 
   const bar = document.getElementById('summary-bar');
   bar.style.width = `${Math.min(pct, 100)}%`;
-  bar.classList.remove('bg-indigo-600', 'bg-emerald-500', 'bg-amber-500', 'bg-red-500');
-  if (pct >= 100) bar.classList.add('bg-red-500');
-  else if (pct >= 80) bar.classList.add('bg-amber-500');
-  else bar.classList.add('bg-emerald-500');
+  // Use inline color so the bar stays legible on the dark gradient hero.
+  if (pct >= 100) bar.style.background = '#f87171';      // red-400
+  else if (pct >= 80) bar.style.background = '#fbbf24';  // amber-400
+  else bar.style.background = '#34d399';                 // emerald-400
 }
 
 async function loadData() {
@@ -240,10 +265,7 @@ async function loadData() {
     const id = parseInt(row.dataset.categoryId, 10);
     const item = progressData.items.find((i) => i.category_id === id);
     if (!item) return;
-    if (item.target !== null) {
-      row.style.cursor = 'pointer';
-      row.addEventListener('click', () => openEdit(item));
-    }
+    row.addEventListener('click', () => openEdit(item));
   });
   cards.querySelectorAll('button.set-budget').forEach((btn) => {
     btn.addEventListener('click', (e) => {

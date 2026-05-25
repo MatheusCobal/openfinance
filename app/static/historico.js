@@ -10,6 +10,30 @@ const monthFormatter = new Intl.DateTimeFormat('pt-BR', {
 
 const charts = new Map();
 const FALLBACK_COLOR = '#64748b';
+
+function hexWithAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hex}${a}`;
+}
+
+function categoryIcon(name) {
+  const key = String(name).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const icons = {
+    mercado:        '🛒',
+    restaurantes:   '🍽️',
+    transporte:     '🚗',
+    saude:          '🩺',
+    pets:           '🐾',
+    casa:           '🏠',
+    lazer:          '🎮',
+    assinaturas:    '📺',
+    educacao:       '📚',
+    transferencias: '🔁',
+    outros:         '📦',
+  };
+  return icons[key] ?? '💳';
+}
 const INVOICE_COLOR = '#475569';
 const HISTORY_TABS = [
   { key: 'categories', label: 'Categorias' },
@@ -115,7 +139,7 @@ function renderCard(category, months) {
     <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
       <div class="flex items-baseline justify-between mb-1">
         <div class="flex items-center gap-2 min-w-0">
-          <span class="inline-block size-3 rounded-full shrink-0" style="background:${color}"></span>
+          <span class="size-8 rounded-lg flex items-center justify-center shrink-0 text-base leading-none" style="background:${hexWithAlpha(color, 0.12)}">${categoryIcon(category.name)}</span>
           <h3 class="font-semibold text-slate-900 truncate">${escapeHtml(category.name)}</h3>
         </div>
         <p class="font-bold tabular text-slate-900 shrink-0 ml-3">${currency.format(category.total)}</p>

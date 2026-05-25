@@ -20,6 +20,30 @@ const dayFormatter = new Intl.DateTimeFormat('pt-BR', {
 
 const FALLBACK_COLOR = '#64748b';
 
+function hexWithAlpha(hex, alpha) {
+  const a = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hex}${a}`;
+}
+
+function categoryIcon(name) {
+  const key = String(name).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const icons = {
+    mercado:        '🛒',
+    restaurantes:   '🍽️',
+    transporte:     '🚗',
+    saude:          '🩺',
+    pets:           '🐾',
+    casa:           '🏠',
+    lazer:          '🎮',
+    assinaturas:    '📺',
+    educacao:       '📚',
+    transferencias: '🔁',
+    outros:         '📦',
+  };
+  return icons[key] ?? '💳';
+}
+
 let allData = null;
 let selectedMonth = null;
 let monthChart = null;
@@ -245,7 +269,7 @@ function renderCategories() {
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
               </svg>
             </span>
-            <span class="inline-block size-3 rounded-full shrink-0" style="background:${color}"></span>
+            <span class="size-8 rounded-lg flex items-center justify-center shrink-0 text-base leading-none" style="background:${hexWithAlpha(color, 0.12)}">${categoryIcon(category.name)}</span>
             <span class="font-medium text-slate-900 flex-1">${escapeHtml(category.name)}</span>
             <span class="text-xs text-slate-500 tabular">${pluralParcelas(category.count)}</span>
             <span class="font-semibold tabular text-slate-900 ml-3">${currency.format(category.total)}</span>

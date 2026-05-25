@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
     <title>Próximos · OpenFinance</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%AD%3C/text%3E%3C/svg%3E" />
     <script src="https://cdn.tailwindcss.com"></script>
@@ -23,136 +24,136 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     />
     <style>
-      body {
-        font-feature-settings: 'cv11', 'ss01';
-        -webkit-font-smoothing: antialiased;
-      }
-      .tabular {
-        font-variant-numeric: tabular-nums;
-      }
-      details > summary {
-        list-style: none;
-        cursor: pointer;
-      }
-      details > summary::-webkit-details-marker {
-        display: none;
-      }
-      details[open] .chevron {
-        transform: rotate(90deg);
-      }
-      .chevron {
-        transition: transform 0.15s ease;
-      }
-      /* Horizontal-scrolling chip strip without an ugly scrollbar */
-      .chip-strip {
-        scrollbar-width: thin;
-      }
-      .chip-strip::-webkit-scrollbar {
-        height: 6px;
-      }
-      .chip-strip::-webkit-scrollbar-thumb {
-        background: #e2e8f0;
-        border-radius: 3px;
-      }
+      body { font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
+      .tabular { font-variant-numeric: tabular-nums; }
+      details > summary { list-style: none; cursor: pointer; }
+      details > summary::-webkit-details-marker { display: none; }
+      details[open] .chevron { transform: rotate(90deg); }
+      .chevron { transition: transform 0.15s ease; }
+      .chip-strip { scrollbar-width: thin; }
+      .chip-strip::-webkit-scrollbar { height: 6px; }
+      .chip-strip::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
     </style>
   </head>
-  <body class="bg-slate-50 text-slate-900 font-sans">
-    <div class="mx-auto max-w-6xl px-6 py-10">
-      <header class="flex items-center justify-between mb-8 gap-4">
-        <div>
-          <nav class="flex items-center gap-4 text-sm mb-3">
-            <a href="/" class="text-slate-500 hover:text-slate-900">Dashboard</a>
-            <span class="text-slate-300">/</span>
-            <a href="/historico" class="text-slate-500 hover:text-slate-900">Histórico</a>
-            <span class="text-slate-300">/</span>
-            <span class="text-slate-900 font-medium">Próximos</span>
-            <span class="text-slate-300">/</span>
-            <a href="/orcamento" class="text-slate-500 hover:text-slate-900">Orçamento</a>
-          </nav>
-          <h1 class="text-3xl font-bold tracking-tight">Próximos gastos</h1>
-          <p class="text-sm text-slate-500 mt-1" id="subtitle">Carregando…</p>
-        </div>
-        <button
-          id="refresh"
-          class="text-sm font-medium text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5"
-          title="Recarregar dados"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="size-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M4 4v5h5M20 20v-5h-5M5 9a8 8 0 0114-3M19 15a8 8 0 01-14 3"
-            />
+  <body class="bg-slate-50 text-slate-900 font-sans min-h-screen" style="color-scheme:light">
+
+    <!-- ── Sidebar ──────────────────────────────────────────────── -->
+    <aside class="fixed inset-y-0 left-0 w-56 bg-white border-r border-slate-200 flex flex-col z-30">
+      <div class="px-5 h-16 flex items-center border-b border-slate-100 shrink-0">
+        <a href="/" class="flex items-center gap-3 min-w-0">
+          <span class="size-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-base select-none shrink-0">💳</span>
+          <span class="font-bold text-slate-900 text-sm truncate">OpenFinance</span>
+        </a>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
           </svg>
-          Atualizar
-        </button>
+          Dashboard
+        </a>
+        <a href="/historico" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+          </svg>
+          Histórico
+        </a>
+        <a href="/proximos" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+          </svg>
+          Próximos
+        </a>
+        <a href="/orcamento" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
+          </svg>
+          Orçamento
+        </a>
+      </nav>
+    </aside>
+
+    <!-- ── Page shell (right of sidebar) ───────────────────────── -->
+    <div class="ml-56 min-h-screen flex flex-col">
+
+      <!-- Top bar -->
+      <header class="bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between gap-4 shrink-0">
+        <div class="min-w-0">
+          <h1 class="text-lg font-bold text-slate-900">Próximos gastos</h1>
+          <p class="text-xs text-slate-500 truncate" id="subtitle">Carregando…</p>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button id="refresh"
+            class="text-sm font-medium text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            title="Recarregar dados">
+            <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M5 9a8 8 0 0114-3M19 15a8 8 0 01-14 3" />
+            </svg>
+            Atualizar
+          </button>
+        </div>
       </header>
 
-      <section id="overview" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Próxima fatura</p>
-          <p class="mt-2 text-2xl font-bold tabular" id="summary-next-total">—</p>
-          <p class="text-xs text-slate-500 mt-1" id="summary-next-label">—</p>
-        </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">3 meses</p>
-          <p class="mt-2 text-2xl font-bold tabular" id="summary-quarter-total">—</p>
-          <p class="text-xs text-slate-500 mt-1" id="summary-quarter-count">—</p>
-        </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total futuro</p>
-          <p class="mt-2 text-2xl font-bold tabular" id="summary-future-total">—</p>
-          <p class="text-xs text-slate-500 mt-1" id="summary-future-count">—</p>
-        </div>
-        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior fatura</p>
-          <p class="mt-2 text-2xl font-bold tabular" id="summary-largest-total">—</p>
-          <p class="text-xs text-slate-500 mt-1" id="summary-largest-label">—</p>
-        </div>
-      </section>
+      <!-- Content -->
+      <main class="flex-1 px-8 py-6">
 
-      <section id="month-chart-panel" class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6">
-        <h2 class="font-semibold text-slate-900 mb-4">Próximos meses</h2>
-        <div class="relative h-64">
-          <canvas id="month-chart"></canvas>
-        </div>
-      </section>
-
-      <div
-        id="chip-strip"
-        class="chip-strip flex gap-2 overflow-x-auto pb-2 mb-6"
-      ></div>
-
-      <div
-        id="month-summary"
-        class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6 hidden"
-      >
-        <div class="flex items-baseline justify-between">
-          <div>
-            <p class="text-xs uppercase tracking-wider text-slate-500 font-medium" id="month-label">—</p>
-            <p class="mt-1 text-3xl font-bold tabular" id="month-total">—</p>
+        <section id="overview" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Próxima fatura</p>
+            <p class="mt-2 text-2xl font-bold tabular" id="summary-next-total">—</p>
+            <p class="text-xs text-slate-500 mt-1" id="summary-next-label">—</p>
           </div>
-          <p class="text-sm text-slate-500 tabular" id="month-count">—</p>
+          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">3 meses</p>
+            <p class="mt-2 text-2xl font-bold tabular" id="summary-quarter-total">—</p>
+            <p class="text-xs text-slate-500 mt-1" id="summary-quarter-count">—</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total futuro</p>
+            <p class="mt-2 text-2xl font-bold tabular" id="summary-future-total">—</p>
+            <p class="text-xs text-slate-500 mt-1" id="summary-future-count">—</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior fatura</p>
+            <p class="mt-2 text-2xl font-bold tabular" id="summary-largest-total">—</p>
+            <p class="text-xs text-slate-500 mt-1" id="summary-largest-label">—</p>
+          </div>
+        </section>
+
+        <section id="month-chart-panel" class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6">
+          <h2 class="font-semibold text-slate-900 mb-4">Próximos meses</h2>
+          <div class="relative h-64">
+            <canvas id="month-chart"></canvas>
+          </div>
+        </section>
+
+        <div id="chip-strip" class="chip-strip flex gap-2 overflow-x-auto pb-2 mb-6"></div>
+
+        <div
+          id="month-summary"
+          class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6 hidden"
+        >
+          <div class="flex items-baseline justify-between">
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-500 font-medium" id="month-label">—</p>
+              <p class="mt-1 text-3xl font-bold tabular" id="month-total">—</p>
+            </div>
+            <p class="text-sm text-slate-500 tabular" id="month-count">—</p>
+          </div>
         </div>
-      </div>
 
-      <section id="categories" class="space-y-3"></section>
+        <section id="categories" class="space-y-3"></section>
 
-      <div id="empty" class="hidden text-center py-16">
-        <p class="text-slate-500">Nenhuma parcela futura encontrada.</p>
-        <p class="text-sm text-slate-400 mt-1">
-          Você está em dia ou ainda não conectou contas com parcelamento.
-        </p>
-      </div>
+        <div id="empty" class="hidden text-center py-16">
+          <p class="text-slate-500">Nenhuma parcela futura encontrada.</p>
+          <p class="text-sm text-slate-400 mt-1">
+            Você está em dia ou ainda não conectou contas com parcelamento.
+          </p>
+        </div>
+      </main>
     </div>
 
-  <script src="/static/proximos.js?v=20260524-2"></script>
-</body>
+    <script src="/static/proximos.js?v=20260525-1"></script>
+  </body>
 </html>

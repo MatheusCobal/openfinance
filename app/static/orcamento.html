@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
     <title>Orçamento · OpenFinance</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AF%3C/text%3E%3C/svg%3E" />
     <script src="https://cdn.tailwindcss.com"></script>
@@ -22,99 +23,136 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     />
     <style>
-      body {
-        font-feature-settings: 'cv11', 'ss01';
-        -webkit-font-smoothing: antialiased;
-      }
-      .tabular {
-        font-variant-numeric: tabular-nums;
-      }
-      .bar {
-        transition: width 0.4s ease;
-      }
+      body { font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
+      .tabular { font-variant-numeric: tabular-nums; }
+      .bar { transition: width 0.4s ease; }
     </style>
   </head>
-  <body class="bg-slate-50 text-slate-900 font-sans">
-    <div class="mx-auto max-w-3xl px-6 py-10">
-      <header class="mb-10">
-        <nav class="flex items-center gap-4 text-sm mb-3">
-          <a href="/" class="text-slate-500 hover:text-slate-900">Dashboard</a>
-          <span class="text-slate-300">/</span>
-          <a href="/historico" class="text-slate-500 hover:text-slate-900">Histórico</a>
-          <span class="text-slate-300">/</span>
-          <a href="/proximos" class="text-slate-500 hover:text-slate-900">Próximos</a>
-          <span class="text-slate-300">/</span>
-          <span class="text-slate-900 font-medium">Orçamento</span>
-        </nav>
-        <h1 class="text-3xl font-bold tracking-tight">Orçamento mensal</h1>
-        <p class="text-sm text-slate-500 mt-1" id="subtitle">Carregando…</p>
+  <body class="bg-slate-50 text-slate-900 font-sans min-h-screen" style="color-scheme:light">
+
+    <!-- ── Sidebar ──────────────────────────────────────────────── -->
+    <aside class="fixed inset-y-0 left-0 w-56 bg-white border-r border-slate-200 flex flex-col z-30">
+      <div class="px-5 h-16 flex items-center border-b border-slate-100 shrink-0">
+        <a href="/" class="flex items-center gap-3 min-w-0">
+          <span class="size-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-base select-none shrink-0">💳</span>
+          <span class="font-bold text-slate-900 text-sm truncate">OpenFinance</span>
+        </a>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+          </svg>
+          Dashboard
+        </a>
+        <a href="/historico" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+          </svg>
+          Histórico
+        </a>
+        <a href="/proximos" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+          </svg>
+          Próximos
+        </a>
+        <a href="/orcamento" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700">
+          <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
+          </svg>
+          Orçamento
+        </a>
+      </nav>
+    </aside>
+
+    <!-- ── Page shell ───────────────────────────────────────────── -->
+    <div class="ml-56 min-h-screen flex flex-col">
+
+      <!-- Top bar -->
+      <header class="bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between gap-4 shrink-0">
+        <div class="min-w-0">
+          <h1 class="text-lg font-bold text-slate-900">Orçamento mensal</h1>
+          <p class="text-xs text-slate-500 truncate" id="subtitle">Carregando…</p>
+        </div>
       </header>
 
+      <!-- Toast -->
       <div
         id="toast"
-        class="hidden fixed top-6 right-6 z-50 max-w-sm rounded-xl bg-slate-900 text-white text-sm px-4 py-3 shadow-lg"
+        class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-xl text-white text-sm px-4 py-3 shadow-lg"
       ></div>
 
-      <section class="flex flex-wrap items-center gap-2 mb-6">
-        <button
-          id="prev-month"
-          class="size-9 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white inline-flex items-center justify-center"
-          title="Mês anterior"
-          aria-label="Mês anterior"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div
-          id="month-pill"
-          class="h-9 rounded-lg border border-slate-200 bg-white px-4 inline-flex items-center text-sm font-medium text-slate-900 tabular"
-        >
-          —
-        </div>
-        <button
-          id="next-month"
-          class="size-9 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white inline-flex items-center justify-center"
-          title="Próximo mês"
-          aria-label="Próximo mês"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        <button
-          id="current-month"
-          class="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-100"
-        >
-          Mês atual
-        </button>
-      </section>
+      <!-- Content -->
+      <main class="flex-1 px-8 py-6">
 
-      <section
-        id="summary"
-        class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6 hidden"
-      >
-        <div class="flex items-baseline justify-between mb-2">
-          <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Projetado / Meta</p>
-          <p class="text-sm tabular text-slate-500" id="summary-pct">—</p>
-        </div>
-        <p class="text-2xl font-bold tabular mb-3" id="summary-text">—</p>
-        <p class="text-xs text-slate-500 tabular mb-3" id="summary-detail">—</p>
-        <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
-          <div id="summary-bar" class="bar h-full bg-indigo-600" style="width:0%"></div>
-        </div>
-      </section>
+        <!-- ── Hero: month navigation + summary ────────────────── -->
+        <section class="rounded-2xl overflow-hidden mb-6 shadow-md">
+          <div class="bg-gradient-to-br from-indigo-600 to-indigo-700 px-8 pt-6 pb-8">
 
-      <section id="cards" class="space-y-3"></section>
+            <!-- Month navigation -->
+            <div class="flex items-center gap-3 mb-6">
+              <button
+                id="prev-month"
+                class="size-9 rounded-lg bg-white/15 hover:bg-white/25 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center text-white transition-colors"
+                title="Mês anterior"
+                aria-label="Mês anterior"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <span id="month-pill" class="text-xl font-bold text-white tracking-tight">—</span>
+              <button
+                id="next-month"
+                class="size-9 rounded-lg bg-white/15 hover:bg-white/25 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center text-white transition-colors"
+                title="Próximo mês"
+                aria-label="Próximo mês"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.25">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+              <button
+                id="current-month"
+                class="h-9 rounded-lg bg-white/15 hover:bg-white/25 px-3 text-sm font-medium text-white/90 hover:text-white transition-colors"
+              >
+                Mês atual
+              </button>
+            </div>
 
-      <div id="empty" class="hidden text-center py-16">
-        <p class="text-slate-500">Nenhuma categoria encontrada.</p>
-        <p class="text-sm text-slate-400 mt-1">
-          Rode <code class="bg-slate-200 rounded px-1.5 py-0.5">seed_categories.py</code> antes.
-        </p>
-      </div>
+            <!-- Summary (hidden when no categories have budgets) -->
+            <div id="summary" class="hidden">
+              <p class="text-xs font-semibold text-indigo-300 uppercase tracking-widest mb-1">Projetado / Meta</p>
+              <div class="flex items-end justify-between gap-4 mb-3">
+                <p class="text-4xl font-bold tabular text-white tracking-tight" id="summary-text">—</p>
+                <p class="text-2xl font-bold tabular text-white/90 pb-0.5" id="summary-pct">—</p>
+              </div>
+              <div class="h-3 rounded-full overflow-hidden bg-white/20 mb-3">
+                <div id="summary-bar" class="bar h-full rounded-full" style="width:0%"></div>
+              </div>
+              <p class="text-sm text-indigo-200" id="summary-detail">—</p>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- ── Category cards grid ──────────────────────────────── -->
+        <div id="cards" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+
+        <!-- Empty state -->
+        <div id="empty" class="hidden text-center py-16">
+          <p class="text-slate-500">Nenhuma categoria encontrada.</p>
+          <p class="text-sm text-slate-400 mt-1">
+            Rode <code class="bg-slate-200 rounded px-1.5 py-0.5">seed_categories.py</code> antes.
+          </p>
+        </div>
+
+      </main>
     </div>
 
+    <!-- ── Edit budget modal ────────────────────────────────────── -->
     <div
       id="edit-modal"
       class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40"
@@ -203,6 +241,6 @@
       </div>
     </div>
 
-    <script src="/static/orcamento.js"></script>
+    <script src="/static/orcamento.js?v=3"></script>
   </body>
 </html>

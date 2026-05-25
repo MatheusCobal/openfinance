@@ -9,7 +9,12 @@ from sqlmodel import Session, select
 
 from app.categorization import normalize_description
 from app.database import engine, init_db
-from app.models import Category, CategoryRule, IgnoredDescriptionRule
+from app.models import (
+    BankIncomeExclusionRule,
+    Category,
+    CategoryRule,
+    IgnoredDescriptionRule,
+)
 
 # Each entry: (name, color, sort_order, [pluggy_categories]).
 # Pluggy category strings come from their taxonomy and are matched exactly
@@ -208,6 +213,17 @@ IGNORED_DESCRIPTION_PATTERNS = [
     "Pagamento recebido",
 ]
 
+BANK_INCOME_EXCLUDED_CATEGORIES = [
+    "Fixed income",
+    "Same person transfer",
+    "Transfer - Internal",
+    "Loans",
+]
+
+BANK_INCOME_EXCLUDED_DESCRIPTION_PATTERNS = [
+    "DEV SALDO CREDOR FAT CARTAO",
+]
+
 
 def upsert_category(session: Session, name: str, color: str, sort_order: int) -> Category:
     existing = session.exec(select(Category).where(Category.name == name)).first()
@@ -254,6 +270,43 @@ def upsert_ignored_description_rule(session: Session, pattern: str) -> None:
     )
 
 
+def upsert_bank_income_category_exclusion(
+    session: Session,
+    pluggy_category: str,
+) -> None:
+    existing = session.exec(
+        select(BankIncomeExclusionRule).where(
+            BankIncomeExclusionRule.pluggy_category == pluggy_category
+        )
+    ).first()
+    if existing:
+        return
+    session.add(BankIncomeExclusionRule(pluggy_category=pluggy_category))
+
+
+def upsert_bank_income_description_exclusion(
+    session: Session,
+    pattern: str,
+) -> None:
+    pattern_normalized = normalize_description(pattern)
+    existing = session.exec(
+        select(BankIncomeExclusionRule).where(
+            BankIncomeExclusionRule.pattern_normalized == pattern_normalized
+        )
+    ).first()
+    if existing:
+        if existing.pattern != pattern:
+            existing.pattern = pattern
+            session.add(existing)
+        return
+    session.add(
+        BankIncomeExclusionRule(
+            pattern=pattern,
+            pattern_normalized=pattern_normalized,
+        )
+    )
+
+
 def main() -> None:
     init_db()
     with Session(engine) as session:
@@ -263,16 +316,25 @@ def main() -> None:
                 upsert_rule(session, pc, category.id)
         for pattern in IGNORED_DESCRIPTION_PATTERNS:
             upsert_ignored_description_rule(session, pattern)
+        for pluggy_category in BANK_INCOME_EXCLUDED_CATEGORIES:
+            upsert_bank_income_category_exclusion(session, pluggy_category)
+        for pattern in BANK_INCOME_EXCLUDED_DESCRIPTION_PATTERNS:
+            upsert_bank_income_description_exclusion(session, pattern)
         session.commit()
 
     total_categories = sum(1 for c in CATEGORIES)
     total_rules = sum(len(c[3]) for c in CATEGORIES)
     total_ignored_rules = len(IGNORED_DESCRIPTION_PATTERNS)
+    total_income_exclusion_rules = (
+        len(BANK_INCOME_EXCLUDED_CATEGORIES)
+        + len(BANK_INCOME_EXCLUDED_DESCRIPTION_PATTERNS)
+    )
     print(
         "Seeded "
         f"{total_categories} categories, "
         f"{total_rules} rules and "
-        f"{total_ignored_rules} ignored transaction rules."
+        f"{total_ignored_rules} ignored transaction rules, "
+        f"{total_income_exclusion_rules} income exclusion rules."
     )
 
 

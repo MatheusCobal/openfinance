@@ -76,6 +76,36 @@ class CreditCardInvoiceMonth(SQLModel, table=True):
     updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
+class BankIncomeMonth(SQLModel, table=True):
+    year_month: str = Field(primary_key=True, index=True)
+    total: Decimal = Decimal("0")
+    income_count: int = 0
+    captured_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class BankIncomeExclusionRule(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    pluggy_category: Optional[str] = Field(default=None, index=True)
+    pattern: Optional[str] = None
+    pattern_normalized: Optional[str] = Field(default=None, index=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class MonthlyBalanceMonth(SQLModel, table=True):
+    year_month: str = Field(primary_key=True, index=True)
+    income: Decimal = Decimal("0")
+    card_spend: Decimal = Decimal("0")
+    invoice_paid: Decimal = Decimal("0")
+    net_by_purchase_month: Decimal = Decimal("0")
+    net_cashflow: Decimal = Decimal("0")
+    income_count: int = 0
+    card_spend_count: int = 0
+    invoice_payment_count: int = 0
+    captured_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class Budget(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     category_id: int = Field(foreign_key="category.id", unique=True, index=True)
