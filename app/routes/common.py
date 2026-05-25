@@ -44,13 +44,3 @@ def count_description_rule_matches(
         for tx in session.exec(select(Transaction)).all()
         if pattern_normalized in normalize_description(tx.description)
     )
-
-
-def budget_status(progress_pct: Optional[float]) -> Optional[str]:
-    if progress_pct is None:
-        return None
-    if progress_pct >= 100:
-        return "over"
-    if progress_pct >= 80:
-        return "warning"
-    return "ok"
