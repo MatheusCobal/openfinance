@@ -329,6 +329,103 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(payload["pattern_normalized"], "rendimentos")
         self.assertEqual(payload["affected_count"], 1)
 
+    def test_http_validation_rejects_invalid_transaction_account_type(self):
+        response = self.client.get(
+            "/transactions",
+            params={"account_type": "INVESTMENT"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "account_type must be CREDIT, BANK or ALL")
+
+    def test_http_validation_rejects_invalid_month_windows(self):
+        endpoints = [
+            "/credit-card-payments/monthly",
+            "/bank-income/monthly",
+            "/monthly-balance",
+        ]
+
+        for endpoint in endpoints:
+            with self.subTest(endpoint=endpoint):
+                response = self.client.get(endpoint, params={"months": 0})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["detail"], "months must be between 1 and 24")
+
+                response = self.client.get(endpoint, params={"months": 25})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["detail"], "months must be between 1 and 24")
+
+    def test_http_validation_rejects_invalid_budget_inputs(self):
+        response = self.client.get(
+            "/budgets/progress",
+            params={"year_month": "2026-13"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "year_month must be a valid calendar month")
+
+        response = self.client.put(
+            "/budgets/1",
+            json={"monthly_target": "0"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "monthly_target must be > 0")
+
+        response = self.client.put(
+            "/budgets/999",
+            json={"monthly_target": "100"},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "category not found")
+
+        response = self.client.put(
+            "/budgets/1/months/not-a-month",
+            json={"monthly_target": "100"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "year_month must use YYYY-MM format")
+
+    def test_http_validation_rejects_invalid_rule_payloads(self):
+        response = self.client.post(
+            "/category-rules/description",
+            json={"pattern": "   ", "category_id": 1},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "pattern must not be empty")
+
+        response = self.client.post(
+            "/category-rules/description",
+            json={"pattern": "Cobasi", "category_id": 999},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "category not found")
+
+        response = self.client.post(
+            "/transaction-ignore-rules/description",
+            json={"pattern": "   "},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "pattern must not be empty")
+
+        response = self.client.post(
+            "/bank-income/exclusion-rules",
+            json={},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["detail"],
+            "Provide exactly one of pluggy_category or pattern",
+        )
+
+        response = self.client.post(
+            "/bank-income/exclusion-rules",
+            json={"pluggy_category": "Salary", "pattern": "salary"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["detail"],
+            "Provide exactly one of pluggy_category or pattern",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
