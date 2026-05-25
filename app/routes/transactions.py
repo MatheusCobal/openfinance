@@ -15,6 +15,7 @@ from app.services.transaction_reports import (
     stats_summary,
     transaction_csv_rows,
     upcoming_summary,
+    validate_account_type,
 )
 
 router = APIRouter()
@@ -53,17 +54,24 @@ def list_categories(session: Session = Depends(get_session)):
 
 @router.get("/export/transactions.csv")
 def export_transactions_csv(
+    account_type: Optional[str] = "CREDIT",
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     include_future: bool = False,
     include_ignored: bool = False,
     session: Session = Depends(get_session),
 ):
+    try:
+        validate_account_type(account_type)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
     def generate():
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         for row in transaction_csv_rows(
             session,
+            account_type=account_type,
             from_date=from_date,
             to_date=to_date,
             include_future=include_future,

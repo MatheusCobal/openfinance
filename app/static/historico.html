@@ -26,6 +26,10 @@
     <style>
       body { font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
       .tabular { font-variant-numeric: tabular-nums; }
+      details > summary { list-style: none; }
+      details > summary::-webkit-details-marker { display: none; }
+      details[open] .chevron { transform: rotate(90deg); }
+      .chevron { transition: transform 0.15s ease; }
     </style>
   </head>
   <body class="bg-slate-50 text-slate-900 font-sans min-h-screen" style="color-scheme:light">
@@ -90,12 +94,18 @@
         </div>
       </header>
 
+      <!-- Toast -->
+      <div id="toast" class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-xl text-white text-sm px-4 py-3 shadow-xl"></div>
+
       <!-- Content -->
       <main class="flex-1 px-8 py-6">
         <div id="history-tabs" class="flex flex-wrap gap-2 mb-6"></div>
 
         <section id="cards" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></section>
         <section id="invoices" class="hidden space-y-4"></section>
+        <section id="income-tab" class="hidden space-y-4"></section>
+        <section id="balance-tab" class="hidden space-y-4"></section>
+        <section id="cashflow-tab" class="hidden space-y-4"></section>
 
         <div id="empty" class="hidden text-center py-16">
           <p class="text-slate-500">Nenhuma transação encontrada.</p>
@@ -138,6 +148,6 @@
       </div>
     </div>
 
-    <script src="/static/historico.js?v=20260525-1"></script>
+    <script src="/static/historico.js?v=20260525-5"></script>
   </body>
 </html>

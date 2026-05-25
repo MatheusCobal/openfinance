@@ -41,17 +41,24 @@ def _apply_account_type_filter(
     account_type: Optional[str],
     session: Session,
 ):
-    if account_type is None or account_type.upper() == "ALL":
+    normalized_account_type = validate_account_type(account_type)
+    if normalized_account_type is None:
         return query, False
-
-    normalized_account_type = account_type.upper()
-    if normalized_account_type not in TRACKED_ACCOUNT_TYPES:
-        raise ValueError("account_type must be CREDIT, BANK or ALL")
 
     account_ids = account_ids_by_type(session, {normalized_account_type})
     if not account_ids:
         return query, True
     return query.where(Transaction.account_id.in_(account_ids)), False
+
+
+def validate_account_type(account_type: Optional[str]) -> Optional[str]:
+    if account_type is None or account_type.upper() == "ALL":
+        return None
+
+    normalized_account_type = account_type.upper()
+    if normalized_account_type not in TRACKED_ACCOUNT_TYPES:
+        raise ValueError("account_type must be CREDIT, BANK or ALL")
+    return normalized_account_type
 
 
 def enriched_transactions(
@@ -108,6 +115,7 @@ def enriched_transactions(
 
 def transaction_csv_rows(
     session: Session,
+    account_type: Optional[str] = "CREDIT",
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     include_future: bool = False,
@@ -119,6 +127,11 @@ def transaction_csv_rows(
         from_date,
         to_date,
         include_future,
+    )
+    query, should_return_empty = _apply_account_type_filter(
+        query,
+        account_type,
+        session,
     )
     ignored_patterns = ignored_description_patterns(session)
 
@@ -133,6 +146,9 @@ def transaction_csv_rows(
         "account_id",
         "transaction_id",
     ]
+
+    if should_return_empty:
+        return
 
     for tx in session.exec(query):
         if (

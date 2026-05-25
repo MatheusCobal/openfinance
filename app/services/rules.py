@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 
 from app.categorization import normalize_description
 from app.models import (
+    BankCashflowExclusionRule,
     BankIncomeExclusionRule,
     Category,
     DescriptionCategoryRule,
@@ -11,6 +12,7 @@ from app.models import (
     Transaction,
 )
 from app.services.transactions import count_bank_income_exclusion_matches
+from app.services.transactions import count_bank_cashflow_exclusion_matches
 
 
 class RuleValidationError(ValueError):
@@ -19,6 +21,9 @@ class RuleValidationError(ValueError):
 
 class RuleCategoryNotFoundError(LookupError):
     pass
+
+
+CASHFLOW_DIRECTIONS = {"IN", "OUT", "ALL"}
 
 
 def count_description_rule_matches(
@@ -46,6 +51,94 @@ def list_bank_income_exclusion_rules(session: Session):
         }
         for rule in rules
     ]
+
+
+def _normalize_cashflow_direction(direction: Optional[str]) -> str:
+    normalized = (direction or "ALL").strip().upper()
+    if normalized not in CASHFLOW_DIRECTIONS:
+        raise RuleValidationError("direction must be IN, OUT or ALL")
+    return normalized
+
+
+def list_bank_cashflow_exclusion_rules(session: Session):
+    rules = session.exec(
+        select(BankCashflowExclusionRule).order_by(
+            BankCashflowExclusionRule.direction,
+            BankCashflowExclusionRule.pluggy_category,
+            BankCashflowExclusionRule.pattern,
+        )
+    ).all()
+    return [
+        {
+            **rule.model_dump(mode="json"),
+            "affected_count": count_bank_cashflow_exclusion_matches(
+                rule,
+                session,
+            ),
+        }
+        for rule in rules
+    ]
+
+
+def upsert_bank_cashflow_exclusion_rule(
+    session: Session,
+    direction: Optional[str] = "ALL",
+    pluggy_category: Optional[str] = None,
+    pattern: Optional[str] = None,
+):
+    direction = _normalize_cashflow_direction(direction)
+    pluggy_category = pluggy_category.strip() if pluggy_category else None
+    pattern = pattern.strip() if pattern else None
+    if bool(pluggy_category) == bool(pattern):
+        raise RuleValidationError("Provide exactly one of pluggy_category or pattern")
+
+    pattern_normalized = normalize_description(pattern) if pattern else None
+    if pattern is not None and not pattern_normalized:
+        raise RuleValidationError("pattern must not be empty")
+
+    if pluggy_category is not None:
+        rule = session.exec(
+            select(BankCashflowExclusionRule).where(
+                BankCashflowExclusionRule.direction == direction,
+                BankCashflowExclusionRule.pluggy_category == pluggy_category,
+            )
+        ).first()
+        if rule is None:
+            rule = BankCashflowExclusionRule(
+                direction=direction,
+                pluggy_category=pluggy_category,
+            )
+    else:
+        rule = session.exec(
+            select(BankCashflowExclusionRule).where(
+                BankCashflowExclusionRule.direction == direction,
+                BankCashflowExclusionRule.pattern_normalized
+                == pattern_normalized,
+            )
+        ).first()
+        if rule is None:
+            rule = BankCashflowExclusionRule(
+                direction=direction,
+                pattern=pattern,
+                pattern_normalized=pattern_normalized,
+            )
+        else:
+            rule.pattern = pattern
+
+    session.add(rule)
+    session.commit()
+    session.refresh(rule)
+    return {
+        **rule.model_dump(mode="json"),
+        "affected_count": count_bank_cashflow_exclusion_matches(rule, session),
+    }
+
+
+def delete_bank_cashflow_exclusion_rule(session: Session, rule_id: int) -> None:
+    rule = session.get(BankCashflowExclusionRule, rule_id)
+    if rule is not None:
+        session.delete(rule)
+        session.commit()
 
 
 def upsert_bank_income_exclusion_rule(

@@ -19,9 +19,11 @@ from app.services.snapshots import (
 )
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
+    bank_cashflow_exclusion_rules,
     bank_income_transactions,
     credit_card_payment_transactions,
     ignored_description_patterns,
+    is_excluded_bank_cashflow_transaction,
     is_ignored_transaction,
     last_month_keys,
     month_key,
@@ -248,6 +250,83 @@ def bank_income_history_summary(session: Session):
             }
             for snapshot in snapshots
         ],
+    }
+
+
+def bank_cashflow_monthly_summary(session: Session, months: int):
+    today = date.today()
+    month_keys = last_month_keys(months, today)
+    first_year, first_month = month_keys[0].split("-")
+    start_date = date(int(first_year), int(first_month), 1)
+    bank_accounts = {
+        account.id: account
+        for account in session.exec(select(Account)).all()
+        if account.type in BANK_ACCOUNT_TYPES
+    }
+    exclusion_rules = bank_cashflow_exclusion_rules(session)
+    transactions = session.exec(
+        select(Transaction)
+        .where(Transaction.date >= start_date, Transaction.date <= today)
+        .order_by(Transaction.date.desc())
+    ).all()
+    bank_transactions = [
+        tx
+        for tx in transactions
+        if tx.account_id in bank_accounts
+        and not is_excluded_bank_cashflow_transaction(tx, exclusion_rules)
+    ]
+
+    by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
+    for tx in bank_transactions:
+        month = month_key(tx.date)
+        if month in by_month:
+            by_month[month].append(tx)
+
+    totals = {
+        "income": Decimal("0"),
+        "outflow": Decimal("0"),
+        "net": Decimal("0"),
+    }
+    output_months = []
+    for month in month_keys:
+        txs = by_month[month]
+        income = sum((tx.amount for tx in txs if tx.amount > 0), Decimal("0"))
+        outflow = sum((abs(tx.amount) for tx in txs if tx.amount < 0), Decimal("0"))
+        income_count = sum(1 for tx in txs if tx.amount > 0)
+        outflow_count = sum(1 for tx in txs if tx.amount < 0)
+        net = income - outflow
+        totals["income"] += income
+        totals["outflow"] += outflow
+        totals["net"] += net
+        output_months.append(
+            {
+                "month": month,
+                "income": float(income),
+                "outflow": float(outflow),
+                "net": float(net),
+                "income_count": income_count,
+                "outflow_count": outflow_count,
+                "transactions": [
+                    {
+                        "id": tx.id,
+                        "account_id": tx.account_id,
+                        "account_name": bank_accounts[tx.account_id].name,
+                        "date": tx.date.isoformat(),
+                        "amount": float(tx.amount),
+                        "description": tx.description,
+                        "pluggy_category": tx.category,
+                    }
+                    for tx in txs
+                ],
+            }
+        )
+
+    return {
+        "months": output_months,
+        "summary": {key: float(value) for key, value in totals.items()},
+        "transaction_count": len(bank_transactions),
+        "bank_account_count": len(bank_accounts),
+        "excluded_rule_count": len(exclusion_rules),
     }
 
 

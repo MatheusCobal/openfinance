@@ -126,6 +126,15 @@
           </div>
         </section>
 
+        <!-- ── Monthly cash-flow strip (always current month) ──── -->
+        <section id="monthly-flow-section" class="hidden mb-6">
+          <div class="flex items-baseline justify-between mb-3">
+            <h2 class="font-semibold text-slate-900">Fluxo de caixa · este mês</h2>
+            <p class="text-xs text-slate-500" id="monthly-flow-period">—</p>
+          </div>
+          <div id="monthly-flow" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
+        </section>
+
         <!-- ── Category horizontal bar chart ──────────────────── -->
         <section id="category-chart-panel" class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6">
           <h2 class="font-semibold text-slate-900 mb-5">Gastos por categoria</h2>
@@ -140,7 +149,14 @@
 
         <!-- ── Category accordion grid ─────────────────────────── -->
         <section>
-          <h2 class="font-semibold text-slate-900 mb-3">Transações por categoria</h2>
+          <div class="flex flex-wrap items-baseline justify-between gap-3 mb-3">
+            <h2 class="font-semibold text-slate-900">Transações por categoria</h2>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500">Contas:</span>
+              <div id="account-type-filter" class="flex gap-1"></div>
+            </div>
+          </div>
+          <p id="account-type-hint" class="hidden text-xs text-slate-400 mb-3"></p>
           <div id="categories"></div>
           <div id="empty" class="hidden text-center py-20">
             <div class="inline-flex flex-col items-center max-w-sm">
@@ -149,7 +165,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h.01M11 15h2M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </div>
-              <p class="text-slate-900 font-semibold text-lg">Nenhuma compra ainda</p>
+              <p class="text-slate-900 font-semibold text-lg">Nenhuma transação no período</p>
               <p class="text-sm text-slate-500 mt-2 leading-relaxed">
                 Conecte seus bancos em <a href="https://meu.pluggy.ai" target="_blank" rel="noopener" class="text-indigo-600 hover:underline font-medium">meu.pluggy.ai</a> e clique em <span class="font-medium text-slate-700">"Conectar banco"</span>.
               </p>
@@ -195,6 +211,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=7"></script>
+    <script src="/static/app.js?v=10"></script>
   </body>
 </html>

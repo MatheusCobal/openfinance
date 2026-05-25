@@ -3,6 +3,7 @@ from sqlmodel import Session
 
 from app.database import get_session
 from app.services.history import (
+    bank_cashflow_monthly_summary,
     bank_income_history_summary,
     bank_income_monthly_summary,
     credit_card_payments_history_summary,
@@ -55,6 +56,15 @@ def bank_income_monthly(
 @router.get("/bank-income/history")
 def bank_income_history(session: Session = Depends(get_session)):
     return bank_income_history_summary(session)
+
+
+@router.get("/bank-cashflow/monthly")
+def bank_cashflow_monthly(
+    months: int = 12,
+    session: Session = Depends(get_session),
+):
+    _validate_month_window(months)
+    return bank_cashflow_monthly_summary(session, months)
 
 
 @router.get("/monthly-balance")

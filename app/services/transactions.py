@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 from app.categorization import normalize_description
 from app.models import (
     Account,
+    BankCashflowExclusionRule,
     BankIncomeExclusionRule,
     IgnoredDescriptionRule,
     Transaction,
@@ -130,6 +131,58 @@ def bank_income_exclusion_rules(
     session: Session,
 ) -> list[BankIncomeExclusionRule]:
     return session.exec(select(BankIncomeExclusionRule)).all()
+
+
+def bank_cashflow_exclusion_rules(
+    session: Session,
+) -> list[BankCashflowExclusionRule]:
+    return session.exec(select(BankCashflowExclusionRule)).all()
+
+
+def _cashflow_rule_matches_direction(
+    tx: Transaction,
+    rule: BankCashflowExclusionRule,
+) -> bool:
+    direction = (rule.direction or "ALL").upper()
+    if direction == "IN":
+        return tx.amount > 0
+    if direction == "OUT":
+        return tx.amount < 0
+    return True
+
+
+def is_excluded_bank_cashflow_transaction(
+    tx: Transaction,
+    rules: list[BankCashflowExclusionRule],
+) -> bool:
+    normalized_description = normalize_description(tx.description)
+    for rule in rules:
+        if not _cashflow_rule_matches_direction(tx, rule):
+            continue
+        if rule.pluggy_category and tx.category == rule.pluggy_category:
+            return True
+        if (
+            rule.pattern_normalized
+            and rule.pattern_normalized in normalized_description
+        ):
+            return True
+    return False
+
+
+def count_bank_cashflow_exclusion_matches(
+    rule: BankCashflowExclusionRule,
+    session: Session,
+) -> int:
+    transactions = filter_transactions_by_account_type(
+        session.exec(select(Transaction)).all(),
+        session,
+        BANK_ACCOUNT_TYPES,
+    )
+    return sum(
+        1
+        for tx in transactions
+        if is_excluded_bank_cashflow_transaction(tx, [rule])
+    )
 
 
 def is_excluded_bank_income_transaction(

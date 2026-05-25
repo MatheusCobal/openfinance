@@ -1,3 +1,5 @@
+import csv
+import io
 import unittest
 from datetime import date
 from decimal import Decimal
@@ -11,6 +13,7 @@ from app.database import get_session
 from app.main import app
 from app.models import (
     Account,
+    BankCashflowExclusionRule,
     BankIncomeExclusionRule,
     Budget,
     BudgetOverride,
@@ -204,6 +207,25 @@ class BackendRegressionTest(unittest.TestCase):
             ids,
         )
 
+    def test_transaction_export_respects_account_type_filter(self):
+        response = self.client.get("/export/transactions.csv")
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(response.text)))
+        self.assertEqual({"tx-shopping", "tx-pet"}, {row["transaction_id"] for row in rows})
+
+        response = self.client.get(
+            "/export/transactions.csv",
+            params={"account_type": "BANK", "include_ignored": "true"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(response.text)))
+        self.assertEqual(
+            {"tx-salary", "tx-interest", "tx-bank-outflow"},
+            {row["transaction_id"] for row in rows},
+        )
+
     def test_stats_use_credit_spend_only_and_track_future_count(self):
         response = self.client.get("/stats")
 
@@ -308,6 +330,41 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(summary["net_by_purchase_month"], 4850.0)
         self.assertEqual(summary["net_cashflow"], 4850.0)
 
+    def test_bank_cashflow_includes_ignored_and_respects_cashflow_rules(self):
+        response = self.client.get("/bank-cashflow/monthly", params={"months": 1})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        month = payload["months"][0]
+        self.assertEqual(month["income"], 5000.01)
+        self.assertEqual(month["outflow"], 260.0)
+        self.assertEqual(month["income_count"], 2)
+        self.assertEqual(month["outflow_count"], 1)
+        self.assertEqual(
+            {"tx-salary", "tx-interest", "tx-bank-outflow"},
+            {tx["id"] for tx in month["transactions"]},
+        )
+
+        with Session(self.engine) as session:
+            session.add(
+                BankCashflowExclusionRule(
+                    direction="IN",
+                    pluggy_category="Proceeds interests and dividends",
+                )
+            )
+            session.commit()
+
+        response = self.client.get("/bank-cashflow/monthly", params={"months": 1})
+
+        self.assertEqual(response.status_code, 200)
+        month = response.json()["months"][0]
+        self.assertEqual(month["income"], 5000.0)
+        self.assertEqual(month["income_count"], 1)
+        self.assertEqual(
+            {"tx-salary", "tx-bank-outflow"},
+            {tx["id"] for tx in month["transactions"]},
+        )
+
     def test_rule_endpoints_report_affected_transactions(self):
         response = self.client.post(
             "/category-rules/description",
@@ -327,6 +384,17 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["pattern_normalized"], "rendimentos")
+        self.assertEqual(payload["affected_count"], 1)
+
+        response = self.client.post(
+            "/bank-cashflow/exclusion-rules",
+            json={"direction": "OUT", "pattern": "Pix QR Code"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["direction"], "OUT")
+        self.assertEqual(payload["pattern_normalized"], "pix qr code")
         self.assertEqual(payload["affected_count"], 1)
 
     def test_rule_upserts_are_idempotent(self):
@@ -370,6 +438,19 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(second_response.status_code, 200)
         self.assertEqual(first_response.json()["id"], second_response.json()["id"])
 
+        first_response = self.client.post(
+            "/bank-cashflow/exclusion-rules",
+            json={"direction": "IN", "pattern": "rendimentos"},
+        )
+        second_response = self.client.post(
+            "/bank-cashflow/exclusion-rules",
+            json={"direction": "in", "pattern": " RENDIMENTOS "},
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
+
         with Session(self.engine) as session:
             description_rules = session.exec(
                 select(DescriptionCategoryRule).where(
@@ -389,10 +470,17 @@ class BackendRegressionTest(unittest.TestCase):
                     == normalize_description("rendimentos")
                 )
             ).all()
+            cashflow_rules = session.exec(
+                select(BankCashflowExclusionRule).where(
+                    BankCashflowExclusionRule.pattern_normalized
+                    == normalize_description("rendimentos")
+                )
+            ).all()
 
         self.assertEqual(len(description_rules), 1)
         self.assertEqual(len(ignored_rules), 1)
         self.assertEqual(len(bank_rules), 1)
+        self.assertEqual(len(cashflow_rules), 1)
 
     def test_http_validation_rejects_invalid_transaction_account_type(self):
         response = self.client.get(
@@ -403,10 +491,19 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "account_type must be CREDIT, BANK or ALL")
 
+        response = self.client.get(
+            "/export/transactions.csv",
+            params={"account_type": "INVESTMENT"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "account_type must be CREDIT, BANK or ALL")
+
     def test_http_validation_rejects_invalid_month_windows(self):
         endpoints = [
             "/credit-card-payments/monthly",
             "/bank-income/monthly",
+            "/bank-cashflow/monthly",
             "/monthly-balance",
         ]
 

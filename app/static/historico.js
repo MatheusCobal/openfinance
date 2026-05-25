@@ -35,14 +35,23 @@ function categoryIcon(name) {
   return icons[key] ?? '💳';
 }
 const INVOICE_COLOR = '#475569';
+const INCOME_COLOR = '#10b981';
 const HISTORY_TABS = [
   { key: 'categories', label: 'Categorias' },
   { key: 'invoices', label: 'Faturas cartão' },
+  { key: 'income', label: 'Receitas' },
+  { key: 'balance', label: 'Balanço' },
+  { key: 'cashflow', label: 'Entradas e saídas' },
 ];
 
 let activeTab = 'categories';
 let categoryHistory = null;
 let invoiceHistory = null;
+let incomeHistory = null;
+let balanceHistory = null;
+let cashflowData = null;
+let exclusionRules = null;
+let cashflowRules = null;
 
 function formatMonthLabel(yyyymm) {
   const [year, month] = yyyymm.split('-').map(Number);
@@ -58,12 +67,43 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function showToast(message, variant = 'info') {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove('hidden', 'bg-slate-900', 'bg-red-600', 'bg-emerald-600');
+  el.classList.add(
+    variant === 'error' ? 'bg-red-600' : variant === 'success' ? 'bg-emerald-600' : 'bg-slate-900',
+  );
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
 function pluralCompras(n) {
   return n === 1 ? '1 compra' : `${n.toLocaleString('pt-BR')} compras`;
 }
 
 function pluralFaturas(n) {
   return n === 1 ? '1 pagamento' : `${n.toLocaleString('pt-BR')} pagamentos`;
+}
+
+function pluralRecebimentos(n) {
+  return n === 1 ? '1 recebimento' : `${n.toLocaleString('pt-BR')} recebimentos`;
+}
+
+function pluralMeses(n) {
+  return n === 1 ? '1 mês' : `${n.toLocaleString('pt-BR')} meses`;
+}
+
+function pluralRegras(n) {
+  return n === 1 ? '1 regra' : `${n.toLocaleString('pt-BR')} regras`;
+}
+
+function cashflowDirectionLabel(direction) {
+  const normalized = String(direction || 'ALL').toUpperCase();
+  if (normalized === 'IN') return 'Entradas';
+  if (normalized === 'OUT') return 'Saídas';
+  return 'Entradas e saídas';
 }
 
 function destroyCharts() {
@@ -423,13 +463,11 @@ function hideEmpty() {
 function renderCategoryHistory() {
   const data = categoryHistory;
   const cards = document.getElementById('cards');
-  const invoices = document.getElementById('invoices');
   const subtitle = document.getElementById('subtitle');
 
   destroyCharts();
+  hideAllTabSections();
   cards.classList.remove('hidden');
-  invoices.classList.add('hidden');
-  invoices.innerHTML = '';
 
   if (data.categories.length === 0 || data.months.length === 0) {
     cards.innerHTML = '';
@@ -460,13 +498,11 @@ function renderCategoryHistory() {
 
 function renderInvoiceHistory() {
   const data = invoiceHistory;
-  const cards = document.getElementById('cards');
   const invoices = document.getElementById('invoices');
   const subtitle = document.getElementById('subtitle');
 
   destroyCharts();
-  cards.classList.add('hidden');
-  cards.innerHTML = '';
+  hideAllTabSections();
   invoices.classList.remove('hidden');
 
   if (data.total_count === 0 || data.months.length === 0) {
@@ -557,28 +593,966 @@ function renderInvoiceHistory() {
   renderInvoiceChart(data);
 }
 
+// ── Income (Receitas) tab ───────────────────────────────────────────────
+
+function renderIncomeChart(data) {
+  const ctx = document.getElementById('chart-income');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (charts.has('income')) charts.get('income').destroy();
+
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.months.map((m) => formatMonthLabel(m.month)),
+      datasets: [{
+        data: data.months.map((m) => m.income),
+        backgroundColor: INCOME_COLOR,
+        borderRadius: 4,
+        maxBarThickness: 32,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if (elements.length === 0) return;
+        const monthData = data.months[elements[0].index];
+        if (monthData && monthData.count > 0) openIncomeDrilldown(monthData);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const item = data.months[ctx.dataIndex];
+              return ` ${currency.format(ctx.parsed.y)} · ${pluralRecebimentos(item.count)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            font: { size: 10 },
+            callback: (v) => currency.format(v).replace('R$', '').trim(),
+          },
+          grid: { color: '#f1f5f9' },
+        },
+      },
+    },
+  });
+  charts.set('income', chart);
+}
+
+function openIncomeDrilldown(monthData) {
+  const modal = document.getElementById('drilldown');
+  document.getElementById('drilldown-color').style.background = INCOME_COLOR;
+  document.getElementById('drilldown-title').textContent =
+    `Receitas · ${formatMonthLong(monthData.month)}`;
+  document.getElementById('drilldown-subtitle').textContent =
+    `${currency.format(monthData.income)} · ${pluralRecebimentos(monthData.count)}`;
+
+  const rows = (monthData.transactions || []).map((tx) => `
+    <li class="flex items-baseline justify-between px-6 py-3 border-t border-slate-100">
+      <div class="min-w-0 flex-1 pr-4">
+        <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
+        <p class="text-xs text-slate-500 mt-0.5">
+          ${formatDayLabel(tx.date)}
+          ${tx.account_name ? ` · ${escapeHtml(tx.account_name)}` : ''}
+          ${tx.pluggy_category ? ` · ${escapeHtml(tx.pluggy_category)}` : ''}
+        </p>
+      </div>
+      <p class="text-sm font-semibold tabular text-emerald-700 shrink-0">
+        ${currency.format(Math.abs(Number(tx.amount)))}
+      </p>
+    </li>
+  `).join('');
+
+  document.getElementById('drilldown-body').innerHTML = rows
+    ? `<ul>${rows}</ul>`
+    : '<p class="text-center text-sm text-slate-500 py-12">Sem transações nesse mês.</p>';
+  modal.classList.remove('hidden');
+}
+
+function renderExclusionRulesPanel(rules) {
+  // Renders the bottom collapsible section on the Receitas tab.
+  // Rules are matched against bank-account positive transactions, either
+  // by Pluggy category name OR by a substring of the normalized description.
+  const list = (rules || []).map((rule) => {
+    const kind = rule.pluggy_category
+      ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-50 text-violet-700 text-xs font-medium">Categoria Pluggy</span>`
+      : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-xs font-medium">Descrição</span>`;
+    const value = escapeHtml(rule.pluggy_category || rule.pattern || '—');
+    const affected = typeof rule.affected_count === 'number'
+      ? `${rule.affected_count.toLocaleString('pt-BR')} ${rule.affected_count === 1 ? 'transação' : 'transações'} excluídas`
+      : '';
+    return `
+      <li class="flex items-center justify-between gap-4 px-5 py-3 border-t border-slate-100">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 mb-0.5">
+            ${kind}
+            <span class="text-sm font-medium text-slate-900 truncate">${value}</span>
+          </div>
+          <p class="text-xs text-slate-500">${affected}</p>
+        </div>
+        <button
+          type="button"
+          class="rule-delete shrink-0 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+          data-rule-id="${rule.id}"
+          title="Remover regra"
+        >Remover</button>
+      </li>
+    `;
+  }).join('');
+
+  return `
+    <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <summary class="px-5 py-4 flex items-center justify-between gap-3 select-none cursor-pointer hover:bg-slate-50">
+        <div>
+          <h2 class="font-semibold text-slate-900">Regras de exclusão de receitas</h2>
+          <p class="text-xs text-slate-500 mt-0.5">Filtra transações positivas no banco que não são receita de verdade (transferências, estornos, etc.)</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-xs font-medium text-slate-500">${pluralRegras((rules || []).length)}</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="chevron size-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </summary>
+      <div class="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
+        <form id="rule-form" class="flex flex-col sm:flex-row gap-2 mb-1">
+          <select id="rule-kind" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">
+            <option value="pluggy_category">Por categoria Pluggy</option>
+            <option value="pattern">Por padrão de descrição</option>
+          </select>
+          <input id="rule-value" type="text" required placeholder="Ex: Transfer, Estorno, PIX recebido"
+            class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+          <button type="submit"
+            class="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-4 py-2 shadow-sm whitespace-nowrap">Adicionar regra</button>
+        </form>
+        <p class="text-[11px] text-slate-400 mt-2">Ao salvar ou remover uma regra, receitas e balanço são recalculados na hora.</p>
+      </div>
+      ${list ? `<ul class="bg-white">${list}</ul>` : '<p class="px-5 py-6 text-sm text-center text-slate-500 border-t border-slate-100 bg-white">Nenhuma regra cadastrada.</p>'}
+    </details>
+  `;
+}
+
+function bindExclusionRulesEvents(section) {
+  const form = section.querySelector('#rule-form');
+  if (form) {
+    form.addEventListener('submit', async (evt) => {
+      evt.preventDefault();
+      const kind = section.querySelector('#rule-kind').value;
+      const value = section.querySelector('#rule-value').value.trim();
+      if (!value) return;
+      const body = kind === 'pluggy_category'
+        ? { pluggy_category: value }
+        : { pattern: value };
+      try {
+        const response = await fetch('/bank-income/exclusion-rules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          showToast(err.detail || `Falha ao criar regra (HTTP ${response.status})`, 'error');
+          return;
+        }
+        await loadData();
+        showToast('Regra criada e histórico recalculado.', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao criar regra.', 'error');
+      }
+    });
+  }
+
+  section.querySelectorAll('button.rule-delete').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remover esta regra?')) return;
+      const id = btn.dataset.ruleId;
+      try {
+        const response = await fetch(`/bank-income/exclusion-rules/${id}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok && response.status !== 204) {
+          showToast(`Falha ao remover (HTTP ${response.status})`, 'error');
+          return;
+        }
+        await loadData();
+        showToast('Regra removida e histórico recalculado.', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao remover regra.', 'error');
+      }
+    });
+  });
+}
+
+function renderIncomeHistory() {
+  const data = incomeHistory;
+  const section = document.getElementById('income-tab');
+  const subtitle = document.getElementById('subtitle');
+
+  destroyCharts();
+  hideAllTabSections();
+  section.classList.remove('hidden');
+
+  const monthsWithIncome = (data.months || []).filter((m) => m.count > 0);
+  if (monthsWithIncome.length === 0) {
+    section.innerHTML = renderExclusionRulesPanel(exclusionRules);
+    bindExclusionRulesEvents(section);
+    renderEmpty(
+      'Nenhuma receita encontrada.',
+      'Conecte uma conta bancária ou ajuste as regras de exclusão.',
+    );
+    subtitle.textContent = 'Nenhuma receita';
+    return;
+  }
+  hideEmpty();
+
+  const largest = monthsWithIncome.reduce(
+    (best, m) => (!best || m.income > best.income ? m : best),
+    null,
+  );
+  const average = (data.total_income || 0) / data.months.length;
+
+  const rows = [...data.months].reverse().map((item) => {
+    const amount = item.count > 0
+      ? `
+        <button type="button" class="income-month text-right group"
+          data-month="${item.month}" title="Ver recebimentos">
+          <span class="block text-sm font-semibold tabular text-emerald-700 group-hover:text-emerald-800">
+            ${currency.format(item.income)}
+          </span>
+        </button>
+      `
+      : '<span class="text-sm font-medium text-slate-400">Sem recebimento</span>';
+    return `
+      <li class="flex items-center justify-between gap-4 px-5 py-3 border-t border-slate-100">
+        <div>
+          <p class="text-sm font-medium text-slate-900">${escapeHtml(formatMonthLong(item.month))}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${pluralRecebimentos(item.count)}</p>
+        </div>
+        ${amount}
+      </li>
+    `;
+  }).join('');
+
+  subtitle.textContent =
+    `Evolução das receitas · ${pluralMeses(data.months.length)}` +
+    (data.bank_account_count
+      ? ` · ${data.bank_account_count} ${data.bank_account_count === 1 ? 'conta' : 'contas'}`
+      : '');
+
+  section.innerHTML = `
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total recebido</p>
+        <p class="mt-2 text-2xl font-bold tabular text-emerald-700">${currency.format(data.total_income)}</p>
+        <p class="text-xs text-slate-500 mt-2">${pluralRecebimentos(data.transaction_count)} em ${pluralMeses(data.months.length)}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Média mensal</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(average)}</p>
+        <p class="text-xs text-slate-500 mt-2">Considerando todos os meses</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior mês</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(largest.income)}</p>
+        <p class="text-xs text-slate-500 mt-2">${escapeHtml(formatMonthLabel(largest.month))}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-3">
+        <h2 class="font-semibold text-slate-900 mb-4">Evolução das receitas bancárias</h2>
+        <div class="relative h-64"><canvas id="chart-income"></canvas></div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4">
+        <h2 class="font-semibold text-slate-900">Histórico mensal</h2>
+      </div>
+      <ul>${rows}</ul>
+    </div>
+    ${renderExclusionRulesPanel(exclusionRules)}
+  `;
+
+  section.querySelectorAll('button.income-month').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const monthData = data.months.find((item) => item.month === btn.dataset.month);
+      if (monthData) openIncomeDrilldown(monthData);
+    });
+  });
+  bindExclusionRulesEvents(section);
+
+  renderIncomeChart(data);
+}
+
+// ── Balance (Balanço) tab ───────────────────────────────────────────────
+
+function renderBalanceChart(data) {
+  const ctx = document.getElementById('chart-balance');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (charts.has('balance')) charts.get('balance').destroy();
+
+  const labels = data.months.map((m) => formatMonthLabel(m.month));
+
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Entradas',
+          data: data.months.map((m) => m.income),
+          backgroundColor: INCOME_COLOR,
+          borderRadius: 4,
+          maxBarThickness: 22,
+        },
+        {
+          label: 'Gastos cartão',
+          data: data.months.map((m) => m.card_spend),
+          backgroundColor: '#f97316',
+          borderRadius: 4,
+          maxBarThickness: 22,
+        },
+        {
+          label: 'Fatura paga',
+          data: data.months.map((m) => m.invoice_paid),
+          backgroundColor: INVOICE_COLOR,
+          borderRadius: 4,
+          maxBarThickness: 22,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${currency.format(ctx.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            font: { size: 10 },
+            callback: (v) => currency.format(v).replace('R$', '').trim(),
+          },
+          grid: { color: '#f1f5f9' },
+        },
+      },
+    },
+  });
+  charts.set('balance', chart);
+}
+
+function balanceCell(value, { signed = false } = {}) {
+  if (value === 0 || value == null) return '<span class="text-slate-400 tabular">—</span>';
+  if (!signed) return `<span class="tabular text-slate-900">${currency.format(value)}</span>`;
+  const sign = value >= 0 ? '+' : '−';
+  const color = value >= 0 ? 'text-emerald-700' : 'text-red-700';
+  return `<span class="tabular font-medium ${color}">${sign}${currency.format(Math.abs(value))}</span>`;
+}
+
+function renderBalanceHistory() {
+  const data = balanceHistory;
+  const section = document.getElementById('balance-tab');
+  const subtitle = document.getElementById('subtitle');
+
+  destroyCharts();
+  hideAllTabSections();
+  section.classList.remove('hidden');
+
+  const months = data.months || [];
+  const hasActivity = months.some(
+    (m) => (m.income || 0) > 0 || (m.card_spend || 0) > 0 || (m.invoice_paid || 0) > 0,
+  );
+
+  if (!hasActivity) {
+    section.innerHTML = '';
+    renderEmpty(
+      'Nenhum dado de balanço.',
+      'Conecte contas bancárias e cartões para acompanhar o fluxo mensal.',
+    );
+    subtitle.textContent = 'Sem balanço';
+    return;
+  }
+  hideEmpty();
+
+  const summary = data.summary || {};
+  subtitle.textContent = `Balanço mensal · últimos ${months.length} meses`;
+
+  const tableRows = [...months].reverse().map((m) => `
+    <tr class="border-t border-slate-100">
+      <td class="px-5 py-3 text-sm font-medium text-slate-900 whitespace-nowrap">${escapeHtml(formatMonthLong(m.month))}</td>
+      <td class="px-5 py-3 text-right text-sm text-emerald-700 tabular">${m.income > 0 ? currency.format(m.income) : '<span class="text-slate-400">—</span>'}</td>
+      <td class="px-5 py-3 text-right text-sm text-orange-700 tabular">${m.card_spend > 0 ? currency.format(m.card_spend) : '<span class="text-slate-400">—</span>'}</td>
+      <td class="px-5 py-3 text-right text-sm text-slate-700 tabular">${m.invoice_paid > 0 ? currency.format(m.invoice_paid) : '<span class="text-slate-400">—</span>'}</td>
+      <td class="px-5 py-3 text-right text-sm">${balanceCell(m.net_by_purchase_month, { signed: true })}</td>
+      <td class="px-5 py-3 text-right text-sm">${balanceCell(m.net_cashflow, { signed: true })}</td>
+    </tr>
+  `).join('');
+
+  section.innerHTML = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Entradas totais</p>
+        <p class="mt-2 text-xl font-bold tabular text-emerald-700">${currency.format(summary.income || 0)}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Gastos cartão</p>
+        <p class="mt-2 text-xl font-bold tabular text-orange-700">${currency.format(summary.card_spend || 0)}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Fatura paga</p>
+        <p class="mt-2 text-xl font-bold tabular text-slate-700">${currency.format(summary.invoice_paid || 0)}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Caixa líquido</p>
+        <p class="mt-2 text-xl font-bold tabular ${(summary.net_cashflow || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}">
+          ${(summary.net_cashflow || 0) >= 0 ? '+' : '−'}${currency.format(Math.abs(summary.net_cashflow || 0))}
+        </p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <h2 class="font-semibold text-slate-900 mb-4">Entradas vs gastos vs fatura</h2>
+      <div class="relative h-72"><canvas id="chart-balance"></canvas></div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="font-semibold text-slate-900">Detalhamento mensal</h2>
+        <p class="text-xs text-slate-500">Saldo = entradas − gastos · Caixa = entradas − fatura</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
+              <th class="px-5 py-2 text-left font-medium">Mês</th>
+              <th class="px-5 py-2 text-right font-medium">Entradas</th>
+              <th class="px-5 py-2 text-right font-medium">Gastos cartão</th>
+              <th class="px-5 py-2 text-right font-medium">Fatura paga</th>
+              <th class="px-5 py-2 text-right font-medium">Saldo do mês</th>
+              <th class="px-5 py-2 text-right font-medium">Caixa do mês</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  renderBalanceChart(data);
+}
+
+// ── Cashflow (Entradas e saídas) tab ────────────────────────────────────
+//
+// Computed entirely from bank transactions to avoid the double-counting that
+// would happen if we summed credit-card spend AND its eventual invoice
+// payment. Entradas = positive amounts hitting bank accounts; saídas = the
+// absolute value of negative amounts (which already include invoice
+// payments). Net = entradas − saídas is the true cash flow through your
+// bank accounts.
+
+function summarizeCashflow(data) {
+  const months = (data?.months || []).map((month) => {
+    const transactions = month.transactions || [];
+    return {
+      month: month.month,
+      entradas: month.income || 0,
+      saidas: month.outflow || 0,
+      net: month.net || 0,
+      entradas_count: month.income_count || 0,
+      saidas_count: month.outflow_count || 0,
+      entradas_txs: transactions.filter((tx) => Number(tx.amount) > 0),
+      saidas_txs: transactions.filter((tx) => Number(tx.amount) < 0),
+    };
+  }).filter(
+    (month) =>
+      month.entradas_count > 0 ||
+      month.saidas_count > 0 ||
+      month.entradas > 0 ||
+      month.saidas > 0,
+  );
+
+  return {
+    months,
+    total_entradas: data?.summary?.income || 0,
+    total_saidas: data?.summary?.outflow || 0,
+    total_entradas_count: months.reduce((sum, m) => sum + m.entradas_count, 0),
+    total_saidas_count: months.reduce((sum, m) => sum + m.saidas_count, 0),
+    net: data?.summary?.net || 0,
+  };
+}
+
+function renderCashflowChart(summary) {
+  const ctx = document.getElementById('chart-cashflow');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (charts.has('cashflow')) charts.get('cashflow').destroy();
+
+  const labels = summary.months.map((m) => formatMonthLabel(m.month));
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Entradas',
+          data: summary.months.map((m) => m.entradas),
+          backgroundColor: INCOME_COLOR,
+          borderRadius: 4,
+          maxBarThickness: 28,
+        },
+        {
+          label: 'Saídas',
+          data: summary.months.map((m) => m.saidas),
+          backgroundColor: '#ef4444',
+          borderRadius: 4,
+          maxBarThickness: 28,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if (elements.length === 0) return;
+        const idx = elements[0].index;
+        const monthData = summary.months[idx];
+        if (monthData) openCashflowDrilldown(monthData);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${currency.format(ctx.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            font: { size: 10 },
+            callback: (v) => currency.format(v).replace('R$', '').trim(),
+          },
+          grid: { color: '#f1f5f9' },
+        },
+      },
+    },
+  });
+  charts.set('cashflow', chart);
+}
+
+function openCashflowDrilldown(monthData) {
+  // Combined modal showing entradas (green) on top and saídas (red) below,
+  // both sorted by absolute amount desc so the biggest movers surface first.
+  const modal = document.getElementById('drilldown');
+  document.getElementById('drilldown-color').style.background = INCOME_COLOR;
+  document.getElementById('drilldown-title').textContent =
+    `Entradas e saídas · ${formatMonthLong(monthData.month)}`;
+  const netSign = monthData.net >= 0 ? '+' : '−';
+  document.getElementById('drilldown-subtitle').textContent =
+    `Entradas ${currency.format(monthData.entradas)} · Saídas ${currency.format(monthData.saidas)} · Saldo ${netSign}${currency.format(Math.abs(monthData.net))}`;
+
+  const renderTxs = (txs, color, sign) => txs
+    .slice()
+    .sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)))
+    .map((tx) => `
+      <li class="flex items-baseline justify-between px-6 py-3 border-t border-slate-100">
+        <div class="min-w-0 flex-1 pr-4">
+          <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
+          <p class="text-xs text-slate-500 mt-0.5">
+            ${formatDayLabel(tx.date)}
+            ${tx.account_name ? ` · ${escapeHtml(tx.account_name)}` : ''}
+          </p>
+        </div>
+        <p class="text-sm font-semibold tabular ${color} shrink-0">
+          ${sign}${currency.format(Math.abs(Number(tx.amount)))}
+        </p>
+      </li>
+    `).join('');
+
+  const sectionHeader = (label, total, count, color) => `
+    <div class="px-6 py-3 bg-slate-50 flex items-center justify-between text-xs uppercase tracking-wider font-medium ${color}">
+      <span>${label} · ${count} ${count === 1 ? 'item' : 'itens'}</span>
+      <span class="tabular">${currency.format(total)}</span>
+    </div>
+  `;
+
+  const body = [];
+  if (monthData.entradas_count > 0) {
+    body.push(sectionHeader('Entradas', monthData.entradas, monthData.entradas_count, 'text-emerald-700'));
+    body.push(`<ul>${renderTxs(monthData.entradas_txs, 'text-emerald-700', '+')}</ul>`);
+  }
+  if (monthData.saidas_count > 0) {
+    body.push(sectionHeader('Saídas', monthData.saidas, monthData.saidas_count, 'text-red-700'));
+    body.push(`<ul>${renderTxs(monthData.saidas_txs, 'text-red-700', '−')}</ul>`);
+  }
+  if (body.length === 0) {
+    body.push('<p class="text-center text-sm text-slate-500 py-12">Sem transações nesse mês.</p>');
+  }
+
+  document.getElementById('drilldown-body').innerHTML = body.join('');
+  modal.classList.remove('hidden');
+}
+
+function renderCashflowRulesPanel(rules) {
+  const list = (rules || []).map((rule) => {
+    const kind = rule.pluggy_category
+      ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-50 text-violet-700 text-xs font-medium">Categoria Pluggy</span>'
+      : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-xs font-medium">Descrição</span>';
+    const value = escapeHtml(rule.pluggy_category || rule.pattern || '—');
+    const affected = typeof rule.affected_count === 'number'
+      ? `${rule.affected_count.toLocaleString('pt-BR')} ${rule.affected_count === 1 ? 'transação removida' : 'transações removidas'}`
+      : '';
+    return `
+      <li class="flex items-center justify-between gap-4 px-5 py-3 border-t border-slate-100">
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2 mb-0.5">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium">${cashflowDirectionLabel(rule.direction)}</span>
+            ${kind}
+            <span class="text-sm font-medium text-slate-900 truncate">${value}</span>
+          </div>
+          <p class="text-xs text-slate-500">${affected}</p>
+        </div>
+        <button
+          type="button"
+          class="cashflow-rule-delete shrink-0 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+          data-rule-id="${rule.id}"
+          title="Remover regra"
+        >Remover</button>
+      </li>
+    `;
+  }).join('');
+
+  return `
+    <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <summary class="px-5 py-4 flex items-center justify-between gap-3 select-none cursor-pointer hover:bg-slate-50">
+        <div>
+          <h2 class="font-semibold text-slate-900">Regras do fluxo de caixa</h2>
+          <p class="text-xs text-slate-500 mt-0.5">Remove investimentos, transferências internas e outros ruídos das entradas e saídas bancárias.</p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-xs font-medium text-slate-500">${pluralRegras((rules || []).length)}</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="chevron size-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </summary>
+      <div class="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
+        <form id="cashflow-rule-form" class="flex flex-col lg:flex-row gap-2 mb-1">
+          <select id="cashflow-rule-direction" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">
+            <option value="ALL">Entradas e saídas</option>
+            <option value="IN">Somente entradas</option>
+            <option value="OUT">Somente saídas</option>
+          </select>
+          <select id="cashflow-rule-kind" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">
+            <option value="pluggy_category">Por categoria Pluggy</option>
+            <option value="pattern">Por padrão de descrição</option>
+          </select>
+          <input id="cashflow-rule-value" type="text" required placeholder="Ex: Fixed income, Resgate CDB, Same person transfer"
+            class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+          <button type="submit"
+            class="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-4 py-2 shadow-sm whitespace-nowrap">Adicionar regra</button>
+        </form>
+        <p class="text-[11px] text-slate-400 mt-2">Essas regras afetam apenas a aba Entradas e saídas.</p>
+      </div>
+      ${list ? `<ul class="bg-white">${list}</ul>` : '<p class="px-5 py-6 text-sm text-center text-slate-500 border-t border-slate-100 bg-white">Nenhuma regra cadastrada.</p>'}
+    </details>
+  `;
+}
+
+function bindCashflowRulesEvents(section) {
+  const form = section.querySelector('#cashflow-rule-form');
+  if (form) {
+    form.addEventListener('submit', async (evt) => {
+      evt.preventDefault();
+      const direction = section.querySelector('#cashflow-rule-direction').value;
+      const kind = section.querySelector('#cashflow-rule-kind').value;
+      const value = section.querySelector('#cashflow-rule-value').value.trim();
+      if (!value) return;
+      const body = kind === 'pluggy_category'
+        ? { direction, pluggy_category: value }
+        : { direction, pattern: value };
+      try {
+        const response = await fetch('/bank-cashflow/exclusion-rules', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          showToast(err.detail || `Falha ao criar regra (HTTP ${response.status})`, 'error');
+          return;
+        }
+        await loadData();
+        showToast('Regra criada e fluxo recalculado.', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao criar regra.', 'error');
+      }
+    });
+  }
+
+  section.querySelectorAll('button.cashflow-rule-delete').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remover esta regra?')) return;
+      try {
+        const response = await fetch(`/bank-cashflow/exclusion-rules/${btn.dataset.ruleId}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok && response.status !== 204) {
+          showToast(`Falha ao remover (HTTP ${response.status})`, 'error');
+          return;
+        }
+        await loadData();
+        showToast('Regra removida e fluxo recalculado.', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao remover regra.', 'error');
+      }
+    });
+  });
+}
+
+function renderCashflow() {
+  const section = document.getElementById('cashflow-tab');
+  const subtitle = document.getElementById('subtitle');
+
+  destroyCharts();
+  hideAllTabSections();
+  section.classList.remove('hidden');
+
+  const summary = summarizeCashflow(cashflowData);
+
+  if (summary.months.length === 0) {
+    section.innerHTML = '';
+    renderEmpty(
+      'Sem entradas ou saídas nos últimos 12 meses.',
+      'Conecte uma conta bancária no dashboard para começar a acompanhar o fluxo de caixa.',
+    );
+    subtitle.textContent = 'Sem fluxo de caixa';
+    return;
+  }
+  hideEmpty();
+
+  subtitle.textContent =
+    `Fluxo de caixa bancário · ${pluralMeses(summary.months.length)} ativos`;
+
+  const netSign = summary.net >= 0 ? '+' : '−';
+  const netColor = summary.net >= 0 ? 'text-emerald-700' : 'text-red-700';
+
+  const tableRows = [...summary.months].reverse().map((m) => {
+    const monthNetSign = m.net >= 0 ? '+' : '−';
+    const monthNetColor = m.net >= 0 ? 'text-emerald-700' : 'text-red-700';
+    return `
+      <tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer cashflow-row" data-month="${m.month}">
+        <td class="px-5 py-3 text-sm font-medium text-slate-900 whitespace-nowrap">${escapeHtml(formatMonthLong(m.month))}</td>
+        <td class="px-5 py-3 text-right text-sm text-emerald-700 tabular">
+          ${m.entradas > 0 ? currency.format(m.entradas) : '<span class="text-slate-400">—</span>'}
+          ${m.entradas_count > 0 ? `<span class="block text-[11px] text-slate-400 font-normal">${m.entradas_count} ${m.entradas_count === 1 ? 'entrada' : 'entradas'}</span>` : ''}
+        </td>
+        <td class="px-5 py-3 text-right text-sm text-red-700 tabular">
+          ${m.saidas > 0 ? currency.format(m.saidas) : '<span class="text-slate-400">—</span>'}
+          ${m.saidas_count > 0 ? `<span class="block text-[11px] text-slate-400 font-normal">${m.saidas_count} ${m.saidas_count === 1 ? 'saída' : 'saídas'}</span>` : ''}
+        </td>
+        <td class="px-5 py-3 text-right text-sm tabular font-medium ${monthNetColor}">
+          ${monthNetSign}${currency.format(Math.abs(m.net))}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  section.innerHTML = `
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total de entradas</p>
+        <p class="mt-2 text-2xl font-bold tabular text-emerald-700">${currency.format(summary.total_entradas)}</p>
+        <p class="text-xs text-slate-500 mt-2">${summary.total_entradas_count.toLocaleString('pt-BR')} ${summary.total_entradas_count === 1 ? 'crédito' : 'créditos'} em ${pluralMeses(summary.months.length)}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total de saídas</p>
+        <p class="mt-2 text-2xl font-bold tabular text-red-700">${currency.format(summary.total_saidas)}</p>
+        <p class="text-xs text-slate-500 mt-2">${summary.total_saidas_count.toLocaleString('pt-BR')} ${summary.total_saidas_count === 1 ? 'débito' : 'débitos'} (inclui pagamentos de fatura)</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Saldo (entradas − saídas)</p>
+        <p class="mt-2 text-2xl font-bold tabular ${netColor}">${netSign}${currency.format(Math.abs(summary.net))}</p>
+        <p class="text-xs text-slate-500 mt-2">Fluxo de caixa líquido no período</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <h2 class="font-semibold text-slate-900 mb-1">Entradas vs saídas por mês</h2>
+      <p class="text-xs text-slate-500 mb-4">Clique numa barra para ver as transações do mês</p>
+      <div class="relative h-72"><canvas id="chart-cashflow"></canvas></div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="font-semibold text-slate-900">Detalhamento mensal</h2>
+        <p class="text-xs text-slate-500">Apenas movimentações bancárias — cartão de crédito aparece quando a fatura é paga</p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
+              <th class="px-5 py-2 text-left font-medium">Mês</th>
+              <th class="px-5 py-2 text-right font-medium">Entradas</th>
+              <th class="px-5 py-2 text-right font-medium">Saídas</th>
+              <th class="px-5 py-2 text-right font-medium">Saldo</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>
+    ${renderCashflowRulesPanel(cashflowRules)}
+  `;
+
+  section.querySelectorAll('tr.cashflow-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const monthData = summary.months.find((m) => m.month === row.dataset.month);
+      if (monthData) openCashflowDrilldown(monthData);
+    });
+  });
+
+  renderCashflowChart(summary);
+  bindCashflowRulesEvents(section);
+}
+
+function hideAllTabSections() {
+  ['cards', 'invoices', 'income-tab', 'balance-tab', 'cashflow-tab'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.add('hidden');
+      // Don't blow away `cards` content — renderCategoryHistory needs the
+      // existing canvas elements; just hide it.
+    }
+  });
+}
+
+function renderUnavailable(message, detail) {
+  destroyCharts();
+  hideAllTabSections();
+  renderEmpty(message, detail);
+}
+
 function renderActiveTab() {
-  if (!categoryHistory || !invoiceHistory) return;
   if (activeTab === 'invoices') {
+    if (!invoiceHistory) {
+      renderUnavailable(
+        'Não foi possível carregar as faturas.',
+        'Tente atualizar novamente em alguns segundos.',
+      );
+      return;
+    }
     renderInvoiceHistory();
+  } else if (activeTab === 'income') {
+    if (!incomeHistory) {
+      renderUnavailable(
+        'Não foi possível carregar as receitas.',
+        'Tente atualizar novamente em alguns segundos.',
+      );
+      return;
+    }
+    renderIncomeHistory();
+  } else if (activeTab === 'balance') {
+    if (!balanceHistory) {
+      renderUnavailable(
+        'Não foi possível carregar o balanço.',
+        'Tente atualizar novamente em alguns segundos.',
+      );
+      return;
+    }
+    renderBalanceHistory();
+  } else if (activeTab === 'cashflow') {
+    if (!cashflowData) {
+      renderUnavailable(
+        'Não foi possível carregar entradas e saídas.',
+        'Tente atualizar novamente em alguns segundos.',
+      );
+      return;
+    }
+    renderCashflow();
   } else {
+    if (!categoryHistory) {
+      renderUnavailable(
+        'Não foi possível carregar as categorias.',
+        'Tente atualizar novamente em alguns segundos.',
+      );
+      return;
+    }
     renderCategoryHistory();
   }
 }
 
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${url} retornou HTTP ${response.status}`);
+  return response.json();
+}
+
 async function loadData() {
-  const [categoriesResponse, invoicesResponse] = await Promise.all([
-    fetch('/stats/monthly'),
-    fetch('/credit-card-payments/monthly?months=12'),
-  ]);
-  if (!categoriesResponse.ok || !invoicesResponse.ok) {
+  const requests = [
+    ['categories', fetchJson('/stats/monthly')],
+    ['invoices', fetchJson('/credit-card-payments/monthly?months=12')],
+    ['income', fetchJson('/bank-income/monthly?months=12')],
+    ['balance', fetchJson('/monthly-balance?months=12')],
+    ['rules', fetchJson('/bank-income/exclusion-rules')],
+    ['cashflow', fetchJson('/bank-cashflow/monthly?months=12')],
+    ['cashflowRules', fetchJson('/bank-cashflow/exclusion-rules')],
+  ];
+  const results = await Promise.allSettled(requests.map(([, request]) => request));
+  const failures = [];
+
+  results.forEach((result, index) => {
+    const key = requests[index][0];
+    if (result.status === 'rejected') {
+      failures.push(key);
+      console.error(result.reason);
+      return;
+    }
+    if (key === 'categories') categoryHistory = result.value;
+    if (key === 'invoices') invoiceHistory = result.value;
+    if (key === 'income') incomeHistory = result.value;
+    if (key === 'balance') balanceHistory = result.value;
+    if (key === 'rules') exclusionRules = result.value;
+    if (key === 'cashflow') cashflowData = result.value;
+    if (key === 'cashflowRules') cashflowRules = result.value;
+  });
+
+  if (!exclusionRules) exclusionRules = [];
+  if (!cashflowRules) cashflowRules = [];
+  if (
+    !categoryHistory && !invoiceHistory && !incomeHistory &&
+    !balanceHistory && !cashflowData
+  ) {
     throw new Error('Falha ao carregar histórico');
   }
 
-  categoryHistory = await categoriesResponse.json();
-  invoiceHistory = await invoicesResponse.json();
   renderTabs();
   renderActiveTab();
+  if (failures.length > 0) {
+    showToast('Alguns dados do histórico não carregaram.', 'error');
+  }
 }
 
 document.getElementById('refresh').addEventListener('click', () => {

@@ -8,9 +8,12 @@ from app.database import get_session
 from app.services.rules import (
     RuleCategoryNotFoundError,
     RuleValidationError,
+    delete_bank_cashflow_exclusion_rule as delete_bank_cashflow_exclusion_rule_service,
     delete_bank_income_exclusion_rule as delete_bank_income_exclusion_rule_service,
+    list_bank_cashflow_exclusion_rules as list_bank_cashflow_exclusion_rules_service,
     list_bank_income_exclusion_rules as list_bank_income_exclusion_rules_service,
     list_ignored_description_rules as list_ignored_description_rules_service,
+    upsert_bank_cashflow_exclusion_rule as upsert_bank_cashflow_exclusion_rule_service,
     upsert_bank_income_exclusion_rule as upsert_bank_income_exclusion_rule_service,
     upsert_description_category_rule as upsert_description_category_rule_service,
     upsert_ignored_description_rule as upsert_ignored_description_rule_service,
@@ -20,6 +23,12 @@ router = APIRouter()
 
 
 class BankIncomeExclusionRuleUpsert(BaseModel):
+    pluggy_category: Optional[str] = None
+    pattern: Optional[str] = None
+
+
+class BankCashflowExclusionRuleUpsert(BaseModel):
+    direction: str = "ALL"
     pluggy_category: Optional[str] = None
     pattern: Optional[str] = None
 
@@ -67,6 +76,36 @@ def delete_bank_income_exclusion_rule(
     session: Session = Depends(get_session),
 ):
     delete_bank_income_exclusion_rule_service(session, rule_id)
+    return None
+
+
+@router.get("/bank-cashflow/exclusion-rules")
+def list_bank_cashflow_exclusion_rules(session: Session = Depends(get_session)):
+    return list_bank_cashflow_exclusion_rules_service(session)
+
+
+@router.post("/bank-cashflow/exclusion-rules")
+def upsert_bank_cashflow_exclusion_rule(
+    body: BankCashflowExclusionRuleUpsert,
+    session: Session = Depends(get_session),
+):
+    try:
+        return upsert_bank_cashflow_exclusion_rule_service(
+            session,
+            direction=body.direction,
+            pluggy_category=body.pluggy_category,
+            pattern=body.pattern,
+        )
+    except (RuleValidationError, RuleCategoryNotFoundError) as exc:
+        _handle_rule_error(exc)
+
+
+@router.delete("/bank-cashflow/exclusion-rules/{rule_id}", status_code=204)
+def delete_bank_cashflow_exclusion_rule(
+    rule_id: int,
+    session: Session = Depends(get_session),
+):
+    delete_bank_cashflow_exclusion_rule_service(session, rule_id)
     return None
 
 

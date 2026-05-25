@@ -92,6 +92,15 @@ class BankIncomeExclusionRule(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
+class BankCashflowExclusionRule(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    direction: str = Field(default="ALL", index=True)
+    pluggy_category: Optional[str] = Field(default=None, index=True)
+    pattern: Optional[str] = None
+    pattern_normalized: Optional[str] = Field(default=None, index=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class MonthlyBalanceMonth(SQLModel, table=True):
     year_month: str = Field(primary_key=True, index=True)
     income: Decimal = Decimal("0")
