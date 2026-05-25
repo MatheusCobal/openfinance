@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, Optional
@@ -10,6 +11,13 @@ from app.services.snapshots import refresh_monthly_balance_snapshots
 from app.services.transactions import TRACKED_ACCOUNT_TYPES
 
 SYNC_LOOKBACK_DAYS = 7
+
+
+@dataclass
+class AccountSyncResult:
+    fetched_transactions: int = 0
+    new_transactions: int = 0
+    updated_transactions: int = 0
 
 
 def upsert_item(item_id: str, session: Session) -> Item:
@@ -100,17 +108,68 @@ def upsert_transaction(
     return False, changed, tx_date
 
 
+def tracked_accounts(raw_accounts: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    return [
+        account
+        for account in raw_accounts
+        if account["type"] in TRACKED_ACCOUNT_TYPES
+    ]
+
+
+def get_or_create_sync_state(account_id: str, session: Session) -> AccountSync:
+    sync_state = session.get(AccountSync, account_id)
+    if sync_state is not None:
+        return sync_state
+
+    sync_state = AccountSync(
+        account_id=account_id,
+        last_transaction_date=last_past_transaction_date(account_id, session),
+    )
+    session.add(sync_state)
+    return sync_state
+
+
+def sync_account_transactions(
+    account_id: str,
+    sync_state: AccountSync,
+    session: Session,
+) -> AccountSyncResult:
+    result = AccountSyncResult()
+    max_past_tx_date = sync_state.last_transaction_date
+    for raw_tx in pluggy.list_transactions(
+        account_id,
+        from_date=sync_from_date(sync_state),
+    ):
+        result.fetched_transactions += 1
+        is_new, is_updated, tx_date = upsert_transaction(
+            raw_tx,
+            account_id,
+            session,
+        )
+        if is_new:
+            result.new_transactions += 1
+        if is_updated:
+            result.updated_transactions += 1
+        if tx_date <= date.today() and (
+            max_past_tx_date is None or tx_date > max_past_tx_date
+        ):
+            max_past_tx_date = tx_date
+
+    sync_state.last_transaction_date = max_past_tx_date
+    sync_state.last_synced_at = datetime.utcnow()
+    session.add(sync_state)
+    return result
+
+
 def sync_item(item_id: str, session: Session) -> Dict[str, int]:
     raw_accounts = pluggy.list_accounts(item_id)
-    tracked_accounts = [
-        a for a in raw_accounts if a["type"] in TRACKED_ACCOUNT_TYPES
-    ]
+    accounts_to_sync = tracked_accounts(raw_accounts)
 
     new_transactions = 0
     updated_transactions = 0
     fetched_transactions = 0
     synced_accounts_by_type: Dict[str, int] = {}
-    for raw_account in tracked_accounts:
+    for raw_account in accounts_to_sync:
         account_id = raw_account["id"]
         account_type = raw_account["type"]
         synced_accounts_by_type[account_type] = (
@@ -118,46 +177,20 @@ def sync_item(item_id: str, session: Session) -> Dict[str, int]:
         )
         upsert_account(raw_account, item_id, session)
 
-        sync_state = session.get(AccountSync, account_id)
-        if sync_state is None:
-            sync_state = AccountSync(
-                account_id=account_id,
-                last_transaction_date=last_past_transaction_date(account_id, session),
-            )
-            session.add(sync_state)
-
-        max_past_tx_date = sync_state.last_transaction_date
-        for raw_tx in pluggy.list_transactions(
-            account_id,
-            from_date=sync_from_date(sync_state),
-        ):
-            fetched_transactions += 1
-            is_new, is_updated, tx_date = upsert_transaction(
-                raw_tx,
-                account_id,
-                session,
-            )
-            if is_new:
-                new_transactions += 1
-            if is_updated:
-                updated_transactions += 1
-            if tx_date <= date.today() and (
-                max_past_tx_date is None or tx_date > max_past_tx_date
-            ):
-                max_past_tx_date = tx_date
-
-        sync_state.last_transaction_date = max_past_tx_date
-        sync_state.last_synced_at = datetime.utcnow()
-        session.add(sync_state)
+        sync_state = get_or_create_sync_state(account_id, session)
+        account_result = sync_account_transactions(account_id, sync_state, session)
+        fetched_transactions += account_result.fetched_transactions
+        new_transactions += account_result.new_transactions
+        updated_transactions += account_result.updated_transactions
 
     session.commit()
     # refresh_monthly_balance_snapshots internally refreshes income and invoice
-    # snapshots first, so a single call is enough — no double work.
+    # snapshots first, so a single call is enough.
     refreshed_income_months, refreshed_invoice_months, refreshed_balance_months = (
         refresh_monthly_balance_snapshots(session)
     )
     return {
-        "tracked_accounts": len(tracked_accounts),
+        "tracked_accounts": len(accounts_to_sync),
         "credit_accounts": synced_accounts_by_type.get("CREDIT", 0),
         "bank_accounts": synced_accounts_by_type.get("BANK", 0),
         "fetched_transactions": fetched_transactions,
