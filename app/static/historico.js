@@ -40,7 +40,6 @@ const HISTORY_TABS = [
   { key: 'categories', label: 'Categorias' },
   { key: 'invoices', label: 'Faturas cartão' },
   { key: 'income', label: 'Receitas' },
-  { key: 'balance', label: 'Balanço' },
   { key: 'cashflow', label: 'Entradas e saídas' },
 ];
 
@@ -48,7 +47,6 @@ let activeTab = 'categories';
 let categoryHistory = null;
 let invoiceHistory = null;
 let incomeHistory = null;
-let balanceHistory = null;
 let cashflowData = null;
 let exclusionRules = null;
 let cashflowRules = null;
@@ -893,170 +891,6 @@ function renderIncomeHistory() {
   renderIncomeChart(data);
 }
 
-// ── Balance (Balanço) tab ───────────────────────────────────────────────
-
-function renderBalanceChart(data) {
-  const ctx = document.getElementById('chart-balance');
-  if (!ctx || typeof Chart === 'undefined') return;
-  if (charts.has('balance')) charts.get('balance').destroy();
-
-  const labels = data.months.map((m) => formatMonthLabel(m.month));
-
-  const chart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Entradas',
-          data: data.months.map((m) => m.income),
-          backgroundColor: INCOME_COLOR,
-          borderRadius: 4,
-          maxBarThickness: 22,
-        },
-        {
-          label: 'Gastos cartão',
-          data: data.months.map((m) => m.card_spend),
-          backgroundColor: '#f97316',
-          borderRadius: 4,
-          maxBarThickness: 22,
-        },
-        {
-          label: 'Fatura paga',
-          data: data.months.map((m) => m.invoice_paid),
-          backgroundColor: INVOICE_COLOR,
-          borderRadius: 4,
-          maxBarThickness: 22,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => ` ${ctx.dataset.label}: ${currency.format(ctx.parsed.y)}`,
-          },
-        },
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
-        y: {
-          beginAtZero: true,
-          ticks: {
-            font: { size: 10 },
-            callback: (v) => currency.format(v).replace('R$', '').trim(),
-          },
-          grid: { color: '#f1f5f9' },
-        },
-      },
-    },
-  });
-  charts.set('balance', chart);
-}
-
-function balanceCell(value, { signed = false } = {}) {
-  if (value === 0 || value == null) return '<span class="text-slate-400 tabular">—</span>';
-  if (!signed) return `<span class="tabular text-slate-900">${currency.format(value)}</span>`;
-  const sign = value >= 0 ? '+' : '−';
-  const color = value >= 0 ? 'text-emerald-700' : 'text-red-700';
-  return `<span class="tabular font-medium ${color}">${sign}${currency.format(Math.abs(value))}</span>`;
-}
-
-function renderBalanceHistory() {
-  const data = balanceHistory;
-  const section = document.getElementById('balance-tab');
-  const subtitle = document.getElementById('subtitle');
-
-  destroyCharts();
-  hideAllTabSections();
-  section.classList.remove('hidden');
-
-  const months = data.months || [];
-  const hasActivity = months.some(
-    (m) => (m.income || 0) > 0 || (m.card_spend || 0) > 0 || (m.invoice_paid || 0) > 0,
-  );
-
-  if (!hasActivity) {
-    section.innerHTML = '';
-    renderEmpty(
-      'Nenhum dado de balanço.',
-      'Conecte contas bancárias e cartões para acompanhar o fluxo mensal.',
-    );
-    subtitle.textContent = 'Sem balanço';
-    return;
-  }
-  hideEmpty();
-
-  const summary = data.summary || {};
-  subtitle.textContent = `Balanço mensal · últimos ${months.length} meses`;
-
-  const tableRows = [...months].reverse().map((m) => `
-    <tr class="border-t border-slate-100">
-      <td class="px-5 py-3 text-sm font-medium text-slate-900 whitespace-nowrap">${escapeHtml(formatMonthLong(m.month))}</td>
-      <td class="px-5 py-3 text-right text-sm text-emerald-700 tabular">${m.income > 0 ? currency.format(m.income) : '<span class="text-slate-400">—</span>'}</td>
-      <td class="px-5 py-3 text-right text-sm text-orange-700 tabular">${m.card_spend > 0 ? currency.format(m.card_spend) : '<span class="text-slate-400">—</span>'}</td>
-      <td class="px-5 py-3 text-right text-sm text-slate-700 tabular">${m.invoice_paid > 0 ? currency.format(m.invoice_paid) : '<span class="text-slate-400">—</span>'}</td>
-      <td class="px-5 py-3 text-right text-sm">${balanceCell(m.net_by_purchase_month, { signed: true })}</td>
-      <td class="px-5 py-3 text-right text-sm">${balanceCell(m.net_cashflow, { signed: true })}</td>
-    </tr>
-  `).join('');
-
-  section.innerHTML = `
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Entradas totais</p>
-        <p class="mt-2 text-xl font-bold tabular text-emerald-700">${currency.format(summary.income || 0)}</p>
-      </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Gastos cartão</p>
-        <p class="mt-2 text-xl font-bold tabular text-orange-700">${currency.format(summary.card_spend || 0)}</p>
-      </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Fatura paga</p>
-        <p class="mt-2 text-xl font-bold tabular text-slate-700">${currency.format(summary.invoice_paid || 0)}</p>
-      </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Caixa líquido</p>
-        <p class="mt-2 text-xl font-bold tabular ${(summary.net_cashflow || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}">
-          ${(summary.net_cashflow || 0) >= 0 ? '+' : '−'}${currency.format(Math.abs(summary.net_cashflow || 0))}
-        </p>
-      </div>
-    </div>
-
-    <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-      <h2 class="font-semibold text-slate-900 mb-4">Entradas vs gastos vs fatura</h2>
-      <div class="relative h-72"><canvas id="chart-balance"></canvas></div>
-    </div>
-
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-        <h2 class="font-semibold text-slate-900">Detalhamento mensal</h2>
-        <p class="text-xs text-slate-500">Saldo = entradas − gastos · Caixa = entradas − fatura</p>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
-              <th class="px-5 py-2 text-left font-medium">Mês</th>
-              <th class="px-5 py-2 text-right font-medium">Entradas</th>
-              <th class="px-5 py-2 text-right font-medium">Gastos cartão</th>
-              <th class="px-5 py-2 text-right font-medium">Fatura paga</th>
-              <th class="px-5 py-2 text-right font-medium">Saldo do mês</th>
-              <th class="px-5 py-2 text-right font-medium">Caixa do mês</th>
-            </tr>
-          </thead>
-          <tbody>${tableRows}</tbody>
-        </table>
-      </div>
-    </div>
-  `;
-
-  renderBalanceChart(data);
-}
-
 // ── Cashflow (Entradas e saídas) tab ────────────────────────────────────
 //
 // Computed entirely from bank transactions to avoid the double-counting that
@@ -1439,7 +1273,7 @@ function renderCashflow() {
 }
 
 function hideAllTabSections() {
-  ['cards', 'invoices', 'income-tab', 'balance-tab', 'cashflow-tab'].forEach((id) => {
+  ['cards', 'invoices', 'income-tab', 'cashflow-tab'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
       el.classList.add('hidden');
@@ -1474,15 +1308,6 @@ function renderActiveTab() {
       return;
     }
     renderIncomeHistory();
-  } else if (activeTab === 'balance') {
-    if (!balanceHistory) {
-      renderUnavailable(
-        'Não foi possível carregar o balanço.',
-        'Tente atualizar novamente em alguns segundos.',
-      );
-      return;
-    }
-    renderBalanceHistory();
   } else if (activeTab === 'cashflow') {
     if (!cashflowData) {
       renderUnavailable(
@@ -1515,7 +1340,6 @@ async function loadData() {
     ['categories', fetchJson('/stats/monthly')],
     ['invoices', fetchJson('/credit-card-payments/monthly?months=12')],
     ['income', fetchJson('/bank-income/monthly?months=12')],
-    ['balance', fetchJson('/monthly-balance?months=12')],
     ['rules', fetchJson('/bank-income/exclusion-rules')],
     ['cashflow', fetchJson('/bank-cashflow/monthly?months=12')],
     ['cashflowRules', fetchJson('/bank-cashflow/exclusion-rules')],
@@ -1533,7 +1357,6 @@ async function loadData() {
     if (key === 'categories') categoryHistory = result.value;
     if (key === 'invoices') invoiceHistory = result.value;
     if (key === 'income') incomeHistory = result.value;
-    if (key === 'balance') balanceHistory = result.value;
     if (key === 'rules') exclusionRules = result.value;
     if (key === 'cashflow') cashflowData = result.value;
     if (key === 'cashflowRules') cashflowRules = result.value;
@@ -1543,7 +1366,7 @@ async function loadData() {
   if (!cashflowRules) cashflowRules = [];
   if (
     !categoryHistory && !invoiceHistory && !incomeHistory &&
-    !balanceHistory && !cashflowData
+    !cashflowData
   ) {
     throw new Error('Falha ao carregar histórico');
   }

@@ -126,10 +126,10 @@
           </div>
         </section>
 
-        <!-- ── Monthly cash-flow strip (always current month) ──── -->
+        <!-- ── Monthly overview (always current month) ─────────── -->
         <section id="monthly-flow-section" class="hidden mb-6">
           <div class="flex items-baseline justify-between mb-3">
-            <h2 class="font-semibold text-slate-900">Fluxo de caixa · este mês</h2>
+            <h2 class="font-semibold text-slate-900">Resumo do mês</h2>
             <p class="text-xs text-slate-500" id="monthly-flow-period">—</p>
           </div>
           <div id="monthly-flow" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
@@ -149,14 +149,7 @@
 
         <!-- ── Category accordion grid ─────────────────────────── -->
         <section>
-          <div class="flex flex-wrap items-baseline justify-between gap-3 mb-3">
-            <h2 class="font-semibold text-slate-900">Transações por categoria</h2>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-500">Contas:</span>
-              <div id="account-type-filter" class="flex gap-1"></div>
-            </div>
-          </div>
-          <p id="account-type-hint" class="hidden text-xs text-slate-400 mb-3"></p>
+          <h2 class="font-semibold text-slate-900 mb-3">Compras por categoria</h2>
           <div id="categories"></div>
           <div id="empty" class="hidden text-center py-20">
             <div class="inline-flex flex-col items-center max-w-sm">
@@ -211,6 +204,6 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=10"></script>
+    <script src="/static/app.js?v=11"></script>
   </body>
 </html>
