@@ -24,6 +24,15 @@ fastapi dev app/main.py    # com o venv ativo, ou:
 
 Abre em http://127.0.0.1:8000.
 
+## Testes
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+```
+
+A suíte cobre regressões do backend para transações, estatísticas, próximos gastos,
+orçamento, regras, faturas de cartão, receitas bancárias e balanço mensal.
+
 ## Como conectar um banco
 
 1. Cria conta grátis em [meu.pluggy.ai](https://meu.pluggy.ai) e conecta seu banco lá
@@ -102,7 +111,9 @@ openfinance/
     ├── models.py              Item, Account, AccountSync, Transaction, Category, CategoryRule, DescriptionCategoryRule, IgnoredDescriptionRule, Budget, BudgetOverride
     ├── pluggy_client.py       httpx wrapper paginado
     ├── categorization.py      resolver pluggy_category → Category
-    ├── main.py                rotas FastAPI
+    ├── main.py                bootstrap FastAPI
+    ├── routes/                rotas FastAPI por domínio
+    ├── services/              regras de sync, snapshots e transações
     └── static/
         ├── index.html, app.js
         ├── historico.html, historico.js
@@ -113,7 +124,6 @@ openfinance/
 ## Limitações intencionais
 
 - Sem autenticação (uso local apenas, não exponha publicamente sem adicionar)
-- Sem testes automatizados
 - Sem Alembic — schema mudou? Drop o `openfinance.db` e reconecta
 - Filtro de contas hardcoded em `type == "CREDIT"` (só cartão; conta corrente fica de fora)
 - Sync incremental por conta com janela de segurança de 7 dias para capturar alterações recentes
