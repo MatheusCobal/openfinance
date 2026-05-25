@@ -230,14 +230,23 @@ function cashflowTransactionRow(tx, tint) {
   `;
 }
 
+// Initial row cap on each dashboard cash-flow card. Anything beyond this is
+// rendered into a hidden <ul> that the "Ver todas" button reveals in place —
+// same pattern the category accordion already uses, so the interaction feels
+// consistent across the dashboard.
+const CASHFLOW_CARD_INITIAL_ROWS = 8;
+
 function cashflowListCard({ title, total, count, transactions, tint, emptyText }) {
   const tintClasses = tint === 'emerald'
     ? { value: 'text-emerald-700', dot: 'bg-emerald-500' }
     : { value: 'text-red-700', dot: 'bg-red-500' };
-  const rows = transactions.slice(0, 8).map((tx) => cashflowTransactionRow(tx, tint)).join('');
-  const hiddenCount = Math.max(0, transactions.length - 8);
+  const visible = transactions.slice(0, CASHFLOW_CARD_INITIAL_ROWS);
+  const hidden = transactions.slice(CASHFLOW_CARD_INITIAL_ROWS);
+  const visibleRows = visible.map((tx) => cashflowTransactionRow(tx, tint)).join('');
+  const hiddenRows = hidden.map((tx) => cashflowTransactionRow(tx, tint)).join('');
   const totalText = currency.format(total || 0);
   const countText = count === 1 ? '1 transação' : `${count.toLocaleString('pt-BR')} transações`;
+  const totalCountForLabel = transactions.length.toLocaleString('pt-BR');
   return `
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div class="px-4 py-4 flex items-start justify-between gap-3">
@@ -252,7 +261,18 @@ function cashflowListCard({ title, total, count, transactions, tint, emptyText }
       </div>
       ${
         transactions.length > 0
-          ? `<ul>${rows}</ul>${hiddenCount > 0 ? `<p class="px-4 py-3 border-t border-slate-100 text-xs text-slate-500">+ ${hiddenCount.toLocaleString('pt-BR')} ${hiddenCount === 1 ? 'movimentação' : 'movimentações'} no histórico</p>` : ''}`
+          ? `<ul>${visibleRows}</ul>${
+              hidden.length > 0
+                ? `<ul class="cashflow-hidden hidden">${hiddenRows}</ul>
+                   <button
+                     type="button"
+                     class="cashflow-ver-todas w-full text-center text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-slate-50 py-3 border-t border-slate-100 transition-colors"
+                     data-count="${hidden.length}"
+                   >
+                     Ver todas as ${totalCountForLabel} ${transactions.length === 1 ? 'transação' : 'transações'}
+                   </button>`
+                : ''
+            }`
           : `<p class="px-4 py-5 border-t border-slate-100 text-sm text-slate-500">${escapeHtml(emptyText)}</p>`
       }
     </div>
@@ -300,6 +320,18 @@ function renderCashflowWidget(cashflowMonth) {
     }),
   ].join('');
   section.classList.remove('hidden');
+
+  // Click handler for "Ver todas as N transações" — reveals the hidden list
+  // and removes the button (same one-shot expand pattern as the category
+  // accordion, no collapse-back needed).
+  container.querySelectorAll('button.cashflow-ver-todas').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.bg-white');
+      const hidden = card && card.querySelector('ul.cashflow-hidden');
+      if (hidden) hidden.classList.remove('hidden');
+      btn.remove();
+    });
+  });
 }
 
 function hideCashflowWidget() {

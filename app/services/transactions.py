@@ -10,17 +10,11 @@ from app.models import (
     IgnoredDescriptionRule,
     Transaction,
 )
-
-TRACKED_ACCOUNT_TYPES = {"CREDIT", "BANK"}
-SPENDING_ACCOUNT_TYPES = {"CREDIT"}
-BANK_ACCOUNT_TYPES = {"BANK"}
-CREDIT_CARD_PAYMENT_CATEGORIES = {"Credit card payment", "Card payments"}
-CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS = tuple(
-    normalize_description(pattern)
-    for pattern in (
-        "PAGAMENTO COM SALDO",
-        "Pagamento recebido",
-    )
+from app.services.classification import (
+    BANK_ACCOUNT_TYPES,
+    SPENDING_ACCOUNT_TYPES,
+    TRACKED_ACCOUNT_TYPES,
+    TransactionClassifier,
 )
 
 
@@ -63,10 +57,8 @@ def filter_ignored_transactions(
 ) -> list[Transaction]:
     if include_ignored:
         return transactions
-    patterns = ignored_description_patterns(session)
-    if not patterns:
-        return transactions
-    return [tx for tx in transactions if not is_ignored_transaction(tx, patterns)]
+    classifier = TransactionClassifier.from_session(session)
+    return [tx for tx in transactions if not classifier.is_ignored(tx)]
 
 
 def account_ids_by_type(session: Session, account_types: set[str]) -> list[str]:
@@ -92,19 +84,13 @@ def is_credit_card_payment_transaction(
     tx: Transaction,
     accounts_by_id: dict[str, Account],
 ) -> bool:
-    account = accounts_by_id.get(tx.account_id)
-    if account is not None and account.type != "CREDIT":
-        return False
-    if tx.amount >= 0:
-        return False
-    if tx.category in CREDIT_CARD_PAYMENT_CATEGORIES:
-        return True
-    normalized_description = normalize_description(tx.description)
-    return any(
-        pattern in normalized_description
-        for pattern in CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS
-        if pattern
+    classifier = TransactionClassifier(
+        accounts_by_id=accounts_by_id,
+        ignored_patterns=[],
+        bank_income_rules=[],
+        bank_cashflow_rules=[],
     )
+    return classifier.is_invoice_payment(tx)
 
 
 def credit_card_payment_transactions(
@@ -112,19 +98,13 @@ def credit_card_payment_transactions(
     start_date: date,
     end_date: date,
 ) -> list[Transaction]:
-    accounts_by_id = {
-        account.id: account for account in session.exec(select(Account)).all()
-    }
+    classifier = TransactionClassifier.from_session(session)
     transactions = session.exec(
         select(Transaction)
         .where(Transaction.date >= start_date, Transaction.date <= end_date)
         .order_by(Transaction.date.asc())
     ).all()
-    return [
-        tx
-        for tx in transactions
-        if is_credit_card_payment_transaction(tx, accounts_by_id)
-    ]
+    return [tx for tx in transactions if classifier.is_invoice_payment(tx)]
 
 
 def bank_income_exclusion_rules(
@@ -155,18 +135,13 @@ def is_excluded_bank_cashflow_transaction(
     tx: Transaction,
     rules: list[BankCashflowExclusionRule],
 ) -> bool:
-    normalized_description = normalize_description(tx.description)
-    for rule in rules:
-        if not _cashflow_rule_matches_direction(tx, rule):
-            continue
-        if rule.pluggy_category and tx.category == rule.pluggy_category:
-            return True
-        if (
-            rule.pattern_normalized
-            and rule.pattern_normalized in normalized_description
-        ):
-            return True
-    return False
+    classifier = TransactionClassifier(
+        accounts_by_id={},
+        ignored_patterns=[],
+        bank_income_rules=[],
+        bank_cashflow_rules=rules,
+    )
+    return classifier.matches_bank_cashflow_exclusion(tx)
 
 
 def count_bank_cashflow_exclusion_matches(
@@ -189,28 +164,21 @@ def is_excluded_bank_income_transaction(
     tx: Transaction,
     rules: list[BankIncomeExclusionRule],
 ) -> bool:
-    normalized_description = normalize_description(tx.description)
-    for rule in rules:
-        if rule.pluggy_category and tx.category == rule.pluggy_category:
-            return True
-        if (
-            rule.pattern_normalized
-            and rule.pattern_normalized in normalized_description
-        ):
-            return True
-    return False
+    classifier = TransactionClassifier(
+        accounts_by_id={},
+        ignored_patterns=[],
+        bank_income_rules=rules,
+        bank_cashflow_rules=[],
+    )
+    return classifier.matches_bank_income_exclusion(tx)
 
 
 def filter_real_bank_income_transactions(
     transactions: list[Transaction],
     session: Session,
 ) -> list[Transaction]:
-    rules = bank_income_exclusion_rules(session)
-    return [
-        tx
-        for tx in transactions
-        if tx.amount > 0 and not is_excluded_bank_income_transaction(tx, rules)
-    ]
+    classifier = TransactionClassifier.from_session(session)
+    return [tx for tx in transactions if classifier.is_real_bank_income(tx)]
 
 
 def bank_income_transactions(
@@ -251,7 +219,10 @@ def credit_card_spend_transactions(
         )
         .order_by(Transaction.date.asc())
     ).all()
-    return filter_ignored_transactions(transactions, session, include_ignored)
+    if include_ignored:
+        return transactions
+    classifier = TransactionClassifier.from_session(session)
+    return [tx for tx in transactions if classifier.is_card_purchase(tx)]
 
 
 def count_bank_income_exclusion_matches(

@@ -127,7 +127,7 @@ class BackendRegressionTest(unittest.TestCase):
                         id="tx-pet",
                         account_id="credit-1",
                         date=self.current_month_day,
-                        amount=Decimal("-50.00"),
+                        amount=Decimal("50.00"),
                         description="Cobasi Canoas",
                         category="Healthcare",
                     ),

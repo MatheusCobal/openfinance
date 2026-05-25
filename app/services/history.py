@@ -12,6 +12,7 @@ from app.models import (
     MonthlyBalanceMonth,
     Transaction,
 )
+from app.services.classification import TransactionClassifier
 from app.services.snapshots import (
     refresh_bank_income_snapshots,
     refresh_credit_card_invoice_snapshots,
@@ -23,7 +24,6 @@ from app.services.transactions import (
     bank_income_transactions,
     credit_card_payment_transactions,
     ignored_description_patterns,
-    is_excluded_bank_cashflow_transaction,
     is_ignored_transaction,
     last_month_keys,
     month_key,
@@ -264,6 +264,7 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
         if account.type in BANK_ACCOUNT_TYPES
     }
     exclusion_rules = bank_cashflow_exclusion_rules(session)
+    classifier = TransactionClassifier.from_session(session)
     transactions = session.exec(
         select(Transaction)
         .where(Transaction.date >= start_date, Transaction.date <= today)
@@ -273,7 +274,7 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
         tx
         for tx in transactions
         if tx.account_id in bank_accounts
-        and not is_excluded_bank_cashflow_transaction(tx, exclusion_rules)
+        and classifier.is_bank_cashflow(tx)
     ]
 
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
