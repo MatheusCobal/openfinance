@@ -135,6 +135,21 @@ class ExpectedIncome(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
+class ExpectedIncomeOverride(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "expected_income_id",
+            "year_month",
+            name="uq_expectedincomeoverride_entry_month",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    expected_income_id: int = Field(foreign_key="expectedincome.id", index=True)
+    year_month: str = Field(index=True)
+    amount: Decimal
+
+
 class BudgetOverride(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("category_id", "year_month", name="uq_budgetoverride_month"),

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
-from app.models import BankIncomeMonth, ExpectedIncome
+from app.models import BankIncomeMonth, ExpectedIncome, ExpectedIncomeOverride
 from app.services.history import refresh_bank_income_snapshots
 
 
@@ -93,6 +93,116 @@ def delete_expected_income(session: Session, entry_id: int) -> bool:
     if entry is None:
         return False
     session.delete(entry)
+    session.commit()
+    return True
+
+
+def _shift_year_month(year_month: str, months: int) -> str:
+    year, month = _parse_year_month(year_month)
+    zero_based = year * 12 + (month - 1) + months
+    return f"{zero_based // 12:04d}-{(zero_based % 12) + 1:02d}"
+
+
+def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
+    _parse_year_month(year_month)
+    entries = session.exec(
+        select(ExpectedIncome)
+        .where(ExpectedIncome.active.is_(True))
+        .order_by(ExpectedIncome.expected_day, ExpectedIncome.description)
+    ).all()
+    overrides = {
+        ov.expected_income_id: ov
+        for ov in session.exec(
+            select(ExpectedIncomeOverride).where(
+                ExpectedIncomeOverride.year_month == year_month
+            )
+        ).all()
+    }
+
+    items = []
+    total = Decimal("0")
+    for entry in entries:
+        override = overrides.get(entry.id)
+        effective = override.amount if override is not None else entry.amount
+        total += effective
+        items.append(
+            {
+                "expected_income_id": entry.id,
+                "description": entry.description,
+                "expected_day": entry.expected_day,
+                "base_amount": float(entry.amount),
+                "amount": float(effective),
+                "is_override": override is not None,
+                "override_id": override.id if override is not None else None,
+            }
+        )
+    return {
+        "year_month": year_month,
+        "total": float(total),
+        "entries": items,
+    }
+
+
+def upcoming_months(
+    session: Session, start_year_month: str, months: int
+) -> List[Dict[str, Any]]:
+    if not (1 <= months <= 24):
+        raise ExpectedIncomeValidationError("months must be between 1 and 24")
+    return [
+        monthly_breakdown(session, _shift_year_month(start_year_month, offset))
+        for offset in range(months)
+    ]
+
+
+def set_override(
+    session: Session,
+    entry_id: int,
+    year_month: str,
+    amount: Decimal,
+) -> Optional[Dict[str, Any]]:
+    _parse_year_month(year_month)
+    if amount < 0:
+        raise ExpectedIncomeValidationError("amount must be non-negative")
+    entry = session.get(ExpectedIncome, entry_id)
+    if entry is None:
+        return None
+
+    existing = session.exec(
+        select(ExpectedIncomeOverride).where(
+            ExpectedIncomeOverride.expected_income_id == entry_id,
+            ExpectedIncomeOverride.year_month == year_month,
+        )
+    ).first()
+    if existing is None:
+        existing = ExpectedIncomeOverride(
+            expected_income_id=entry_id,
+            year_month=year_month,
+            amount=amount,
+        )
+    else:
+        existing.amount = amount
+    session.add(existing)
+    session.commit()
+    session.refresh(existing)
+    return {
+        "id": existing.id,
+        "expected_income_id": existing.expected_income_id,
+        "year_month": existing.year_month,
+        "amount": float(existing.amount),
+    }
+
+
+def delete_override(session: Session, entry_id: int, year_month: str) -> bool:
+    _parse_year_month(year_month)
+    existing = session.exec(
+        select(ExpectedIncomeOverride).where(
+            ExpectedIncomeOverride.expected_income_id == entry_id,
+            ExpectedIncomeOverride.year_month == year_month,
+        )
+    ).first()
+    if existing is None:
+        return False
+    session.delete(existing)
     session.commit()
     return True
 

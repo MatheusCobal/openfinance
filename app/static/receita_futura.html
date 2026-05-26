@@ -65,14 +65,28 @@
 
       <div id="toast" class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-xl text-white text-sm px-4 py-3 shadow-lg"></div>
 
-      <main class="flex-1 px-8 py-6 max-w-4xl">
+      <main class="flex-1 px-8 py-6 max-w-4xl space-y-6">
 
+        <!-- ── Próximos meses ───────────────────────────────────── -->
         <section class="bg-white rounded-2xl border border-slate-200 p-6">
           <div class="flex items-baseline justify-between mb-1">
-            <h2 class="text-base font-semibold text-slate-900">Entradas cadastradas</h2>
+            <h2 class="text-base font-semibold text-slate-900">Próximos meses</h2>
+            <span class="text-xs text-slate-500">Total do mês: <span id="month-total" class="font-semibold tabular text-slate-900">—</span></span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4">Selecione um mês para ver/editar o valor esperado de cada entrada naquele mês. Editar gera um override só para o mês escolhido.</p>
+
+          <div id="month-strip" class="flex gap-2 overflow-x-auto pb-2 mb-4"></div>
+
+          <ul id="month-breakdown" class="divide-y divide-slate-100 text-sm"></ul>
+        </section>
+
+        <!-- ── Entradas base ────────────────────────────────────── -->
+        <section class="bg-white rounded-2xl border border-slate-200 p-6">
+          <div class="flex items-baseline justify-between mb-1">
+            <h2 class="text-base font-semibold text-slate-900">Entradas base</h2>
             <span class="text-xs text-slate-500" id="entry-count">—</span>
           </div>
-          <p class="text-xs text-slate-500 mb-4">Cadastre suas receitas previstas (salário, freela, aluguel etc). Cada entrada tem um dia esperado e pode ser desativada sem apagar.</p>
+          <p class="text-xs text-slate-500 mb-4">Modelos recorrentes. O valor base é aplicado em todo mês, exceto onde houver um override.</p>
 
           <form id="entry-form" class="grid grid-cols-1 sm:grid-cols-[1fr_140px_100px_auto] gap-2 mb-5">
             <input id="entry-description" type="text" required placeholder="Descrição (ex: Salário)" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
@@ -96,6 +110,6 @@
       </main>
     </div>
 
-    <script src="/static/receita_futura.js?v=1"></script>
+    <script src="/static/receita_futura.js?v=2"></script>
   </body>
 </html>
