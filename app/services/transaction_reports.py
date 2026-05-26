@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from app.categorization import CategoryResolver
 from app.models import Category, Transaction
+from app.services.classification import TransactionClassifier
 from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
     TRACKED_ACCOUNT_TYPES,
@@ -387,10 +388,42 @@ def stats_summary(
         for month, total in sorted(totals_by_month.items())
     ]
 
+    # Open invoice: credit-card purchases since the most recent invoice payment
+    # (up to effective_to). This is "what will land on the next invoice", and
+    # is what the dashboard hero shows so the number is meaningful even when
+    # the selected period contains no payment yet.
+    classifier = TransactionClassifier.from_session(session)
+    all_up_to = session.exec(
+        select(Transaction).where(Transaction.date <= effective_to)
+    ).all()
+    last_payment_date: Optional[date] = max(
+        (tx.date for tx in all_up_to if classifier.is_invoice_payment(tx)),
+        default=None,
+    )
+    # If the user narrowed the period to a window starting after the last
+    # payment, respect that; otherwise the lower bound is the day after the
+    # last payment so we don't re-count cycles already settled.
+    payment_lower_bound = (
+        last_payment_date if last_payment_date is not None else date.min
+    )
+    open_lower_bound = (
+        max(payment_lower_bound, from_date) if from_date is not None else payment_lower_bound
+    )
+    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES))
+    open_invoice_txs = [
+        tx
+        for tx in all_up_to
+        if tx.account_id in credit_account_ids and tx.date > open_lower_bound
+    ]
+    open_invoice_total = sum((abs(tx.amount) for tx in open_invoice_txs), Decimal("0"))
+
     return {
         "total_spent": float(total_spent),
         "transaction_count": len(past_transactions),
         "future_transaction_count": future_count,
         "categories": categories,
         "months": months,
+        "open_invoice_total": float(open_invoice_total),
+        "open_invoice_count": len(open_invoice_txs),
+        "open_invoice_since": last_payment_date.isoformat() if last_payment_date else None,
     }

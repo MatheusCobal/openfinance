@@ -1,7 +1,7 @@
 import csv
 import io
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -238,6 +238,52 @@ class BackendRegressionTest(unittest.TestCase):
             {"Shopping": 100.0, "Pets": 50.0},
             {row["name"]: row["total"] for row in payload["categories"]},
         )
+
+    def test_stats_open_invoice_sums_credit_after_last_payment(self):
+        # Wipe the inherited CREDIT seed and lay down a known sequence:
+        # 1) old purchase (settled), 2) payment, 3) recent purchase.
+        # The open invoice should equal step 3 only.
+        with Session(self.engine) as session:
+            for tx_id in ("tx-shopping", "tx-pet", "tx-invoice-payment", "tx-future"):
+                tx = session.get(Transaction, tx_id)
+                if tx is not None:
+                    session.delete(tx)
+            payment_date = self.today - timedelta(days=5)
+            session.add_all(
+                [
+                    Transaction(
+                        id="tx-old-purchase",
+                        account_id="credit-1",
+                        date=self.today - timedelta(days=20),
+                        amount=Decimal("-300.00"),
+                        description="Compra antiga",
+                        category="Shopping",
+                    ),
+                    Transaction(
+                        id="tx-old-payment",
+                        account_id="credit-1",
+                        date=payment_date,
+                        amount=Decimal("-500.00"),
+                        description="Pagamento de fatura",
+                        category="Credit card payment",
+                    ),
+                    Transaction(
+                        id="tx-recent-purchase",
+                        account_id="credit-1",
+                        date=self.today - timedelta(days=1),
+                        amount=Decimal("-77.00"),
+                        description="Compra recente",
+                        category="Shopping",
+                    ),
+                ]
+            )
+            session.commit()
+
+        payload = self.client.get("/stats").json()
+
+        self.assertEqual(payload["open_invoice_total"], 77.0)
+        self.assertEqual(payload["open_invoice_count"], 1)
+        self.assertEqual(payload["open_invoice_since"], payment_date.isoformat())
 
     def test_upcoming_groups_future_credit_transactions(self):
         response = self.client.get("/upcoming")

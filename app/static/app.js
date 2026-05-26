@@ -422,19 +422,36 @@ async function loadMonthlyFlow(expectedVersion) {
 }
 
 function renderSummary(stats) {
-  const { total_spent, transaction_count, categories } = stats;
-  const avg = transaction_count > 0 ? total_spent / transaction_count : 0;
+  const {
+    total_spent,
+    transaction_count,
+    categories,
+    open_invoice_total = 0,
+    open_invoice_count = 0,
+    open_invoice_since = null,
+  } = stats;
   const top = categories[0];
 
-  document.getElementById('stat-total').textContent = currency.format(total_spent);
-  document.getElementById('stat-count').textContent = transaction_count.toLocaleString('pt-BR');
-  document.getElementById('stat-avg').textContent = currency.format(avg);
+  document.getElementById('stat-total').textContent = currency.format(open_invoice_total);
+  const sinceLabel = open_invoice_since
+    ? `desde ${formatShortDate(open_invoice_since)}`
+    : 'desde sempre (sem pagamento registrado)';
+  document.getElementById('stat-payment-count').textContent =
+    open_invoice_count === 0
+      ? `nenhuma compra ${sinceLabel}`
+      : `${open_invoice_count.toLocaleString('pt-BR')} compra${open_invoice_count === 1 ? '' : 's'} ${sinceLabel}`;
+  document.getElementById('stat-count').textContent = `${transaction_count.toLocaleString('pt-BR')} (${currency.format(total_spent)})`;
   document.getElementById('stat-top').textContent = top ? top.name : '—';
 
   const subtitle = transaction_count === 0
     ? 'Nenhuma transação ainda'
     : `${transaction_count} compras em ${categories.length} categoria${categories.length === 1 ? '' : 's'}`;
   document.getElementById('subtitle').textContent = subtitle;
+}
+
+function formatShortDate(iso) {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
 }
 
 function renderCategoryBars(categories, totalSpent) {
