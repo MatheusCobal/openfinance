@@ -404,6 +404,7 @@ function buildCategoryCostGroup(category, costs) {
   wrapper.style.borderTopWidth = '3px';
 
   const activeTotal = costs.filter((c) => c.active).reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const activeCostCount = costs.filter((c) => c.active).length;
   const customBadge = category.is_default
     ? ''
     : '<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">personalizada</span>';
@@ -412,13 +413,18 @@ function buildCategoryCostGroup(category, costs) {
     : '<button type="button" data-action="delete" class="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors">Excluir</button>';
 
   wrapper.innerHTML = `
-    <div class="px-4 py-3 flex flex-wrap items-center justify-between gap-2 bg-slate-50 border-b border-slate-100">
-      <div class="flex items-center gap-2 min-w-0">
+    <div class="px-4 py-3 flex items-center justify-between gap-2 bg-slate-50">
+      <!-- Left side: click to expand/collapse -->
+      <button type="button" data-action="toggle-expand"
+        class="flex items-center gap-2 min-w-0 flex-1 text-left">
+        <span data-chevron class="text-slate-400 text-[10px] transition-transform duration-150">▶</span>
         <span class="size-2.5 rounded-full shrink-0" style="background:${escapeHtml(category.color)}"></span>
         <h3 class="font-semibold text-slate-900 text-sm truncate">${escapeHtml(category.name)}</h3>
         ${customBadge}
-      </div>
-      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-400 shrink-0">${activeCostCount} ${activeCostCount === 1 ? 'custo' : 'custos'}</span>
+      </button>
+      <!-- Right side: total + actions (never trigger expand) -->
+      <div class="flex items-center gap-2 shrink-0">
         <span class="text-sm font-semibold tabular text-slate-700">${currency.format(activeTotal)}</span>
         <button type="button" data-action="toggle-add"
           class="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">
@@ -428,30 +434,49 @@ function buildCategoryCostGroup(category, costs) {
       </div>
     </div>
 
-    <div data-add-form class="hidden px-4 py-3 bg-indigo-50/40 border-b border-indigo-100">
-      <form class="grid grid-cols-1 lg:grid-cols-[1fr_140px_90px_auto] gap-2" data-add-category="${category.id}">
-        <input name="description" type="text" required value="${escapeHtml(category.name)}"
-          placeholder="Descrição" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
-        <input name="amount" type="number" step="0.01" min="0.01" required placeholder="Valor (R$)"
-          class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
-        <input name="due_day" type="number" min="1" max="31" required placeholder="Dia"
-          class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
-        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
-      </form>
+    <!-- Collapsible body (hidden by default) -->
+    <div data-body class="hidden">
+      <div data-add-form class="hidden px-4 py-3 bg-indigo-50/40 border-b border-indigo-100">
+        <form class="grid grid-cols-1 lg:grid-cols-[1fr_140px_90px_auto] gap-2" data-add-category="${category.id}">
+          <input name="description" type="text" required value="${escapeHtml(category.name)}"
+            placeholder="Descrição" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+          <input name="amount" type="number" step="0.01" min="0.01" required placeholder="Valor (R$)"
+            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+          <input name="due_day" type="number" min="1" max="31" required placeholder="Dia"
+            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+          <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
+        </form>
+      </div>
+      <ul class="divide-y divide-slate-100 text-sm border-t border-slate-100"></ul>
     </div>
-
-    <ul class="divide-y divide-slate-100 text-sm"></ul>
   `;
 
-  // Toggle add form
+  const body = wrapper.querySelector('[data-body]');
   const addFormContainer = wrapper.querySelector('[data-add-form]');
+  const chevron = wrapper.querySelector('[data-chevron]');
+
+  function openBody() {
+    body.classList.remove('hidden');
+    chevron.style.transform = 'rotate(90deg)';
+  }
+  function closeBody() {
+    body.classList.add('hidden');
+    chevron.style.transform = '';
+    addFormContainer.classList.add('hidden');
+  }
+
+  // Expand/collapse on left-side click
+  wrapper.querySelector('[data-action="toggle-expand"]').addEventListener('click', () => {
+    body.classList.contains('hidden') ? openBody() : closeBody();
+  });
+
+  // "＋ Adicionar" always opens body + shows form
   wrapper.querySelector('[data-action="toggle-add"]').addEventListener('click', () => {
-    const hidden = addFormContainer.classList.toggle('hidden');
-    if (!hidden) {
-      const descInput = addFormContainer.querySelector('input[name="description"]');
-      descInput.value = category.name;
-      addFormContainer.querySelector('input[name="amount"]').focus();
-    }
+    openBody();
+    addFormContainer.classList.remove('hidden');
+    const descInput = addFormContainer.querySelector('input[name="description"]');
+    descInput.value = category.name;
+    addFormContainer.querySelector('input[name="amount"]').focus();
   });
 
   // Submit add form
@@ -470,7 +495,6 @@ function buildCategoryCostGroup(category, costs) {
         body: JSON.stringify({ category_id: category.id, description, amount, due_day }),
       });
       form.reset();
-      form.elements.description.value = category.name;
       addFormContainer.classList.add('hidden');
       await Promise.all([loadCosts(), loadMonthData()]);
       showToast('Custo fixo adicionado.', 'success');
@@ -480,7 +504,15 @@ function buildCategoryCostGroup(category, costs) {
   // Cost list
   const innerList = wrapper.querySelector('ul');
   if (costs.length === 0) {
-    innerList.innerHTML = '<li class="py-4 text-xs text-slate-400 text-center">Nenhum custo cadastrado. Clique em Adicionar para criar.</li>';
+    const emptyLi = document.createElement('li');
+    emptyLi.className = 'py-6 mx-3 my-3 flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200';
+    emptyLi.innerHTML = `
+      <span class="text-2xl opacity-25">📋</span>
+      <p class="text-xs text-slate-400 text-center leading-relaxed">
+        Nenhum custo cadastrado.<br>Clique em <strong class="font-semibold text-slate-500">＋ Adicionar</strong> para criar.
+      </p>
+    `;
+    innerList.appendChild(emptyLi);
   } else {
     for (const cost of costs) innerList.appendChild(buildCostRow(cost));
   }
@@ -532,13 +564,16 @@ async function loadTemplates() {
       button.addEventListener('click', () => {
         const template = templates.find((item) => item.label === button.dataset.template);
         if (!template) return;
-        // Find the category group and open its add form
+        // Find the category group, expand it, then open its add form
         const form = document.querySelector(`form[data-add-category="${template.category_id}"]`);
         if (!form) return;
+        const body = form.closest('[data-body]');
         const addFormContainer = form.closest('[data-add-form]');
+        const chevron = body?.closest('section')?.querySelector('[data-chevron]');
+        if (body) body.classList.remove('hidden');
+        if (chevron) chevron.style.transform = 'rotate(90deg)';
         if (addFormContainer) {
           addFormContainer.classList.remove('hidden');
-          // Scroll to it
           addFormContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         form.elements.description.value = template.description;
