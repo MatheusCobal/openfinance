@@ -151,95 +151,59 @@ function renderMonthStrip() {
 function renderCapacityFlow(capacity) {
   const container = document.getElementById('capacity-summary');
   const sobra = capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
-  const available = capacity.available_to_spend ?? capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
   const sobraPositive = sobra >= 0;
-  const availablePositive = available >= 0;
+
+  const income   = capacity.expected_income_total || 0;
+  const fixed    = capacity.fixed_cost_total       || 0;
+  const variable = capacity.variable_budget_total  || 0;
+
+  // Allocation bar proportions
+  const fixedPct    = income > 0 ? Math.min(100, (fixed    / income) * 100) : 0;
+  const variablePct = income > 0 ? Math.min(100, (variable / income) * 100) : 0;
+  const freePct     = Math.max(0, 100 - fixedPct - variablePct);
 
   const steps = [
-    {
-      icon: '💰',
-      label: 'Receita esperada',
-      value: capacity.expected_income_total,
-      prefix: '',
-      border: 'border-emerald-200',
-      bg: 'bg-emerald-50',
-      text: 'text-emerald-900',
-      amount: 'text-emerald-700',
-    },
-    {
-      icon: '🏠',
-      label: 'Custos fixos',
-      value: capacity.fixed_cost_total,
-      prefix: '−',
-      border: 'border-red-200',
-      bg: 'bg-red-50',
-      text: 'text-red-900',
-      amount: 'text-red-700',
-    },
-    {
-      icon: '🎯',
-      label: 'Metas variáveis',
-      value: capacity.variable_budget_total || 0,
-      prefix: '−',
-      border: 'border-amber-200',
-      bg: 'bg-amber-50',
-      text: 'text-amber-900',
-      amount: 'text-amber-700',
-    },
-    {
-      icon: '✨',
-      label: 'Livre planejado',
-      value: sobra,
-      prefix: '=',
-      border: sobraPositive ? 'border-emerald-200' : 'border-red-200',
-      bg: sobraPositive ? 'bg-emerald-50' : 'bg-red-50',
-      text: sobraPositive ? 'text-emerald-900' : 'text-red-900',
-      amount: sobraPositive ? 'text-emerald-700' : 'text-red-700',
-    },
+    { icon: '💰', label: 'Receita esperada', value: income,    accent: false },
+    { icon: '🏠', label: 'Custos fixos',      value: fixed,    accent: false },
+    { icon: '🎯', label: 'Metas variáveis',   value: variable, accent: false },
+    { icon: '✨', label: 'Livre planejado',   value: sobra,    accent: true  },
   ];
 
   container.innerHTML = `
-    <div class="flex flex-wrap items-stretch gap-1">
-      ${steps.map((step, i) => `
-        <div class="flex items-center gap-1 flex-1 min-w-[160px]">
-          <div class="flex-1 rounded-xl border ${step.border} ${step.bg} px-4 py-3">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      ${steps.map((step) => {
+        const border   = step.accent ? (sobraPositive ? 'border-emerald-200' : 'border-red-200') : 'border-slate-200';
+        const bg       = step.accent ? (sobraPositive ? 'bg-emerald-50'      : 'bg-red-50')      : 'bg-white';
+        const amtColor = step.accent ? (sobraPositive ? 'text-emerald-700'   : 'text-red-600')   : 'text-slate-800';
+        return `
+          <div class="rounded-xl border ${border} ${bg} px-4 py-3">
             <div class="flex items-center gap-1.5 mb-2">
-              <span class="text-base leading-none">${step.icon}</span>
-              <p class="text-[11px] uppercase tracking-wider font-semibold ${step.text} opacity-75 leading-tight">${step.label}</p>
+              <span class="text-sm leading-none">${step.icon}</span>
+              <p class="text-[11px] font-medium text-slate-500 leading-tight truncate">${step.label}</p>
             </div>
-            <p class="text-[11px] font-medium ${step.text} opacity-60 mb-0.5">${step.prefix || ' '}</p>
-            <p class="text-lg font-bold tabular ${step.amount} leading-tight">${currency.format(step.value || 0)}</p>
+            <p class="text-base font-bold tabular leading-tight ${amtColor}">${currency.format(step.value || 0)}</p>
           </div>
-          ${i < steps.length - 1 ? '<span class="text-slate-300 text-xl font-light shrink-0">›</span>' : ''}
-        </div>
-      `).join('')}
+        `;
+      }).join('')}
     </div>
-    <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-      ${capacityMiniCard('Pode gastar agora', available, availablePositive ? 'emerald' : 'red')}
-      ${capacityMiniCard('Fatura cartão atual', capacity.card_invoice_total || 0, 'orange')}
-      ${capacityMiniCard('Variáveis consumidos', capacity.variable_budget_spent || 0, 'slate')}
-      ${capacityMiniCard('Variáveis restantes', capacity.variable_budget_remaining || 0, 'emerald')}
-      ${capacityMiniCard('Fora das metas', capacity.unbudgeted_variable_spent || 0, (capacity.unbudgeted_variable_spent || 0) > 0 ? 'red' : 'slate')}
-      ${capacityMiniCard('Excesso nas metas', capacity.variable_budget_overage || 0, (capacity.variable_budget_overage || 0) > 0 ? 'red' : 'slate')}
-    </div>
-    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
-      <span>Planejado no mês: <span class="font-semibold tabular text-slate-700">${currency.format(capacity.planned_expense_total || 0)}</span></span>
-    </div>
-  `;
-}
-
-function capacityMiniCard(label, value, tint = 'slate') {
-  const tones = {
-    emerald: 'bg-emerald-50 text-emerald-900 border-emerald-100',
-    red: 'bg-red-50 text-red-900 border-red-100',
-    orange: 'bg-orange-50 text-orange-900 border-orange-100',
-    slate: 'bg-slate-50 text-slate-900 border-slate-100',
-  };
-  return `
-    <div class="rounded-xl border ${tones[tint]} px-3 py-2">
-      <p class="text-[10px] uppercase tracking-wider font-semibold opacity-70">${label}</p>
-      <p class="mt-1 text-base font-bold tabular">${currency.format(value || 0)}</p>
-    </div>
+    ${income > 0 ? `
+      <div class="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-100 mb-2">
+        <div class="h-full bg-slate-400"   style="width:${fixedPct.toFixed(1)}%"    title="Custos fixos"></div>
+        <div class="h-full bg-amber-400"   style="width:${variablePct.toFixed(1)}%" title="Metas variáveis"></div>
+        <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
+      </div>
+      <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+        <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+          <span class="size-2 rounded-full bg-slate-400 shrink-0"></span>Fixos ${fixedPct.toFixed(0)}%
+        </span>
+        <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+          <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Metas ${variablePct.toFixed(0)}%
+        </span>
+        <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+          <span class="size-2 rounded-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'} shrink-0"></span>Livre ${freePct.toFixed(0)}%
+        </span>
+      </div>
+    ` : ''}
   `;
 }
 
