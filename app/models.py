@@ -150,6 +150,38 @@ class ExpectedIncomeOverride(SQLModel, table=True):
     amount: Decimal
 
 
+class FixedCostCategory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    color: str = "#64748b"
+    sort_order: int = 0
+
+
+class FixedCost(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    category_id: int = Field(foreign_key="fixedcostcategory.id", index=True)
+    description: str
+    amount: Decimal
+    due_day: int
+    active: bool = Field(default=True, index=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class FixedCostOverride(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "fixed_cost_id",
+            "year_month",
+            name="uq_fixedcostoverride_entry_month",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    fixed_cost_id: int = Field(foreign_key="fixedcost.id", index=True)
+    year_month: str = Field(index=True)
+    amount: Decimal
+
+
 class BudgetOverride(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("category_id", "year_month", name="uq_budgetoverride_month"),

@@ -8,6 +8,7 @@ from app.database import init_db
 from app.routes import (
     budgets,
     expected_income,
+    fixed_costs,
     history,
     pages,
     rules,
@@ -34,3 +35,4 @@ app.include_router(rules.router)
 app.include_router(budgets.router)
 app.include_router(history.router)
 app.include_router(expected_income.router)
+app.include_router(fixed_costs.router)
