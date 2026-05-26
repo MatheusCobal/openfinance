@@ -155,6 +155,7 @@ class FixedCostCategory(SQLModel, table=True):
     name: str = Field(unique=True, index=True)
     color: str = "#64748b"
     sort_order: int = 0
+    is_default: bool = Field(default=False, index=True)
 
 
 class FixedCost(SQLModel, table=True):

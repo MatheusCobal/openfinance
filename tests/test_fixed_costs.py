@@ -181,6 +181,74 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(capacity["planned_after_fixed_costs"], 8000.0)
         self.assertEqual(capacity["remaining_after_invoice"], 6800.0)
 
+    def test_monthly_breakdown_marks_paid_when_transaction_matches(self):
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-internet",
+                    account_id="credit-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("119.90"),
+                    description="Internet Claro",
+                    category="Telecommunications",
+                )
+            )
+            session.commit()
+
+        categories = self.client.get("/fixed-cost-categories").json()
+        category = next(category for category in categories if category["name"] == "Internet")
+        self.client.post(
+            "/fixed-costs",
+            json={
+                "category_id": category["id"],
+                "description": "Internet",
+                "amount": 120,
+                "due_day": 10,
+            },
+        )
+
+        breakdown = self.client.get(
+            "/fixed-costs/by-month", params={"year_month": "2026-06"}
+        ).json()
+
+        entry = breakdown["entries"][0]
+        self.assertEqual(entry["status"], "paid")
+        self.assertEqual(entry["matched_transaction"]["id"], "tx-internet")
+
+    def test_create_fixed_cost_from_transaction_uses_resolved_category(self):
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-condo",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("640.00"),
+                    description="Condominio Edificio",
+                    category="Housing",
+                )
+            )
+            session.commit()
+
+        response = self.client.post(
+            "/fixed-costs/from-transaction",
+            json={"transaction_id": "tx-condo", "description": "Condomínio"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["description"], "Condomínio")
+        self.assertEqual(payload["amount"], 640.0)
+        self.assertEqual(payload["due_day"], 8)
+        self.assertEqual(payload["category_name"], "Condomínio")
+
+    def test_templates_return_matching_category_ids(self):
+        templates = self.client.get("/fixed-costs/templates").json()
+
+        by_label = {template["label"]: template for template in templates}
+        self.assertIsNotNone(by_label["Aluguel"]["category_id"])
+        self.assertIsNotNone(by_label["Financiamento"]["category_id"])
+        self.assertIsNotNone(by_label["Assinatura"]["category_id"])
+
     def test_validates_inputs(self):
         self.assertEqual(
             self.client.post(
@@ -188,6 +256,47 @@ class FixedCostsTest(unittest.TestCase):
             ).status_code,
             400,
         )
+
+    def test_syncs_dedicated_default_categories(self):
+        categories = self.client.get("/fixed-cost-categories").json()
+
+        self.assertEqual(
+            [
+                "Aluguel",
+                "Condomínio",
+                "Financiamento",
+                "Internet",
+                "Luz",
+                "Água",
+                "Assinatura",
+                "Pet",
+            ],
+            [category["name"] for category in categories],
+        )
+        self.assertTrue(all(category["is_default"] for category in categories))
+        self.assertEqual(
+            self.client.delete(
+                f"/fixed-cost-categories/{categories[0]['id']}"
+            ).status_code,
+            400,
+        )
+
+    def test_limits_custom_categories_to_five(self):
+        for index in range(5):
+            response = self.client.post(
+                "/fixed-cost-categories",
+                json={"name": f"Extra {index}", "color": "#64748b"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse(response.json()["is_default"])
+
+        response = self.client.post(
+            "/fixed-cost-categories",
+            json={"name": "Extra 5", "color": "#64748b"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "custom category limit reached")
         self.assertEqual(
             self.client.post(
                 "/fixed-costs",

@@ -38,6 +38,11 @@ def receita_futura():
     return FileResponse(STATIC_DIR / "receita_futura.html")
 
 
+@router.get("/custos-fixos", include_in_schema=False)
+def custos_fixos():
+    return FileResponse(STATIC_DIR / "custos_fixos.html")
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}

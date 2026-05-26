@@ -10,11 +10,13 @@ from app.services.fixed_costs import (
     FixedCostValidationError,
     create_fixed_cost,
     create_fixed_cost_category,
+    create_fixed_cost_from_transaction,
     delete_fixed_cost,
     delete_fixed_cost_category,
     delete_override,
     list_fixed_cost_categories,
     list_fixed_costs,
+    list_fixed_cost_templates,
     monthly_breakdown,
     set_override,
     spending_capacity_summary,
@@ -55,6 +57,14 @@ class FixedCostUpdate(BaseModel):
 
 class FixedCostOverrideUpsert(BaseModel):
     amount: Decimal
+
+
+class FixedCostFromTransactionCreate(BaseModel):
+    transaction_id: str
+    category_id: Optional[int] = None
+    description: Optional[str] = None
+    amount: Optional[Decimal] = None
+    due_day: Optional[int] = None
 
 
 @router.get("/fixed-cost-categories")
@@ -121,6 +131,11 @@ def list_fixed_costs_route(
     return list_fixed_costs(session, include_inactive=include_inactive)
 
 
+@router.get("/fixed-costs/templates")
+def templates_route(session: Session = Depends(get_session)):
+    return list_fixed_cost_templates(session)
+
+
 @router.post("/fixed-costs")
 def create_fixed_cost_route(
     body: FixedCostCreate,
@@ -138,6 +153,27 @@ def create_fixed_cost_route(
         raise HTTPException(400, str(exc))
     if result is None:
         raise HTTPException(404, "fixed cost category not found")
+    return result
+
+
+@router.post("/fixed-costs/from-transaction")
+def create_from_transaction_route(
+    body: FixedCostFromTransactionCreate,
+    session: Session = Depends(get_session),
+):
+    try:
+        result = create_fixed_cost_from_transaction(
+            session,
+            transaction_id=body.transaction_id,
+            category_id=body.category_id,
+            description=body.description,
+            amount=body.amount,
+            due_day=body.due_day,
+        )
+    except FixedCostValidationError as exc:
+        raise HTTPException(400, str(exc))
+    if result is None:
+        raise HTTPException(404, "transaction or fixed cost category not found")
     return result
 
 

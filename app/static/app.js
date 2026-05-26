@@ -341,7 +341,7 @@ function hideCashflowWidget() {
   if (section) section.classList.add('hidden');
 }
 
-function renderMonthlyFlow(cashflowData, balanceData, selectedMonth) {
+function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMonth) {
   const section = document.getElementById('monthly-flow-section');
   const container = document.getElementById('monthly-flow');
   const periodLabel = document.getElementById('monthly-flow-period');
@@ -350,7 +350,8 @@ function renderMonthlyFlow(cashflowData, balanceData, selectedMonth) {
     !Array.isArray(cashflowData.months) ||
     cashflowData.months.length === 0 ||
     !balanceData ||
-    !Array.isArray(balanceData.months)
+    !Array.isArray(balanceData.months) ||
+    !capacityData
   ) {
     section.classList.add('hidden');
     hideCashflowWidget();
@@ -392,6 +393,15 @@ function renderMonthlyFlow(cashflowData, balanceData, selectedMonth) {
       tint: 'red',
       higherIsBetter: false,
     }),
+    flowCard({
+      label: 'Pode gastar',
+      icon: '📌',
+      value: capacityData.remaining_after_invoice || 0,
+      help: 'receita esperada - custos fixos - fatura',
+      tint: (capacityData.remaining_after_invoice || 0) >= 0 ? 'emerald' : 'red',
+      higherIsBetter: true,
+      isNet: true,
+    }),
   ].join('');
 
   renderCashflowWidget(current);
@@ -403,19 +413,21 @@ async function loadMonthlyFlow(expectedVersion) {
   // take down the rest of the dashboard.
   const selectedMonth = monthKeyForPeriod(activePeriod);
   try {
-    const [cashflowResponse, balanceResponse] = await Promise.all([
+    const [cashflowResponse, balanceResponse, capacityResponse] = await Promise.all([
       fetch('/bank-cashflow/monthly?months=12'),
       fetch('/monthly-balance?months=12'),
+      fetch(`/spending-capacity?year_month=${selectedMonth}`),
     ]);
     if (expectedVersion !== loadVersion) return;
-    if (!cashflowResponse.ok || !balanceResponse.ok) {
+    if (!cashflowResponse.ok || !balanceResponse.ok || !capacityResponse.ok) {
       hideCashflowWidget();
       return;
     }
     const cashflowData = await cashflowResponse.json();
     const balanceData = await balanceResponse.json();
+    const capacityData = await capacityResponse.json();
     if (expectedVersion !== loadVersion) return;
-    renderMonthlyFlow(cashflowData, balanceData, selectedMonth);
+    renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMonth);
   } catch (err) {
     console.error('monthly flow load failed:', err);
   }
