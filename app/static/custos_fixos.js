@@ -11,12 +11,15 @@ const TEMPLATE_EMOJIS = {
   'Aluguel': '🏠', 'Condomínio': '🏢', 'Internet': '🌐',
   'Energia': '⚡', 'Água': '💧', 'Escola': '📚',
   'Plano de saúde': '🏥', 'Streaming': '📺', 'Seguro': '🛡️', 'Pet': '🐾',
+  'Academia': '🏋️',
 };
 
 let selectedMonth = null;
 let monthStrip = [];
 let categories = [];
 let fixedCosts = [];
+let incomeSelectedMonth = null;
+let incomeMonthStrip = [];
 
 const STATUS_CFG = {
   paid:        { label: 'Pago',           icon: '✓', bg: 'bg-emerald-100', text: 'text-emerald-700' },
@@ -54,6 +57,48 @@ async function fetchJson(url, options) {
   }
   if (response.status === 204) return null;
   return response.json();
+}
+
+function selectedPlanningTabFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  if (['custos', 'variaveis', 'receita', 'transacao'].includes(tab)) return tab;
+  return 'overview';
+}
+
+function setPlanningTab(tabName, updateUrl = true) {
+  const allowedTabs = ['overview', 'custos', 'variaveis', 'receita', 'transacao'];
+  const activeTab = allowedTabs.includes(tabName) ? tabName : 'overview';
+  const panels = {
+    overview: 'overview-tab',
+    custos: 'fixed-costs-tab',
+    variaveis: 'variable-goals-tab',
+    receita: 'income-planning-tab',
+    transacao: 'transaction-cost-tab',
+  };
+  Object.entries(panels).forEach(([tab, panelId]) => {
+    document.getElementById(panelId)?.classList.toggle('hidden', activeTab !== tab);
+  });
+  document.querySelectorAll('#planning-tabs [data-tab]').forEach((button) => {
+    const active = button.dataset.tab === activeTab;
+    button.className =
+      'text-sm font-medium px-3 py-2 rounded-lg transition-colors ' +
+      (active ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100 hover:text-slate-900');
+  });
+  const subtitles = {
+    overview: 'Veja os principais números do planejamento mensal.',
+    custos: 'Cadastre e edite compromissos recorrentes.',
+    variaveis: 'Defina metas para gastos variáveis do mês.',
+    receita: 'Cadastre o que você espera receber em cada mês.',
+    transacao: 'Transforme uma movimentação recorrente em custo fixo.',
+  };
+  document.getElementById('subtitle').textContent = subtitles[activeTab];
+  if (updateUrl) {
+    const url = new URL(window.location.href);
+    if (activeTab === 'overview') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', activeTab);
+    window.history.replaceState({}, '', url);
+  }
 }
 
 function currentYearMonth() {
@@ -105,8 +150,10 @@ function renderMonthStrip() {
 
 function renderCapacityFlow(capacity) {
   const container = document.getElementById('capacity-summary');
-  const sobra = capacity.remaining_after_invoice;
+  const sobra = capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
+  const available = capacity.available_to_spend ?? capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
   const sobraPositive = sobra >= 0;
+  const availablePositive = available >= 0;
 
   const steps = [
     {
@@ -130,18 +177,18 @@ function renderCapacityFlow(capacity) {
       amount: 'text-red-700',
     },
     {
-      icon: '💳',
-      label: 'Fatura cartão',
-      value: capacity.card_invoice_total,
+      icon: '🎯',
+      label: 'Metas variáveis',
+      value: capacity.variable_budget_total || 0,
       prefix: '−',
-      border: 'border-orange-200',
-      bg: 'bg-orange-50',
-      text: 'text-orange-900',
-      amount: 'text-orange-700',
+      border: 'border-amber-200',
+      bg: 'bg-amber-50',
+      text: 'text-amber-900',
+      amount: 'text-amber-700',
     },
     {
       icon: '✨',
-      label: 'Sobra estimada',
+      label: 'Livre planejado',
       value: sobra,
       prefix: '=',
       border: sobraPositive ? 'border-emerald-200' : 'border-red-200',
@@ -166,6 +213,32 @@ function renderCapacityFlow(capacity) {
           ${i < steps.length - 1 ? '<span class="text-slate-300 text-xl font-light shrink-0">›</span>' : ''}
         </div>
       `).join('')}
+    </div>
+    <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      ${capacityMiniCard('Pode gastar agora', available, availablePositive ? 'emerald' : 'red')}
+      ${capacityMiniCard('Fatura cartão atual', capacity.card_invoice_total || 0, 'orange')}
+      ${capacityMiniCard('Variáveis consumidos', capacity.variable_budget_spent || 0, 'slate')}
+      ${capacityMiniCard('Variáveis restantes', capacity.variable_budget_remaining || 0, 'emerald')}
+      ${capacityMiniCard('Fora das metas', capacity.unbudgeted_variable_spent || 0, (capacity.unbudgeted_variable_spent || 0) > 0 ? 'red' : 'slate')}
+      ${capacityMiniCard('Excesso nas metas', capacity.variable_budget_overage || 0, (capacity.variable_budget_overage || 0) > 0 ? 'red' : 'slate')}
+    </div>
+    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+      <span>Planejado no mês: <span class="font-semibold tabular text-slate-700">${currency.format(capacity.planned_expense_total || 0)}</span></span>
+    </div>
+  `;
+}
+
+function capacityMiniCard(label, value, tint = 'slate') {
+  const tones = {
+    emerald: 'bg-emerald-50 text-emerald-900 border-emerald-100',
+    red: 'bg-red-50 text-red-900 border-red-100',
+    orange: 'bg-orange-50 text-orange-900 border-orange-100',
+    slate: 'bg-slate-50 text-slate-900 border-slate-100',
+  };
+  return `
+    <div class="rounded-xl border ${tones[tint]} px-3 py-2">
+      <p class="text-[10px] uppercase tracking-wider font-semibold opacity-70">${label}</p>
+      <p class="mt-1 text-base font-bold tabular">${currency.format(value || 0)}</p>
     </div>
   `;
 }
@@ -227,8 +300,10 @@ async function loadMonthData() {
       fetchJson(`/fixed-costs/by-month?year_month=${selectedMonth}`),
       fetchJson(`/spending-capacity?year_month=${selectedMonth}`),
     ]);
+    const free = capacity.available_to_spend ?? capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
     document.getElementById('month-total').textContent = currency.format(fixed.total);
-    document.getElementById('capacity-total').textContent = currency.format(capacity.remaining_after_invoice);
+    document.getElementById('fixed-month-total').textContent = currency.format(fixed.total);
+    document.getElementById('capacity-total').textContent = currency.format(free);
     renderCapacityFlow(capacity);
     renderCategoryBar(fixed);
     renderMonthBreakdown(fixed);
@@ -386,6 +461,7 @@ function buildMonthRow(item) {
 
 async function loadCategories() {
   categories = await fetchJson('/fixed-cost-categories');
+  renderQuickCostCategoryOptions();
   const customCount = categories.filter((cat) => !cat.is_default).length;
   const remaining = Math.max(0, MAX_CUSTOM_CATEGORIES - customCount);
   document.getElementById('custom-category-count').textContent =
@@ -397,6 +473,15 @@ async function loadCategories() {
     addButton.classList.toggle('cursor-not-allowed', customCount >= MAX_CUSTOM_CATEGORIES);
   }
   renderCategoryCostList();
+}
+
+function renderQuickCostCategoryOptions(selectedId = null) {
+  const select = document.getElementById('quick-cost-category');
+  if (!select) return;
+  select.innerHTML = categories.map((cat) => {
+    const selected = Number(cat.id) === Number(selectedId) ? 'selected' : '';
+    return `<option value="${cat.id}" ${selected}>${escapeHtml(cat.name)}</option>`;
+  }).join('');
 }
 
 function buildCategoryCostGroup(category, costs) {
@@ -538,12 +623,17 @@ function renderCategoryCostList() {
   const list = document.getElementById('category-cost-list');
   if (!list) return;
   list.innerHTML = '';
-  if (categories.length === 0) {
-    list.innerHTML = '<div class="py-8 text-sm text-slate-500 text-center">Nenhuma categoria ainda.</div>';
+  const categoriesWithCosts = categories
+    .map((category) => ({
+      category,
+      costs: fixedCosts.filter((cost) => Number(cost.category_id) === Number(category.id)),
+    }))
+    .filter((entry) => entry.costs.length > 0);
+  if (categoriesWithCosts.length === 0) {
+    list.innerHTML = '<div class="py-8 text-sm text-slate-500 text-center rounded-xl border border-dashed border-slate-200">Nenhum custo fixo cadastrado ainda. Adicione o primeiro custo abaixo.</div>';
     return;
   }
-  for (const category of categories) {
-    const costs = fixedCosts.filter((cost) => Number(cost.category_id) === Number(category.id));
+  for (const { category, costs } of categoriesWithCosts) {
     list.appendChild(buildCategoryCostGroup(category, costs));
   }
 }
@@ -566,26 +656,19 @@ async function loadTemplates() {
       button.addEventListener('click', () => {
         const template = templates.find((item) => item.label === button.dataset.template);
         if (!template) return;
-        // Find the category group, expand it, then open its add form
-        const form = document.querySelector(`form[data-add-category="${template.category_id}"]`);
-        if (!form) return;
-        const body = form.closest('[data-body]');
-        const addFormContainer = form.closest('[data-add-form]');
-        const chevron = body?.closest('section')?.querySelector('[data-chevron]');
-        if (body) body.classList.remove('hidden');
-        if (chevron) chevron.style.transform = 'rotate(90deg)';
-        if (addFormContainer) {
-          addFormContainer.classList.remove('hidden');
-          addFormContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-        form.elements.description.value = template.description;
-        form.elements.due_day.value = template.due_day;
-        form.elements.amount.focus();
+        fillQuickCostForm(template);
       });
     });
   } catch (err) {
     list.innerHTML = '<span class="text-xs text-slate-500">Templates indisponíveis.</span>';
   }
+}
+
+function fillQuickCostForm(template) {
+  renderQuickCostCategoryOptions(template.category_id);
+  document.getElementById('quick-cost-description').value = template.description;
+  document.getElementById('quick-cost-day').value = template.due_day;
+  document.getElementById('quick-cost-amount').focus();
 }
 
 async function loadCosts() {
@@ -893,6 +976,27 @@ document.getElementById('category-form').addEventListener('submit', async (event
   } catch (err) { showToast(err.message, 'error'); }
 });
 
+document.getElementById('quick-cost-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const category_id = Number(document.getElementById('quick-cost-category').value);
+  const description = document.getElementById('quick-cost-description').value.trim();
+  const amount = Number(document.getElementById('quick-cost-amount').value);
+  const due_day = Number(document.getElementById('quick-cost-day').value);
+  if (!category_id || !description || !amount || !due_day) return;
+  try {
+    await fetchJson('/fixed-costs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category_id, description, amount, due_day }),
+    });
+    document.getElementById('quick-cost-description').value = '';
+    document.getElementById('quick-cost-amount').value = '';
+    document.getElementById('quick-cost-day').value = '';
+    await Promise.all([loadCosts(), loadMonthData()]);
+    showToast('Custo fixo adicionado.', 'success');
+  } catch (err) { showToast(err.message, 'error'); }
+});
+
 document.getElementById('show-inactive').addEventListener('change', loadCosts);
 
 // ── Transaction suggestions ─────────────────────────────────────────────────
@@ -971,19 +1075,284 @@ function buildTransactionSuggestionRow(tx) {
   return li;
 }
 
+// ── Expected income tab ────────────────────────────────────────────────────
+
+function renderIncomeMonthStrip() {
+  const strip = document.getElementById('income-month-strip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  for (const ym of incomeMonthStrip) {
+    const button = document.createElement('button');
+    const active = ym === incomeSelectedMonth;
+    button.type = 'button';
+    button.className =
+      'shrink-0 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors ' +
+      (active ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
+    button.textContent = formatMonthShort(ym);
+    button.addEventListener('click', () => {
+      if (ym === incomeSelectedMonth) return;
+      incomeSelectedMonth = ym;
+      renderIncomeMonthStrip();
+      loadIncomeMonthBreakdown();
+    });
+    strip.appendChild(button);
+  }
+}
+
+function buildIncomeEntryRow(entry) {
+  const li = document.createElement('li');
+  li.className =
+    'rounded-xl border overflow-hidden transition-colors ' +
+    (entry.active ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-60');
+
+  li.innerHTML = `
+    <div class="flex items-center gap-3 px-4 py-3">
+      <div class="flex flex-col items-center shrink-0">
+        <span class="inline-flex items-center justify-center size-9 rounded-lg font-bold text-sm tabular
+          ${entry.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}">${entry.expected_day}</span>
+        <span class="text-[9px] text-slate-400 mt-0.5">dia</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="font-medium text-sm ${entry.active ? 'text-slate-900' : 'text-slate-400 line-through'} truncate">${escapeHtml(entry.description)}</p>
+        <p class="text-xs text-slate-400 mt-0.5">recorrente · todo mês</p>
+      </div>
+      <p class="font-bold tabular text-sm shrink-0 ${entry.active ? 'text-emerald-700' : 'text-slate-400'}">${currency.format(entry.amount)}</p>
+      <div class="flex items-center gap-1 shrink-0">
+        <button type="button" data-action="edit"
+          class="text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">Editar</button>
+        <button type="button" data-action="toggle"
+          class="text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors">${entry.active ? 'Desativar' : 'Reativar'}</button>
+        <button type="button" data-action="delete"
+          class="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors">Excluir</button>
+      </div>
+    </div>
+  `;
+
+  li.querySelector('[data-action="edit"]').addEventListener('click', () => renderIncomeEntryEditRow(li, entry));
+  li.querySelector('[data-action="toggle"]').addEventListener('click', async () => {
+    try {
+      await fetchJson(`/expected-income/${entry.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !entry.active }),
+      });
+      await Promise.all([loadIncomeEntries(), loadIncomeMonthBreakdown(), loadMonthData()]);
+      showToast(entry.active ? 'Entrada desativada.' : 'Entrada reativada.', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+  li.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+    if (!confirm(`Excluir "${entry.description}"?`)) return;
+    try {
+      await fetchJson(`/expected-income/${entry.id}`, { method: 'DELETE' });
+      await Promise.all([loadIncomeEntries(), loadIncomeMonthBreakdown(), loadMonthData()]);
+      showToast('Entrada excluída.', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+  return li;
+}
+
+function renderIncomeEntryEditRow(li, entry) {
+  li.className = 'rounded-xl border border-indigo-200 bg-indigo-50/40 overflow-hidden';
+  li.innerHTML = `
+    <form class="flex flex-wrap gap-2 px-4 py-3 items-center">
+      <input name="description" type="text" required value="${escapeHtml(entry.description)}"
+        placeholder="Descrição"
+        class="flex-1 min-w-[140px] text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+      <input name="amount" type="number" step="0.01" min="0.01" required value="${Number(entry.amount).toFixed(2)}"
+        placeholder="Valor (R$)"
+        class="w-36 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+      <input name="expected_day" type="number" min="1" max="31" required value="${entry.expected_day}"
+        placeholder="Dia"
+        class="w-20 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+      <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
+      <button type="button" data-action="cancel"
+        class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">Cancelar</button>
+    </form>
+  `;
+  li.querySelector('[data-action="cancel"]').addEventListener('click', () => li.replaceWith(buildIncomeEntryRow(entry)));
+  li.querySelector('form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = new FormData(li.querySelector('form'));
+    try {
+      await fetchJson(`/expected-income/${entry.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: String(data.get('description') || '').trim(),
+          amount: Number(data.get('amount')),
+          expected_day: Number(data.get('expected_day')),
+        }),
+      });
+      await Promise.all([loadIncomeEntries(), loadIncomeMonthBreakdown(), loadMonthData()]);
+      showToast('Entrada atualizada.', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+}
+
+async function loadIncomeEntries() {
+  const showInactive = document.getElementById('income-show-inactive')?.checked;
+  const entries = await fetchJson('/expected-income' + (showInactive ? '?include_inactive=true' : ''));
+  const list = document.getElementById('income-entry-list');
+  if (!list) return;
+  list.innerHTML = '';
+  document.getElementById('income-entry-count').textContent =
+    entries.length === 1 ? '1 entrada' : `${entries.length} entradas`;
+  const activeTotal = entries
+    .filter((entry) => entry.active)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  document.getElementById('income-active-total').textContent = currency.format(activeTotal);
+  if (entries.length === 0) {
+    list.innerHTML = `
+      <li class="py-6 mx-0 flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200">
+        <span class="text-2xl opacity-25">💰</span>
+        <p class="text-xs text-slate-400 text-center leading-relaxed">
+          Nenhuma entrada cadastrada.<br>Use o formulário abaixo para criar.
+        </p>
+      </li>`;
+    return;
+  }
+  for (const entry of entries) list.appendChild(buildIncomeEntryRow(entry));
+}
+
+async function loadIncomeMonthBreakdown() {
+  if (!incomeSelectedMonth) return;
+  const data = await fetchJson(`/expected-income/by-month?year_month=${incomeSelectedMonth}`);
+  document.getElementById('income-month-total').textContent = currency.format(data.total);
+  const list = document.getElementById('income-month-breakdown');
+  list.innerHTML = '';
+  if (data.entries.length === 0) {
+    list.innerHTML = `
+      <li class="py-8 flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200">
+        <span class="text-2xl opacity-25">💰</span>
+        <p class="text-xs text-slate-400 text-center">Nenhuma entrada ativa para este mês.</p>
+      </li>`;
+    return;
+  }
+  for (const item of data.entries) list.appendChild(buildIncomeBreakdownRow(item));
+}
+
+function buildIncomeBreakdownRow(item) {
+  const li = document.createElement('li');
+  li.className = 'py-3 px-3 flex items-start gap-3 hover:bg-slate-50 transition-colors';
+  const overrideBadge = item.is_override
+    ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">ajustado</span>`
+    : '';
+  const baseHint = item.is_override
+    ? `<button type="button" data-action="revert" class="text-[10px] text-indigo-500 hover:text-indigo-700 underline">↩ reverter (${currency.format(item.base_amount)})</button>`
+    : '';
+  li.innerHTML = `
+    <div class="flex flex-col items-center shrink-0 pt-0.5">
+      <span class="inline-flex items-center justify-center size-9 rounded-lg bg-emerald-100 text-emerald-700 font-bold text-sm tabular">${item.expected_day}</span>
+      <span class="text-[9px] text-slate-400 mt-0.5">dia</span>
+    </div>
+    <div class="flex-1 min-w-0">
+      <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
+        <p class="font-medium text-slate-900 text-sm">${escapeHtml(item.description)}</p>
+        ${overrideBadge}
+      </div>
+      <div class="flex flex-wrap items-center gap-x-3 text-[11px] text-slate-400">
+        ${baseHint}
+      </div>
+    </div>
+    <input
+      type="number" step="0.01" min="0" data-action="edit"
+      class="w-28 text-right text-sm font-bold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 shrink-0 text-emerald-700"
+      value="${Number(item.amount).toFixed(2)}"
+    />
+  `;
+  const input = li.querySelector('input[data-action="edit"]');
+  const commit = async () => {
+    const newAmount = Number(input.value);
+    if (Number.isNaN(newAmount) || newAmount < 0) {
+      input.value = Number(item.amount).toFixed(2);
+      return;
+    }
+    if (Math.abs(newAmount - Number(item.amount)) < 0.005) return;
+    if (Math.abs(newAmount - Number(item.base_amount)) < 0.005 && item.is_override) {
+      try {
+        await fetchJson(`/expected-income/${item.expected_income_id}/overrides/${incomeSelectedMonth}`, { method: 'DELETE' });
+        await Promise.all([loadIncomeMonthBreakdown(), loadMonthData()]);
+        showToast('Ajuste removido.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+      return;
+    }
+    try {
+      await fetchJson(`/expected-income/${item.expected_income_id}/overrides/${incomeSelectedMonth}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: newAmount }),
+      });
+      await Promise.all([loadIncomeMonthBreakdown(), loadMonthData()]);
+      showToast('Valor do mês atualizado.', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
+    if (event.key === 'Escape') { input.value = Number(item.amount).toFixed(2); input.blur(); }
+  });
+  const revertBtn = li.querySelector('[data-action="revert"]');
+  if (revertBtn) {
+    revertBtn.addEventListener('click', async () => {
+      try {
+        await fetchJson(`/expected-income/${item.expected_income_id}/overrides/${incomeSelectedMonth}`, { method: 'DELETE' });
+        await Promise.all([loadIncomeMonthBreakdown(), loadMonthData()]);
+        showToast('Ajuste removido.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+  return li;
+}
+
+document.getElementById('income-entry-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const description = document.getElementById('income-entry-description').value.trim();
+  const amount = Number(document.getElementById('income-entry-amount').value);
+  const expected_day = Number(document.getElementById('income-entry-day').value);
+  if (!description || !amount || !expected_day) return;
+  try {
+    await fetchJson('/expected-income', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description, amount, expected_day }),
+    });
+    document.getElementById('income-entry-description').value = '';
+    document.getElementById('income-entry-amount').value = '';
+    document.getElementById('income-entry-day').value = '';
+    document.getElementById('income-entry-description').focus();
+    await Promise.all([loadIncomeEntries(), loadIncomeMonthBreakdown(), loadMonthData()]);
+    showToast('Entrada adicionada.', 'success');
+  } catch (err) { showToast(err.message, 'error'); }
+});
+
+document.getElementById('income-show-inactive')?.addEventListener('change', loadIncomeEntries);
+
 // ── Init ───────────────────────────────────────────────────────────────────
 
 (async () => {
   selectedMonth = currentYearMonth();
   monthStrip = Array.from({ length: MONTH_WINDOW }, (_, i) => shiftYearMonth(selectedMonth, i));
+  incomeSelectedMonth = selectedMonth;
+  incomeMonthStrip = [...monthStrip];
+  document.querySelectorAll('#planning-tabs [data-tab]').forEach((button) => {
+    button.addEventListener('click', () => setPlanningTab(button.dataset.tab));
+  });
+  setPlanningTab(selectedPlanningTabFromUrl(), false);
   renderMonthStrip();
+  renderIncomeMonthStrip();
   try {
     await loadCategories();
-    await Promise.all([loadTemplates(), loadCosts(), loadMonthData(), loadTransactionSuggestions()]);
-    document.getElementById('subtitle').textContent =
-      'Cadastre compromissos recorrentes para calcular sua sobra mensal.';
+    await Promise.all([
+      loadTemplates(),
+      loadCosts(),
+      loadMonthData(),
+      loadTransactionSuggestions(),
+      loadIncomeEntries(),
+      loadIncomeMonthBreakdown(),
+    ]);
+    setPlanningTab(selectedPlanningTabFromUrl(), false);
   } catch (err) {
     showToast(err.message, 'error');
-    document.getElementById('subtitle').textContent = 'Erro ao carregar custos fixos.';
+    document.getElementById('subtitle').textContent = 'Erro ao carregar planejamento.';
   }
 })();
