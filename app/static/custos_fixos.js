@@ -202,8 +202,36 @@ function renderCapacityFlow(capacity) {
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'} shrink-0"></span>Livre ${freePct.toFixed(0)}%
         </span>
+
+      <!-- Detail rows -->
+      <div class="mt-4 border-t border-slate-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+        ${buildDetailRow('💳', 'Fatura cartão', currency.format(capacity.card_invoice_total || 0), 'text-orange-600')}
+        ${buildDetailRow('🏦', 'Livre após fatura', currency.format((capacity.remaining_after_plan_and_invoice ?? capacity.remaining_after_invoice) || 0), ((capacity.remaining_after_plan_and_invoice ?? capacity.remaining_after_invoice) || 0) >= 0 ? 'text-emerald-700' : 'text-red-600')}
+        ${buildDetailRow('📊', 'Metas — gasto atual', currency.format(capacity.variable_budget_actual_spent || 0) + ' de ' + currency.format(capacity.variable_budget_total || 0), (capacity.variable_budget_overage || 0) > 0 ? 'text-red-600' : 'text-slate-700', capacity.variable_budget_total > 0 ? Math.min(100, ((capacity.variable_budget_actual_spent || 0) / (capacity.variable_budget_total || 1)) * 100) : null)}
+        ${(capacity.unbudgeted_variable_spent || 0) > 0 ? buildDetailRow('⚠️', 'Gasto fora das metas', currency.format(capacity.unbudgeted_variable_spent || 0), 'text-amber-600', null) : ''}
+      </div>
       </div>
     ` : ''}
+  `;
+}
+
+function buildDetailRow(icon, label, valueText, valueClass, progressPct = null) {
+  const bar = progressPct !== null ? `
+    <div class="mt-1 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+      <div class="h-full rounded-full ${progressPct >= 100 ? 'bg-red-400' : progressPct >= 80 ? 'bg-amber-400' : 'bg-emerald-400'}"
+           style="width:${progressPct.toFixed(1)}%"></div>
+    </div>` : '';
+  return `
+    <div class="flex items-start gap-2.5">
+      <span class="text-sm leading-none mt-0.5 shrink-0">${icon}</span>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-baseline justify-between gap-2">
+          <p class="text-[11px] text-slate-500 truncate">${label}</p>
+          <p class="text-sm font-semibold tabular shrink-0 ${valueClass}">${valueText}</p>
+        </div>
+        ${bar}
+      </div>
+    </div>
   `;
 }
 
