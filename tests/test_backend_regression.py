@@ -239,16 +239,20 @@ class BackendRegressionTest(unittest.TestCase):
             {row["name"]: row["total"] for row in payload["categories"]},
         )
 
-    def test_stats_open_invoice_sums_credit_after_last_payment(self):
-        # Wipe the inherited CREDIT seed and lay down a known sequence:
-        # 1) old purchase (settled), 2) payment, 3) recent purchase.
-        # The open invoice should equal step 3 only.
+    def _wipe_credit_seed(self):
         with Session(self.engine) as session:
             for tx_id in ("tx-shopping", "tx-pet", "tx-invoice-payment", "tx-future"):
                 tx = session.get(Transaction, tx_id)
                 if tx is not None:
                     session.delete(tx)
-            payment_date = self.today - timedelta(days=5)
+            session.commit()
+
+    def test_stats_invoice_open_mode_when_no_payment_in_period(self):
+        # Last payment was 5 days ago; from then on only the recent purchase
+        # counts toward the open invoice.
+        self._wipe_credit_seed()
+        payment_date = self.today - timedelta(days=5)
+        with Session(self.engine) as session:
             session.add_all(
                 [
                     Transaction(
@@ -279,11 +283,52 @@ class BackendRegressionTest(unittest.TestCase):
             )
             session.commit()
 
-        payload = self.client.get("/stats").json()
+        # No from_date, so the period includes the payment 5 days ago →
+        # we ARE in 'paid' mode for that, not 'open'. Use a from_date strictly
+        # after the payment to force 'open' mode.
+        params = {"from_date": (payment_date + timedelta(days=1)).isoformat()}
+        payload = self.client.get("/stats", params=params).json()
 
-        self.assertEqual(payload["open_invoice_total"], 77.0)
-        self.assertEqual(payload["open_invoice_count"], 1)
-        self.assertEqual(payload["open_invoice_since"], payment_date.isoformat())
+        self.assertEqual(payload["invoice_mode"], "open")
+        self.assertEqual(payload["invoice_total"], 77.0)
+        self.assertEqual(payload["invoice_count"], 1)
+        self.assertEqual(payload["invoice_since"], payment_date.isoformat())
+
+    def test_stats_invoice_paid_mode_when_payment_in_period(self):
+        # Period contains a closed cycle — show the paid amount, not an open
+        # invoice for the same window.
+        self._wipe_credit_seed()
+        payment_date = self.today - timedelta(days=2)
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    Transaction(
+                        id="tx-payment-in-period",
+                        account_id="credit-1",
+                        date=payment_date,
+                        amount=Decimal("-1620.50"),
+                        description="Pagamento de fatura",
+                        category="Credit card payment",
+                    ),
+                    Transaction(
+                        id="tx-purchase-after-payment",
+                        account_id="credit-1",
+                        date=self.today,
+                        amount=Decimal("-99.00"),
+                        description="Compra hoje",
+                        category="Shopping",
+                    ),
+                ]
+            )
+            session.commit()
+
+        params = {"from_date": (payment_date - timedelta(days=1)).isoformat()}
+        payload = self.client.get("/stats", params=params).json()
+
+        self.assertEqual(payload["invoice_mode"], "paid")
+        self.assertEqual(payload["invoice_total"], 1620.5)
+        self.assertEqual(payload["invoice_count"], 1)
+        self.assertEqual(payload["invoice_paid_dates"], [payment_date.isoformat()])
 
     def test_upcoming_groups_future_credit_transactions(self):
         response = self.client.get("/upcoming")

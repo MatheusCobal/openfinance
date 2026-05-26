@@ -426,20 +426,34 @@ function renderSummary(stats) {
     total_spent,
     transaction_count,
     categories,
-    open_invoice_total = 0,
-    open_invoice_count = 0,
-    open_invoice_since = null,
+    invoice_mode = 'open',
+    invoice_total = 0,
+    invoice_count = 0,
+    invoice_since = null,
+    invoice_paid_dates = [],
   } = stats;
   const top = categories[0];
 
-  document.getElementById('stat-total').textContent = currency.format(open_invoice_total);
-  const sinceLabel = open_invoice_since
-    ? `desde ${formatShortDate(open_invoice_since)}`
-    : 'desde sempre (sem pagamento registrado)';
-  document.getElementById('stat-payment-count').textContent =
-    open_invoice_count === 0
+  document.getElementById('stat-total').textContent = currency.format(invoice_total);
+
+  let label, supporting;
+  if (invoice_mode === 'paid') {
+    label = invoice_count === 1 ? 'Fatura paga no período' : 'Faturas pagas no período';
+    const datesLabel = invoice_paid_dates.map(formatShortDate).join(', ');
+    supporting = invoice_count === 1
+      ? `paga em ${datesLabel}`
+      : `${invoice_count} pagamentos (${datesLabel})`;
+  } else {
+    label = 'Fatura em formação';
+    const sinceLabel = invoice_since
+      ? `desde ${formatShortDate(invoice_since)}`
+      : 'desde sempre (sem pagamento registrado)';
+    supporting = invoice_count === 0
       ? `nenhuma compra ${sinceLabel}`
-      : `${open_invoice_count.toLocaleString('pt-BR')} compra${open_invoice_count === 1 ? '' : 's'} ${sinceLabel}`;
+      : `${invoice_count.toLocaleString('pt-BR')} compra${invoice_count === 1 ? '' : 's'} ${sinceLabel}`;
+  }
+  document.getElementById('stat-label').textContent = label;
+  document.getElementById('stat-payment-count').textContent = supporting;
   document.getElementById('stat-count').textContent = `${transaction_count.toLocaleString('pt-BR')} (${currency.format(total_spent)})`;
   document.getElementById('stat-top').textContent = top ? top.name : '—';
 
