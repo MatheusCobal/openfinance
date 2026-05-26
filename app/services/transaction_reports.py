@@ -98,7 +98,7 @@ def enriched_transactions(
 
     rows = []
     for tx in transactions:
-        cat = resolver.resolve(tx.category, tx.description)
+        cat = resolver.display_category(resolver.resolve(tx.category, tx.description))
         rows.append(
             {
                 **tx.model_dump(mode="json"),
@@ -200,7 +200,7 @@ def upcoming_summary(
     category_info_by_id: Dict[int, Category] = {}
     for tx in future_txs:
         month = tx.date.strftime("%Y-%m")
-        cat = resolver.resolve(tx.category, tx.description)
+        cat = resolver.display_category(resolver.resolve(tx.category, tx.description))
         by_month_cat[month][cat.id].append(tx)
         category_info_by_id[cat.id] = cat
 
@@ -276,7 +276,7 @@ def monthly_stats_summary(
     months_set: set[str] = set()
 
     for tx in past_transactions:
-        cat = resolver.resolve(tx.category, tx.description)
+        cat = resolver.display_category(resolver.resolve(tx.category, tx.description))
         month = tx.date.strftime("%Y-%m")
         matrix[cat.id][month] += abs(tx.amount)
         counts[cat.id][month] += 1

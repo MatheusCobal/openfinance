@@ -50,6 +50,7 @@ class Category(SQLModel, table=True):
     name: str = Field(unique=True, index=True)
     color: str
     sort_order: int = 0
+    parent_id: Optional[int] = Field(default=None, foreign_key="category.id", index=True)
 
 
 class CategoryRule(SQLModel, table=True):

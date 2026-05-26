@@ -71,7 +71,22 @@ class CategoryResolver:
         # one so the caller doesn't need to handle None.
         return Category(id=0, name=FALLBACK_NAME, color=FALLBACK_COLOR, sort_order=999)
 
+    def display_category(self, category: Category) -> Category:
+        """If this is a sub-category (has parent_id), return the parent.
+        Otherwise return the category itself. Used to collapse sub-categories
+        for budget tracking and dashboard grouping."""
+        if category.parent_id and category.parent_id in self._categories_by_id:
+            return self._categories_by_id[category.parent_id]
+        return category
+
     def all_categories(self) -> List[Category]:
         return sorted(
             self._categories_by_id.values(), key=lambda c: (c.sort_order, c.name)
+        )
+
+    def all_top_level_categories(self) -> List[Category]:
+        """Returns only root categories (no parent). Use for budgets and top-level charts."""
+        return sorted(
+            [c for c in self._categories_by_id.values() if not c.parent_id],
+            key=lambda c: (c.sort_order, c.name),
         )

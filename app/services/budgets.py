@@ -55,7 +55,7 @@ def budget_progress_summary(
     actual_counts_by_category: Dict[int, int] = defaultdict(int)
     future_counts_by_category: Dict[int, int] = defaultdict(int)
     for tx in transactions:
-        cat = resolver.resolve(tx.category, tx.description)
+        cat = resolver.display_category(resolver.resolve(tx.category, tx.description))
         amount = abs(tx.amount)
         if tx.date <= today:
             actual_spent_by_category[cat.id] += amount
@@ -79,7 +79,7 @@ def budget_progress_summary(
     unbudgeted_actual_spent = Decimal("0")
     unbudgeted_future_spent = Decimal("0")
     unbudgeted_count = 0
-    for cat in resolver.all_categories():
+    for cat in resolver.all_top_level_categories():
         default_target = (
             budgets[cat.id].monthly_target if cat.id in budgets else None
         )
