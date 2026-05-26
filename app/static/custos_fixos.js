@@ -20,6 +20,7 @@ let categories = [];
 let fixedCosts = [];
 let incomeSelectedMonth = null;
 let incomeMonthStrip = [];
+let expandedOverviewPanel = null;
 
 const STATUS_CFG = {
   paid:        { label: 'Pago',           icon: '✓', bg: 'bg-emerald-100', text: 'text-emerald-700' },
@@ -152,47 +153,56 @@ function renderCapacityFlow(capacity) {
   const container = document.getElementById('capacity-summary');
   const sobra = capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
   const sobraPositive = sobra >= 0;
-
   const income   = capacity.expected_income_total || 0;
   const fixed    = capacity.fixed_cost_total       || 0;
   const variable = capacity.variable_budget_total  || 0;
-
-  // Allocation bar proportions
   const fixedPct    = income > 0 ? Math.min(100, (fixed    / income) * 100) : 0;
   const variablePct = income > 0 ? Math.min(100, (variable / income) * 100) : 0;
   const freePct     = Math.max(0, 100 - fixedPct - variablePct);
 
-  const steps = [
-    { icon: '💰', label: 'Receita esperada', value: income,    accent: false },
-    { icon: '🏠', label: 'Custos fixos',      value: fixed,    accent: false },
-    { icon: '🎯', label: 'Metas variáveis',   value: variable, accent: false },
-    { icon: '✨', label: 'Livre planejado',   value: sobra,    accent: true  },
+  const cards = [
+    { key: 'receita', icon: '💰', label: 'Receita esperada', value: income,   accent: false },
+    { key: 'custos',  icon: '🏠', label: 'Custos fixos',     value: fixed,    accent: false },
+    { key: 'metas',   icon: '🎯', label: 'Metas variáveis',  value: variable, accent: false },
+    { key: 'livre',   icon: '✨', label: 'Livre planejado',  value: sobra,    accent: true  },
   ];
 
   container.innerHTML = `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-      ${steps.map((step) => {
-        const border   = step.accent ? (sobraPositive ? 'border-emerald-200' : 'border-red-200') : 'border-slate-200';
-        const bg       = step.accent ? (sobraPositive ? 'bg-emerald-50'      : 'bg-red-50')      : 'bg-white';
-        const amtColor = step.accent ? (sobraPositive ? 'text-emerald-700'   : 'text-red-600')   : 'text-slate-800';
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3" id="ov-cards">
+      ${cards.map((c) => {
+        const active   = expandedOverviewPanel === c.key;
+        const border   = active ? 'border-indigo-300' : c.accent ? (sobraPositive ? 'border-emerald-200' : 'border-red-200') : 'border-slate-200';
+        const bg       = active ? 'bg-indigo-50'      : c.accent ? (sobraPositive ? 'bg-emerald-50'      : 'bg-red-50')      : 'bg-white';
+        const amtColor = c.accent ? (sobraPositive ? 'text-emerald-700' : 'text-red-600') : 'text-slate-800';
+        const chevron  = active ? '▲' : '▼';
         return `
-          <div class="rounded-xl border ${border} ${bg} px-4 py-3">
-            <div class="flex items-center gap-1.5 mb-2">
-              <span class="text-sm leading-none">${step.icon}</span>
-              <p class="text-[11px] font-medium text-slate-500 leading-tight truncate">${step.label}</p>
+          <button type="button" data-panel="${c.key}"
+            class="rounded-xl border ${border} ${bg} px-4 py-3 text-left w-full transition-colors hover:border-indigo-200 hover:bg-indigo-50/50 group">
+            <div class="flex items-center justify-between gap-1 mb-2">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="text-sm leading-none">${c.icon}</span>
+                <p class="text-[11px] font-medium text-slate-500 leading-tight truncate">${c.label}</p>
+              </div>
+              <span class="text-[9px] text-slate-300 group-hover:text-indigo-300 shrink-0">${chevron}</span>
             </div>
-            <p class="text-base font-bold tabular leading-tight ${amtColor}">${currency.format(step.value || 0)}</p>
-          </div>
+            <p class="text-base font-bold tabular leading-tight ${amtColor}">${currency.format(c.value || 0)}</p>
+          </button>
         `;
       }).join('')}
     </div>
+
+    <!-- Expandable detail panel -->
+    <div id="ov-panel" class="${expandedOverviewPanel ? '' : 'hidden'} mb-4 rounded-xl border border-indigo-100 bg-indigo-50/30 px-5 py-4 text-sm">
+      ${expandedOverviewPanel ? buildOverviewPanelContent(expandedOverviewPanel, capacity, sobra, sobraPositive) : ''}
+    </div>
+
     ${income > 0 ? `
       <div class="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-100 mb-2">
-        <div class="h-full bg-slate-400"   style="width:${fixedPct.toFixed(1)}%"    title="Custos fixos"></div>
+        <div class="h-full bg-slate-400"   style="width:${fixedPct.toFixed(1)}%" title="Custos fixos"></div>
         <div class="h-full bg-amber-400"   style="width:${variablePct.toFixed(1)}%" title="Metas variáveis"></div>
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
       </div>
-      <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+      <div class="flex flex-wrap gap-x-4 gap-y-0.5 mb-4">
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full bg-slate-400 shrink-0"></span>Fixos ${fixedPct.toFixed(0)}%
         </span>
@@ -202,17 +212,136 @@ function renderCapacityFlow(capacity) {
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'} shrink-0"></span>Livre ${freePct.toFixed(0)}%
         </span>
-
-      <!-- Detail rows -->
-      <div class="mt-4 border-t border-slate-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 border-t border-slate-100 pt-4">
         ${buildDetailRow('💳', 'Fatura cartão', currency.format(capacity.card_invoice_total || 0), 'text-orange-600')}
         ${buildDetailRow('🏦', 'Livre após fatura', currency.format((capacity.remaining_after_plan_and_invoice ?? capacity.remaining_after_invoice) || 0), ((capacity.remaining_after_plan_and_invoice ?? capacity.remaining_after_invoice) || 0) >= 0 ? 'text-emerald-700' : 'text-red-600')}
-        ${buildDetailRow('📊', 'Metas — gasto atual', currency.format(capacity.variable_budget_actual_spent || 0) + ' de ' + currency.format(capacity.variable_budget_total || 0), (capacity.variable_budget_overage || 0) > 0 ? 'text-red-600' : 'text-slate-700', capacity.variable_budget_total > 0 ? Math.min(100, ((capacity.variable_budget_actual_spent || 0) / (capacity.variable_budget_total || 1)) * 100) : null)}
-        ${(capacity.unbudgeted_variable_spent || 0) > 0 ? buildDetailRow('⚠️', 'Gasto fora das metas', currency.format(capacity.unbudgeted_variable_spent || 0), 'text-amber-600', null) : ''}
-      </div>
+        ${buildDetailRow('📊', 'Metas — gasto atual', currency.format(capacity.variable_budget_actual_spent || 0) + ' de ' + currency.format(variable), (capacity.variable_budget_overage || 0) > 0 ? 'text-red-600' : 'text-slate-700', variable > 0 ? Math.min(100, ((capacity.variable_budget_actual_spent || 0) / variable) * 100) : null)}
+        ${(capacity.unbudgeted_variable_spent || 0) > 0 ? buildDetailRow('⚠️', 'Fora das metas', currency.format(capacity.unbudgeted_variable_spent || 0), 'text-amber-600') : ''}
       </div>
     ` : ''}
   `;
+
+  // Wire up card click handlers
+  container.querySelectorAll('[data-panel]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      expandedOverviewPanel = expandedOverviewPanel === btn.dataset.panel ? null : btn.dataset.panel;
+      renderCapacityFlow(capacity);
+    });
+  });
+}
+
+function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
+  if (key === 'receita') {
+    const entries = capacity.expected_income?.entries || [];
+    if (!entries.length) return '<p class="text-slate-400 text-xs">Nenhuma entrada cadastrada.</p>';
+    return `
+      <p class="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-3">Receita esperada — ${formatMonthShort(capacity.year_month)}</p>
+      <ul class="divide-y divide-indigo-100">
+        ${entries.map((e) => `
+          <li class="flex items-center gap-3 py-2">
+            <span class="inline-flex items-center justify-center size-7 rounded-lg bg-white border border-slate-200 text-xs font-bold tabular text-slate-600 shrink-0">${e.expected_day}</span>
+            <span class="flex-1 min-w-0 truncate text-slate-700">${escapeHtml(e.description)}</span>
+            ${e.is_override ? '<span class="text-[10px] text-indigo-500 bg-white px-1.5 py-0.5 rounded-full border border-indigo-200 shrink-0">ajustado</span>' : ''}
+            <span class="font-semibold tabular text-emerald-700 shrink-0">${currency.format(e.amount)}</span>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+  }
+
+  if (key === 'custos') {
+    const entries = capacity.fixed_costs?.entries || [];
+    if (!entries.length) return '<p class="text-slate-400 text-xs">Nenhum custo fixo ativo.</p>';
+    // Group by category
+    const groups = new Map();
+    for (const e of entries) {
+      if (!groups.has(e.category_name)) groups.set(e.category_name, { color: e.category_color, items: [], total: 0 });
+      const g = groups.get(e.category_name);
+      g.items.push(e);
+      g.total += Number(e.amount || 0);
+    }
+    return `
+      <p class="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-3">Custos fixos — ${formatMonthShort(capacity.year_month)}</p>
+      <div class="space-y-3">
+        ${[...groups.entries()].map(([catName, g]) => `
+          <div>
+            <div class="flex items-center gap-1.5 mb-1.5">
+              <span class="size-2 rounded-full shrink-0" style="background:${escapeHtml(g.color)}"></span>
+              <span class="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">${escapeHtml(catName)}</span>
+              <span class="ml-auto text-xs font-semibold tabular text-slate-700">${currency.format(g.total)}</span>
+            </div>
+            <ul class="divide-y divide-indigo-100 pl-3.5">
+              ${g.items.map((e) => `
+                <li class="flex items-center gap-3 py-1.5">
+                  <span class="inline-flex items-center justify-center size-7 rounded-lg bg-white border border-slate-200 text-xs font-bold tabular text-slate-600 shrink-0">${e.due_day}</span>
+                  <span class="flex-1 min-w-0 truncate text-slate-700">${escapeHtml(e.description)}</span>
+                  ${e.is_override ? '<span class="text-[10px] text-indigo-500 bg-white px-1.5 py-0.5 rounded-full border border-indigo-200 shrink-0">ajustado</span>' : ''}
+                  <span class="font-semibold tabular text-slate-700 shrink-0">${currency.format(e.amount)}</span>
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  if (key === 'metas') {
+    const items = (capacity.variable_budgets?.items || []).filter((i) => i.target !== null);
+    if (!items.length) return '<p class="text-slate-400 text-xs">Nenhuma meta definida ainda.</p>';
+    return `
+      <p class="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-3">Metas variáveis — ${formatMonthShort(capacity.year_month)}</p>
+      <ul class="space-y-3">
+        ${items.map((item) => {
+          const pct = Math.min(100, item.actual_progress_pct || 0);
+          const barColor = pct >= 100 ? 'bg-red-400' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-400';
+          return `
+            <li>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="size-2 rounded-full shrink-0" style="background:${escapeHtml(item.category_color)}"></span>
+                <span class="flex-1 min-w-0 truncate text-slate-700">${escapeHtml(item.category_name)}</span>
+                <span class="text-xs tabular text-slate-500">${currency.format(item.actual_spent)}</span>
+                <span class="text-xs text-slate-300">/</span>
+                <span class="text-xs font-semibold tabular text-slate-700">${currency.format(item.target)}</span>
+              </div>
+              <div class="h-1.5 w-full bg-white rounded-full overflow-hidden border border-indigo-100">
+                <div class="h-full rounded-full ${barColor}" style="width:${pct.toFixed(1)}%"></div>
+              </div>
+            </li>
+          `;
+        }).join('')}
+      </ul>
+    `;
+  }
+
+  if (key === 'livre') {
+    const invoice = capacity.card_invoice_total || 0;
+    const afterInvoice = (capacity.remaining_after_plan_and_invoice ?? capacity.remaining_after_invoice) || 0;
+    const rows = [
+      { label: '💰 Receita esperada',  value: capacity.expected_income_total || 0, op: '',  color: 'text-slate-700' },
+      { label: '🏠 Custos fixos',       value: capacity.fixed_cost_total       || 0, op: '−', color: 'text-slate-600' },
+      { label: '🎯 Metas variáveis',    value: capacity.variable_budget_total  || 0, op: '−', color: 'text-slate-600' },
+      { label: '= Livre planejado',     value: sobra,                               op: '=', color: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
+      null,
+      { label: '💳 Fatura cartão',      value: invoice,                             op: '−', color: 'text-orange-600' },
+      { label: '= Livre após fatura',   value: afterInvoice,                        op: '=', color: afterInvoice >= 0 ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
+    ];
+    return `
+      <p class="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-3">Como o livre planejado é calculado</p>
+      <div class="space-y-1.5">
+        ${rows.map((r) => r === null
+          ? '<div class="border-t border-indigo-100 my-2"></div>'
+          : `<div class="flex items-baseline gap-3">
+               <span class="w-3 text-center text-xs text-slate-400 shrink-0">${r.op}</span>
+               <span class="flex-1 text-slate-600 text-xs">${r.label}</span>
+               <span class="tabular text-sm ${r.color}">${currency.format(r.value)}</span>
+             </div>`
+        ).join('')}
+      </div>
+    `;
+  }
+  return '';
 }
 
 function buildDetailRow(icon, label, valueText, valueClass, progressPct = null) {
@@ -287,6 +416,7 @@ function statusBadge(status) {
 
 async function loadMonthData() {
   if (!selectedMonth) return;
+  expandedOverviewPanel = null;   // reset expanded card when month changes
   try {
     const [fixed, capacity] = await Promise.all([
       fetchJson(`/fixed-costs/by-month?year_month=${selectedMonth}`),
