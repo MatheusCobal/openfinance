@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+from sqlalchemy import or_, update
 from sqlmodel import Session, select
 
 from app.models import Account, AccountSync, Item, Transaction
@@ -11,6 +12,17 @@ from app.services.snapshots import refresh_monthly_balance_snapshots
 from app.services.transactions import TRACKED_ACCOUNT_TYPES
 
 SYNC_LOOKBACK_DAYS = 7
+SYNC_STALE_LOCK_MINUTES = 10
+ERROR_MESSAGE_MAX_LEN = 500
+
+
+class SyncAlreadyRunning(Exception):
+    pass
+
+
+def _truncate_error(exc: BaseException) -> str:
+    msg = f"{type(exc).__name__}: {exc}"
+    return msg[:ERROR_MESSAGE_MAX_LEN]
 
 
 @dataclass
@@ -161,7 +173,87 @@ def sync_account_transactions(
     return result
 
 
-def sync_item(item_id: str, session: Session) -> Dict[str, int]:
+def _acquire_sync_lock(item_id: str, session: Session) -> datetime:
+    # Atomic compare-and-swap: claim the lock only if it's free or stale.
+    # rowcount tells us whether we actually acquired it.
+    now = datetime.utcnow()
+    stale_cutoff = now - timedelta(minutes=SYNC_STALE_LOCK_MINUTES)
+    stmt = (
+        update(Item)
+        .where(Item.id == item_id)
+        .where(
+            or_(
+                Item.sync_started_at.is_(None),
+                Item.sync_finished_at.is_not(None),
+                Item.sync_started_at < stale_cutoff,
+            )
+        )
+        .values(sync_started_at=now, sync_finished_at=None, last_sync_error=None)
+    )
+    result = session.exec(stmt)
+    session.commit()
+    if result.rowcount == 0:
+        raise SyncAlreadyRunning(f"sync already running for item {item_id}")
+    return now
+
+
+def _release_sync_lock(
+    item_id: str,
+    session: Session,
+    error: Optional[str] = None,
+) -> None:
+    session.exec(
+        update(Item)
+        .where(Item.id == item_id)
+        .values(sync_finished_at=datetime.utcnow(), last_sync_error=error)
+    )
+    session.commit()
+
+
+def _sync_one_account(
+    raw_account: Dict[str, Any],
+    item_id: str,
+    session: Session,
+) -> AccountSyncResult:
+    account_id = raw_account["id"]
+    upsert_account(raw_account, item_id, session)
+    sync_state = get_or_create_sync_state(account_id, session)
+    result = sync_account_transactions(account_id, sync_state, session)
+    sync_state.last_error = None
+    sync_state.last_error_at = None
+    session.add(sync_state)
+    return result
+
+
+def _record_account_failure(
+    account_id: str,
+    session: Session,
+    error: str,
+) -> None:
+    # Runs after rollback, so the AccountSync row may not exist yet.
+    sync_state = session.get(AccountSync, account_id) or AccountSync(
+        account_id=account_id
+    )
+    sync_state.last_error = error
+    sync_state.last_error_at = datetime.utcnow()
+    session.add(sync_state)
+    session.commit()
+
+
+def sync_item(item_id: str, session: Session) -> Dict[str, Any]:
+    _acquire_sync_lock(item_id, session)
+    try:
+        result = _sync_item_locked(item_id, session)
+    except BaseException as exc:
+        # Releases on top-level failure (e.g., list_accounts errored before the
+        # per-account loop) so the item doesn't stay locked.
+        _release_sync_lock(item_id, session, error=_truncate_error(exc))
+        raise
+    _release_sync_lock(item_id, session)
+    return result
+
+
+def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
     raw_accounts = pluggy.list_accounts(item_id)
     accounts_to_sync = tracked_accounts(raw_accounts)
 
@@ -169,23 +261,29 @@ def sync_item(item_id: str, session: Session) -> Dict[str, int]:
     updated_transactions = 0
     fetched_transactions = 0
     synced_accounts_by_type: Dict[str, int] = {}
+    failed_accounts: List[Dict[str, str]] = []
     for raw_account in accounts_to_sync:
         account_id = raw_account["id"]
         account_type = raw_account["type"]
+        try:
+            account_result = _sync_one_account(raw_account, item_id, session)
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            error = _truncate_error(exc)
+            _record_account_failure(account_id, session, error)
+            failed_accounts.append({"account_id": account_id, "error": error})
+            continue
+
         synced_accounts_by_type[account_type] = (
             synced_accounts_by_type.get(account_type, 0) + 1
         )
-        upsert_account(raw_account, item_id, session)
-
-        sync_state = get_or_create_sync_state(account_id, session)
-        account_result = sync_account_transactions(account_id, sync_state, session)
         fetched_transactions += account_result.fetched_transactions
         new_transactions += account_result.new_transactions
         updated_transactions += account_result.updated_transactions
 
-    session.commit()
-    # refresh_monthly_balance_snapshots internally refreshes income and invoice
-    # snapshots first, so a single call is enough.
+    # Snapshots aggregate from the DB, so partial failures still produce
+    # meaningful numbers — just for the accounts that succeeded.
     refreshed_income_months, refreshed_invoice_months, refreshed_balance_months = (
         refresh_monthly_balance_snapshots(session)
     )
@@ -199,4 +297,5 @@ def sync_item(item_id: str, session: Session) -> Dict[str, int]:
         "refreshed_invoice_months": refreshed_invoice_months,
         "refreshed_income_months": refreshed_income_months,
         "refreshed_balance_months": refreshed_balance_months,
+        "failed_accounts": failed_accounts,
     }

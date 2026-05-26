@@ -7,9 +7,13 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import engine, get_session
-from app.models import Account, Item
+from app.models import Account, AccountSync, Item
 from app.pluggy_client import pluggy
-from app.services.sync import sync_item as run_sync_item, upsert_item
+from app.services.sync import (
+    SyncAlreadyRunning,
+    sync_item as run_sync_item,
+    upsert_item,
+)
 
 logger = logging.getLogger("openfinance")
 
@@ -51,7 +55,10 @@ def sync_item(item_id: str, session: Session = Depends(get_session)):
     item = session.get(Item, item_id)
     if item is None:
         item = upsert_item(item_id, session)
-    return run_sync_item(item.id, session)
+    try:
+        return run_sync_item(item.id, session)
+    except SyncAlreadyRunning:
+        raise HTTPException(409, "sync already running for this item")
 
 
 @router.post("/webhooks/pluggy")
@@ -73,6 +80,8 @@ def _handle_item_event(item_id: str) -> None:
             upsert_item(item_id, session)
             result = run_sync_item(item_id, session)
         logger.info("synced item=%s result=%s", item_id, result)
+    except SyncAlreadyRunning:
+        logger.info("skipping webhook sync, already running item=%s", item_id)
     except Exception:
         logger.exception("failed to process item event item=%s", item_id)
 
@@ -80,6 +89,42 @@ def _handle_item_event(item_id: str) -> None:
 @router.get("/items")
 def list_items(session: Session = Depends(get_session)):
     return session.exec(select(Item)).all()
+
+
+@router.get("/sync/health")
+def sync_health(session: Session = Depends(get_session)):
+    items = session.exec(select(Item)).all()
+    health = []
+    for item in items:
+        is_running = (
+            item.sync_started_at is not None and item.sync_finished_at is None
+        )
+        failed = session.exec(
+            select(Account.id, AccountSync.last_error, AccountSync.last_error_at)
+            .join(AccountSync, AccountSync.account_id == Account.id)
+            .where(Account.item_id == item.id)
+            .where(AccountSync.last_error.is_not(None))
+        ).all()
+        health.append(
+            {
+                "item_id": item.id,
+                "connector_name": item.connector_name,
+                "status": item.status,
+                "sync_started_at": item.sync_started_at,
+                "sync_finished_at": item.sync_finished_at,
+                "is_running": is_running,
+                "last_sync_error": item.last_sync_error,
+                "failed_accounts": [
+                    {
+                        "account_id": account_id,
+                        "error": error,
+                        "last_error_at": last_error_at,
+                    }
+                    for account_id, error, last_error_at in failed
+                ],
+            }
+        )
+    return health
 
 
 @router.get("/accounts")

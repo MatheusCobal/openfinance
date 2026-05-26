@@ -814,6 +814,65 @@ async function loadData() {
   // Cash-flow strip is fetched separately so its failure (or slowness)
   // doesn't block the dashboard's primary stats from rendering.
   loadMonthlyFlow(myVersion);
+  loadSyncHealth(myVersion);
+}
+
+async function loadSyncHealth(expectedVersion) {
+  const section = document.getElementById('sync-health');
+  if (!section) return;
+  try {
+    const response = await fetch('/sync/health');
+    if (expectedVersion !== loadVersion) return;
+    if (!response.ok) return;
+    const items = await response.json();
+    renderSyncHealth(section, items);
+  } catch (err) {
+    console.error('sync health failed', err);
+  }
+}
+
+function renderSyncHealth(section, items) {
+  const noteworthy = (items || []).filter(
+    (it) => it.is_running || it.last_sync_error || (it.failed_accounts || []).length > 0,
+  );
+  if (noteworthy.length === 0) {
+    section.classList.add('hidden');
+    section.innerHTML = '';
+    return;
+  }
+
+  const cards = noteworthy.map((it) => {
+    const running = it.is_running;
+    const itemError = it.last_sync_error;
+    const accountErrors = it.failed_accounts || [];
+    const variant = running
+      ? { bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-900', tag: 'Sincronizando' }
+      : { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-900', tag: 'Atenção' };
+    const name = escapeHtml(it.connector_name || it.item_id);
+    const accountList = accountErrors.length
+      ? `<ul class="mt-2 space-y-1 text-xs ${variant.text}/80">${accountErrors
+          .map(
+            (a) =>
+              `<li><span class="font-medium">${escapeHtml(a.account_id)}:</span> ${escapeHtml(a.error || '')}</li>`,
+          )
+          .join('')}</ul>`
+      : '';
+    const itemErrorLine = itemError
+      ? `<p class="mt-1 text-xs ${variant.text}/80">${escapeHtml(itemError)}</p>`
+      : '';
+    return `
+      <div class="rounded-2xl ${variant.bg} border ${variant.border} px-5 py-4">
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-semibold uppercase tracking-wider ${variant.text}">${variant.tag}</span>
+          <span class="font-medium ${variant.text}">${name}</span>
+        </div>
+        ${itemErrorLine}
+        ${accountList}
+      </div>`;
+  });
+
+  section.innerHTML = `<div class="space-y-3">${cards.join('')}</div>`;
+  section.classList.remove('hidden');
 }
 
 function showToast(message, variant = 'info') {
@@ -866,15 +925,21 @@ async function openConnectWidget() {
         try {
           await fetch(`/items/${itemId}`, { method: 'POST' });
           const sync = await fetch(`/items/${itemId}/sync`, { method: 'POST' });
+          if (sync.status === 409) {
+            showToast('Sincronização já em andamento para este item.', 'info');
+            return;
+          }
           const result = await sync.json();
           await loadData();
           const updated = result.updated_transactions || 0;
           const syncSummary = updated > 0
             ? `${result.new_transactions} nova(s) e ${updated} atualizada(s)`
             : `${result.new_transactions} nova(s)`;
+          const failed = (result.failed_accounts || []).length;
+          const failureSuffix = failed > 0 ? ` (${failed} conta(s) com erro)` : '';
           showToast(
-            `${syncSummary} compra(s) sincronizada(s).`,
-            'success',
+            `${syncSummary} compra(s) sincronizada(s).${failureSuffix}`,
+            failed > 0 ? 'info' : 'success',
           );
         } catch (err) {
           console.error(err);

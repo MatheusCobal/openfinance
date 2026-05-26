@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.pool import StaticPool
@@ -225,6 +225,109 @@ class SyncServiceTest(unittest.TestCase):
             self.assertEqual(invoice_snapshot.payment_count, 1)
             self.assertEqual(balance_snapshot.income, Decimal("5000.0000000000"))
             self.assertEqual(balance_snapshot.invoice_paid, Decimal("120.5000000000"))
+
+
+class SyncIsolationAndLockTest(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+        self.today = date.today()
+        self.fake_pluggy = FakePluggy(self.today)
+        self.original_pluggy = sync_service.pluggy
+        sync_service.pluggy = self.fake_pluggy
+
+    def tearDown(self):
+        sync_service.pluggy = self.original_pluggy
+
+    def _seed_item(self, session):
+        session.add(
+            Item(
+                id="item-1",
+                connector_id=200,
+                connector_name="MeuPluggy",
+                status="UPDATED",
+            )
+        )
+        session.commit()
+
+    def test_account_failure_preserves_other_accounts(self):
+        # bank-1 raises mid-loop; credit-1 must still be persisted, and
+        # AccountSync["bank-1"] must record the error.
+        original_list = self.fake_pluggy.list_transactions
+
+        def flaky_list(account_id, from_date=None):
+            if account_id == "bank-1":
+                raise RuntimeError("pluggy 500")
+            return original_list(account_id, from_date)
+
+        self.fake_pluggy.list_transactions = flaky_list
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            result = sync_service.sync_item("item-1", session)
+
+            self.assertEqual(len(result["failed_accounts"]), 1)
+            self.assertEqual(result["failed_accounts"][0]["account_id"], "bank-1")
+            self.assertIn("pluggy 500", result["failed_accounts"][0]["error"])
+
+            # credit-1 transactions still made it through
+            self.assertIsNotNone(session.get(Transaction, "credit-payment"))
+
+            bank_sync = session.get(AccountSync, "bank-1")
+            self.assertIsNotNone(bank_sync)
+            self.assertIn("pluggy 500", bank_sync.last_error)
+            self.assertIsNotNone(bank_sync.last_error_at)
+
+            credit_sync = session.get(AccountSync, "credit-1")
+            self.assertIsNone(credit_sync.last_error)
+
+            item = session.get(Item, "item-1")
+            self.assertIsNotNone(item.sync_finished_at)
+            self.assertIsNone(item.last_sync_error)  # top-level didn't fail
+
+    def test_concurrent_sync_raises_already_running(self):
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service._acquire_sync_lock("item-1", session)
+
+            with self.assertRaises(sync_service.SyncAlreadyRunning):
+                sync_service.sync_item("item-1", session)
+
+    def test_stale_lock_is_recoverable(self):
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            stale = datetime.utcnow() - timedelta(minutes=30)
+            item = session.get(Item, "item-1")
+            item.sync_started_at = stale
+            item.sync_finished_at = None
+            session.add(item)
+            session.commit()
+
+            # Should acquire despite no sync_finished_at, because lock is stale.
+            result = sync_service.sync_item("item-1", session)
+            self.assertEqual(result["failed_accounts"], [])
+
+            item = session.get(Item, "item-1")
+            self.assertIsNotNone(item.sync_finished_at)
+
+    def test_top_level_failure_releases_lock(self):
+        def boom(item_id):
+            raise RuntimeError("list_accounts down")
+
+        self.fake_pluggy.list_accounts = boom
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            with self.assertRaises(RuntimeError):
+                sync_service.sync_item("item-1", session)
+
+            item = session.get(Item, "item-1")
+            self.assertIsNotNone(item.sync_finished_at)
+            self.assertIn("list_accounts down", item.last_sync_error)
 
 
 if __name__ == "__main__":
