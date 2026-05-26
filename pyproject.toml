@@ -2,6 +2,7 @@
 name = "openfinance"
 version = "0.1.0"
 dependencies = [
+    "alembic",
     "fastapi[standard]",
     "sqlmodel",
     "httpx",
@@ -11,7 +12,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "alembic",
 ]
 
 [build-system]
