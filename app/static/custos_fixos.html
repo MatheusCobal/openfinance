@@ -71,85 +71,89 @@
 
       <main class="flex-1 px-8 py-6 max-w-5xl space-y-6">
 
+        <!-- ── Visão do mês ──────────────────────────────────────────── -->
         <section class="bg-white rounded-2xl border border-slate-200 p-6">
           <div class="flex flex-wrap items-baseline justify-between gap-3 mb-1">
-            <h2 class="text-base font-semibold text-slate-900">Próximos meses</h2>
+            <h2 class="text-base font-semibold text-slate-900">Visão do mês</h2>
             <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
               <span>Total fixo: <span id="month-total" class="font-semibold tabular text-slate-900">—</span></span>
-              <span>Pode gastar: <span id="capacity-total" class="font-semibold tabular text-slate-900">—</span></span>
+              <span>Sobra: <span id="capacity-total" class="font-semibold tabular text-slate-900">—</span></span>
             </div>
           </div>
-          <p class="text-xs text-slate-500 mb-4">Selecione um mês para ajustar valores pontuais. O ajuste vale apenas para o mês selecionado.</p>
+          <p class="text-xs text-slate-500 mb-4">Selecione um mês para ver o resumo financeiro e ajustar valores pontuais. O ajuste vale apenas para o mês selecionado.</p>
 
-          <div id="month-strip" class="flex gap-2 overflow-x-auto pb-2 mb-4"></div>
+          <!-- Month strip -->
+          <div id="month-strip" class="flex gap-2 overflow-x-auto pb-2 mb-5"></div>
 
-          <div id="capacity-summary" class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5"></div>
+          <!-- Capacity flow (rendered by JS) -->
+          <div id="capacity-summary" class="mb-5"></div>
+
+          <!-- Category distribution bar (rendered by JS) -->
+          <div id="category-bar" class="mb-5"></div>
+
+          <!-- Month breakdown list -->
           <ul id="month-breakdown" class="divide-y divide-slate-100 text-sm"></ul>
         </section>
 
-        <section class="bg-white rounded-2xl border border-slate-200 p-6">
-          <div class="flex items-baseline justify-between mb-1">
-            <h2 class="text-base font-semibold text-slate-900">Categorias</h2>
-            <span class="text-xs text-slate-500" id="category-count">—</span>
-          </div>
-          <p class="text-xs text-slate-500 mb-4">As categorias padrão seguem suas categorias atuais. Você pode criar até 5 categorias personalizadas para custos fixos.</p>
-
-          <form id="category-form" class="grid grid-cols-1 sm:grid-cols-[1fr_120px_100px_auto] gap-2 mb-5">
-            <input id="category-name" type="text" required placeholder="Categoria (ex: Moradia)" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-            <input id="category-color" type="color" value="#64748b" class="h-10 w-full rounded-lg border border-slate-300 px-2 py-1 bg-white" />
-            <input id="category-order" type="number" value="0" placeholder="Ordem" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Adicionar</button>
-          </form>
-
-          <p class="text-xs text-slate-500 mb-3" id="custom-category-count">—</p>
-
-          <ul id="category-list" class="divide-y divide-slate-100 text-sm"></ul>
-        </section>
-
+        <!-- ── Custos base ──────────────────────────────────────────── -->
         <section class="bg-white rounded-2xl border border-slate-200 p-6">
           <div class="flex items-baseline justify-between mb-1">
             <h2 class="text-base font-semibold text-slate-900">Custos base</h2>
             <span class="text-xs text-slate-500" id="cost-count">—</span>
           </div>
-          <p class="text-xs text-slate-500 mb-4">Valores recorrentes usados em todos os meses, exceto quando houver override mensal.</p>
+          <p class="text-xs text-slate-500 mb-4">Valores recorrentes mensais. O valor base é usado em todos os meses, exceto onde houver um ajuste pontual.</p>
 
-          <div class="mb-4">
-            <p class="text-xs font-semibold text-slate-700 mb-2">Templates rápidos</p>
+          <!-- Templates rápidos -->
+          <div class="mb-5">
+            <p class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Templates rápidos</p>
             <div id="template-list" class="flex flex-wrap gap-2"></div>
           </div>
 
-          <form id="cost-form" class="grid grid-cols-1 lg:grid-cols-[160px_1fr_140px_100px_auto] gap-2 mb-5">
-            <select id="cost-category" required class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"></select>
-            <input id="cost-description" type="text" required placeholder="Descrição (ex: Aluguel)" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-            <input id="cost-amount" type="number" step="0.01" min="0.01" required placeholder="Valor (R$)" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-            <input id="cost-day" type="number" min="1" max="31" required placeholder="Dia" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Adicionar</button>
-          </form>
+          <!-- Nova categoria personalizada -->
+          <details class="mb-5 group">
+            <summary class="inline-flex items-center gap-2 text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer select-none list-none">
+              <span class="size-5 inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-600 group-open:bg-indigo-100 group-open:text-indigo-700 text-base leading-none transition-colors">＋</span>
+              Nova categoria personalizada
+              <span class="text-slate-400" id="custom-category-count">—</span>
+            </summary>
+            <form id="category-form" class="mt-3 grid grid-cols-1 sm:grid-cols-[1fr_120px_100px_auto] gap-2 p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <input id="category-name" type="text" required placeholder="Nome da categoria"
+                class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+              <input id="category-color" type="color" value="#64748b"
+                class="h-10 w-full rounded-lg border border-slate-300 px-2 py-1 bg-white" />
+              <input id="category-order" type="number" value="0" placeholder="Ordem"
+                class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+              <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Criar</button>
+            </form>
+          </details>
 
-          <div class="flex items-center gap-2 mb-3">
+          <!-- Total ativo + toggle inativos -->
+          <div class="flex flex-wrap items-center gap-2 mb-4">
             <label class="text-xs text-slate-600 inline-flex items-center gap-2 cursor-pointer">
               <input id="show-inactive" type="checkbox" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
               Mostrar inativos
             </label>
-            <span class="text-xs text-slate-400">·</span>
-            <span class="text-xs text-slate-600">Total ativo base: <span id="active-total" class="font-semibold tabular">—</span></span>
+            <span class="text-xs text-slate-300">|</span>
+            <span class="text-xs text-slate-600">Total ativo: <span id="active-total" class="font-semibold tabular">—</span></span>
           </div>
 
-          <ul id="cost-list" class="divide-y divide-slate-100 text-sm"></ul>
+          <!-- Category → costs accordion -->
+          <div id="category-cost-list" class="space-y-3 text-sm"></div>
         </section>
 
+        <!-- ── Criar a partir de transação ─────────────────────────── -->
         <section class="bg-white rounded-2xl border border-slate-200 p-6">
           <div class="flex items-baseline justify-between mb-1">
             <h2 class="text-base font-semibold text-slate-900">Criar a partir de transação</h2>
-            <span class="text-xs text-slate-500">últimas movimentações</span>
+            <span class="text-xs text-slate-500">movimentações recentes</span>
           </div>
-          <p class="text-xs text-slate-500 mb-4">Use uma transação recorrente como ponto de partida para criar um custo fixo.</p>
+          <p class="text-xs text-slate-500 mb-4">Use uma transação recorrente como ponto de partida. O dia da transação vira o vencimento sugerido.</p>
           <ul id="transaction-suggestions" class="divide-y divide-slate-100 text-sm"></ul>
         </section>
 
       </main>
     </div>
 
-    <script src="/static/custos_fixos.js?v=2"></script>
+    <script src="/static/custos_fixos.js?v=4"></script>
   </body>
 </html>

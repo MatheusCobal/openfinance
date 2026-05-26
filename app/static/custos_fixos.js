@@ -6,25 +6,32 @@ const MAX_CUSTOM_CATEGORIES = 5;
 const TRANSACTION_SUGGESTIONS_INITIAL = 5;
 const TRANSACTION_SUGGESTIONS_MAX = 50;
 const MONTH_LABELS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+const TEMPLATE_EMOJIS = {
+  'Aluguel': '🏠', 'Condomínio': '🏢', 'Internet': '🌐',
+  'Energia': '⚡', 'Água': '💧', 'Escola': '📚',
+  'Plano de saúde': '🏥', 'Streaming': '📺', 'Seguro': '🛡️', 'Pet': '🐾',
+};
+
 let selectedMonth = null;
 let monthStrip = [];
 let categories = [];
+let fixedCosts = [];
 
-const STATUS_META = {
-  paid: { label: 'pago provável', cls: 'bg-emerald-50 text-emerald-700' },
-  due_soon: { label: 'vencendo', cls: 'bg-amber-50 text-amber-700' },
-  overdue: { label: 'vencido', cls: 'bg-red-50 text-red-700' },
-  scheduled: { label: 'previsto', cls: 'bg-slate-100 text-slate-600' },
-  unconfirmed: { label: 'não confirmado', cls: 'bg-slate-100 text-slate-600' },
+const STATUS_CFG = {
+  paid:        { label: 'Pago',           icon: '✓', bg: 'bg-emerald-100', text: 'text-emerald-700' },
+  due_soon:    { label: 'Vence em breve', icon: '⏰', bg: 'bg-amber-100',   text: 'text-amber-700'   },
+  overdue:     { label: 'Vencido',        icon: '⚠', bg: 'bg-red-100',     text: 'text-red-700'     },
+  scheduled:   { label: 'Previsto',       icon: '·',  bg: 'bg-slate-100',  text: 'text-slate-500'   },
+  unconfirmed: { label: 'Não confirmado', icon: '?',  bg: 'bg-slate-100',  text: 'text-slate-500'   },
 };
+
+// ── Utilities ──────────────────────────────────────────────────────────────
 
 function escapeHtml(str) {
   return String(str ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
 function showToast(message, variant = 'info') {
@@ -65,6 +72,14 @@ function formatMonthShort(ym) {
   return `${MONTH_LABELS[month - 1]}/${String(year).slice(2)}`;
 }
 
+function formatDate(iso) {
+  const [year, month, day] = String(iso).split('-');
+  if (!year || !month || !day) return iso;
+  return `${day}/${month}`;
+}
+
+// ── Month strip ────────────────────────────────────────────────────────────
+
 function renderMonthStrip() {
   const strip = document.getElementById('month-strip');
   strip.innerHTML = '';
@@ -74,7 +89,7 @@ function renderMonthStrip() {
     button.type = 'button';
     button.className =
       'shrink-0 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors ' +
-      (active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
+      (active ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
     button.textContent = formatMonthShort(ym);
     button.addEventListener('click', () => {
       if (ym === selectedMonth) return;
@@ -86,25 +101,124 @@ function renderMonthStrip() {
   }
 }
 
-function capacityCard(label, value, tint = 'slate') {
-  const tones = {
-    emerald: 'bg-emerald-50 text-emerald-900 border-emerald-100',
-    red: 'bg-red-50 text-red-900 border-red-100',
-    orange: 'bg-orange-50 text-orange-900 border-orange-100',
-    slate: 'bg-slate-50 text-slate-900 border-slate-100',
-  };
-  return `
-    <div class="rounded-xl border ${tones[tint]} px-4 py-3">
-      <p class="text-[11px] uppercase tracking-wider font-semibold opacity-70">${label}</p>
-      <p class="mt-1 text-xl font-bold tabular">${currency.format(value || 0)}</p>
+// ── Capacity flow ──────────────────────────────────────────────────────────
+
+function renderCapacityFlow(capacity) {
+  const container = document.getElementById('capacity-summary');
+  const sobra = capacity.remaining_after_invoice;
+  const sobraPositive = sobra >= 0;
+
+  const steps = [
+    {
+      icon: '💰',
+      label: 'Receita esperada',
+      value: capacity.expected_income_total,
+      prefix: '',
+      border: 'border-emerald-200',
+      bg: 'bg-emerald-50',
+      text: 'text-emerald-900',
+      amount: 'text-emerald-700',
+    },
+    {
+      icon: '🏠',
+      label: 'Custos fixos',
+      value: capacity.fixed_cost_total,
+      prefix: '−',
+      border: 'border-red-200',
+      bg: 'bg-red-50',
+      text: 'text-red-900',
+      amount: 'text-red-700',
+    },
+    {
+      icon: '💳',
+      label: 'Fatura cartão',
+      value: capacity.card_invoice_total,
+      prefix: '−',
+      border: 'border-orange-200',
+      bg: 'bg-orange-50',
+      text: 'text-orange-900',
+      amount: 'text-orange-700',
+    },
+    {
+      icon: '✨',
+      label: 'Sobra estimada',
+      value: sobra,
+      prefix: '=',
+      border: sobraPositive ? 'border-emerald-200' : 'border-red-200',
+      bg: sobraPositive ? 'bg-emerald-50' : 'bg-red-50',
+      text: sobraPositive ? 'text-emerald-900' : 'text-red-900',
+      amount: sobraPositive ? 'text-emerald-700' : 'text-red-700',
+    },
+  ];
+
+  container.innerHTML = `
+    <div class="flex flex-wrap items-stretch gap-1">
+      ${steps.map((step, i) => `
+        <div class="flex items-center gap-1 flex-1 min-w-[160px]">
+          <div class="flex-1 rounded-xl border ${step.border} ${step.bg} px-4 py-3">
+            <div class="flex items-center gap-1.5 mb-2">
+              <span class="text-base leading-none">${step.icon}</span>
+              <p class="text-[11px] uppercase tracking-wider font-semibold ${step.text} opacity-75 leading-tight">${step.label}</p>
+            </div>
+            <p class="text-[11px] font-medium ${step.text} opacity-60 mb-0.5">${step.prefix || ' '}</p>
+            <p class="text-lg font-bold tabular ${step.amount} leading-tight">${currency.format(step.value || 0)}</p>
+          </div>
+          ${i < steps.length - 1 ? '<span class="text-slate-300 text-xl font-light shrink-0">›</span>' : ''}
+        </div>
+      `).join('')}
     </div>
   `;
 }
 
-function statusBadge(status) {
-  const meta = STATUS_META[status] || STATUS_META.scheduled;
-  return `<span class="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${meta.cls}">${meta.label}</span>`;
+// ── Category stacked bar ────────────────────────────────────────────────────
+
+function renderCategoryBar(fixed) {
+  const container = document.getElementById('category-bar');
+  if (!container || fixed.total <= 0 || !fixed.categories?.length) {
+    if (container) container.innerHTML = '';
+    return;
+  }
+  const bars = fixed.categories
+    .filter((cat) => cat.total > 0)
+    .map((cat) => {
+      const pct = (cat.total / fixed.total) * 100;
+      return `
+        <div
+          class="h-full rounded-sm first:rounded-l-full last:rounded-r-full transition-all"
+          style="width:${pct.toFixed(1)}%;background:${escapeHtml(cat.category_color)}"
+          title="${escapeHtml(cat.category_name)}: ${currency.format(cat.total)}"
+        ></div>
+      `;
+    }).join('');
+
+  const legend = fixed.categories
+    .filter((cat) => cat.total > 0)
+    .map((cat) => `
+      <span class="inline-flex items-center gap-1 text-xs text-slate-600">
+        <span class="size-2 rounded-full shrink-0 inline-block" style="background:${escapeHtml(cat.category_color)}"></span>
+        ${escapeHtml(cat.category_name)}
+        <span class="text-slate-400">${currency.format(cat.total)}</span>
+      </span>
+    `).join('');
+
+  container.innerHTML = `
+    <div class="flex h-2.5 w-full rounded-full overflow-hidden gap-px mb-2">${bars}</div>
+    <div class="flex flex-wrap gap-x-4 gap-y-1">${legend}</div>
+  `;
 }
+
+// ── Status badge ────────────────────────────────────────────────────────────
+
+function statusBadge(status) {
+  const cfg = STATUS_CFG[status] || STATUS_CFG.scheduled;
+  return `
+    <span class="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}">
+      <span>${cfg.icon}</span>${cfg.label}
+    </span>
+  `;
+}
+
+// ── Month breakdown ─────────────────────────────────────────────────────────
 
 async function loadMonthData() {
   if (!selectedMonth) return;
@@ -115,13 +229,8 @@ async function loadMonthData() {
     ]);
     document.getElementById('month-total').textContent = currency.format(fixed.total);
     document.getElementById('capacity-total').textContent = currency.format(capacity.remaining_after_invoice);
-    document.getElementById('capacity-summary').innerHTML = [
-      capacityCard('Receita esperada', capacity.expected_income_total, 'emerald'),
-      capacityCard('Custos fixos', capacity.fixed_cost_total, 'red'),
-      capacityCard('Fatura', capacity.card_invoice_total, 'orange'),
-      capacityCard('Sobra estimada', capacity.remaining_after_invoice, capacity.remaining_after_invoice >= 0 ? 'emerald' : 'red'),
-    ].join('');
-
+    renderCapacityFlow(capacity);
+    renderCategoryBar(fixed);
     renderMonthBreakdown(fixed);
   } catch (err) {
     showToast(`Erro ao carregar mês: ${err.message}`, 'error');
@@ -132,88 +241,113 @@ function renderMonthBreakdown(fixed) {
   const list = document.getElementById('month-breakdown');
   list.innerHTML = '';
   if (fixed.entries.length === 0) {
-    list.innerHTML = '<li class="py-6 text-sm text-slate-500 text-center">Nenhum custo fixo ativo. Cadastre um custo base abaixo.</li>';
+    list.innerHTML = '<li class="py-8 text-sm text-slate-500 text-center">Nenhum custo fixo ativo. Cadastre um custo base abaixo.</li>';
     return;
   }
+
+  // Group by category preserving order
   const groups = new Map();
   for (const item of fixed.entries) {
-    const key = item.category_id;
-    if (!groups.has(key)) {
-      groups.set(key, {
+    if (!groups.has(item.category_id)) {
+      groups.set(item.category_id, {
         category_name: item.category_name,
         category_color: item.category_color,
         items: [],
         total: 0,
       });
     }
-    const group = groups.get(key);
+    const group = groups.get(item.category_id);
     group.items.push(item);
     group.total += Number(item.amount || 0);
   }
+
   for (const group of groups.values()) {
     const groupLi = document.createElement('li');
-    groupLi.className = 'py-4';
-    groupLi.innerHTML = `
-      <div class="flex items-center justify-between gap-3 mb-2">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="size-3 rounded-full shrink-0" style="background:${escapeHtml(group.category_color)}"></span>
-          <p class="font-semibold text-slate-900 truncate">${escapeHtml(group.category_name)}</p>
-        </div>
-        <p class="font-bold tabular text-slate-900">${currency.format(group.total)}</p>
+    groupLi.className = 'py-2';
+
+    // Category header
+    const header = document.createElement('div');
+    header.className = 'flex items-center justify-between gap-3 px-3 py-2 rounded-lg mb-1';
+    header.style.borderLeft = `3px solid ${group.category_color}`;
+    header.style.backgroundColor = hexToFaint(group.category_color);
+    header.innerHTML = `
+      <div class="flex items-center gap-2 min-w-0">
+        <p class="font-semibold text-slate-900 text-sm truncate">${escapeHtml(group.category_name)}</p>
+        <span class="text-xs text-slate-500">${group.items.length} item${group.items.length !== 1 ? 's' : ''}</span>
       </div>
-      <ul class="divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden"></ul>
+      <p class="font-bold tabular text-slate-900 text-sm shrink-0">${currency.format(group.total)}</p>
     `;
-    const inner = groupLi.querySelector('ul');
+    groupLi.appendChild(header);
+
+    // Items
+    const inner = document.createElement('ul');
+    inner.className = 'divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden ml-1';
     for (const item of group.items) inner.appendChild(buildMonthRow(item));
+    groupLi.appendChild(inner);
     list.appendChild(groupLi);
+  }
+}
+
+// Turn a hex color into a very faint tint for backgrounds
+function hexToFaint(hex) {
+  try {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},0.05)`;
+  } catch {
+    return 'transparent';
   }
 }
 
 function buildMonthRow(item) {
   const li = document.createElement('li');
-  li.className = 'py-3 flex items-center gap-3';
+  li.className = 'py-3 px-3 flex items-start gap-3 bg-white hover:bg-slate-50 transition-colors';
+
   const overrideBadge = item.is_override
-    ? '<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">override</span>'
+    ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">ajustado</span>`
+    : '';
+  const matchedInfo = item.matched_transaction
+    ? `<span class="text-[10px] text-emerald-600">↳ conciliado: ${escapeHtml(item.matched_transaction.description.slice(0, 30))}</span>`
     : '';
   const baseHint = item.is_override
-    ? `<button type="button" data-action="revert" class="text-xs text-slate-500 hover:text-slate-900 underline">reverter para base (${currency.format(item.base_amount)})</button>`
-    : `<span class="text-xs text-slate-400">base ${currency.format(item.base_amount)}</span>`;
+    ? `<button type="button" data-action="revert" class="text-[10px] text-indigo-500 hover:text-indigo-700 underline">↩ reverter (${currency.format(item.base_amount)})</button>`
+    : '';
+
   li.innerHTML = `
-    <span class="inline-flex items-center justify-center size-9 rounded-lg bg-slate-100 text-slate-700 font-semibold text-sm shrink-0 tabular">${item.due_day}</span>
-    <span class="size-3 rounded-full shrink-0" style="background:${escapeHtml(item.category_color)}"></span>
+    <div class="flex flex-col items-center shrink-0 pt-0.5">
+      <span class="inline-flex items-center justify-center size-9 rounded-lg bg-slate-100 text-slate-700 font-bold text-sm tabular">${item.due_day}</span>
+      <span class="text-[9px] text-slate-400 mt-0.5">dia</span>
+    </div>
     <div class="flex-1 min-w-0">
-      <div class="flex items-center gap-2">
-        <p class="font-medium text-slate-900 truncate">${escapeHtml(item.description)}</p>
+      <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
+        <p class="font-medium text-slate-900 text-sm">${escapeHtml(item.description)}</p>
         ${overrideBadge}
         ${statusBadge(item.status)}
       </div>
-      <div class="mt-0.5 text-xs text-slate-500">
-        vence em ${formatDate(item.due_date)} · ${baseHint}
-        ${item.matched_transaction ? ` · conciliado com ${escapeHtml(item.matched_transaction.description)}` : ''}
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+        <span>vence ${formatDate(item.due_date)}</span>
+        ${matchedInfo}
+        ${baseHint}
       </div>
     </div>
     <input
-      type="number"
-      step="0.01"
-      min="0"
-      data-action="edit"
-      class="w-32 text-right text-sm font-semibold tabular rounded-lg border border-slate-300 px-2 py-1 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+      type="number" step="0.01" min="0" data-action="edit"
+      class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 shrink-0"
       value="${Number(item.amount).toFixed(2)}"
     />
   `;
+
   const input = li.querySelector('input[data-action="edit"]');
   const commit = async () => {
     const newAmount = Number(input.value);
-    if (Number.isNaN(newAmount) || newAmount < 0) {
-      input.value = Number(item.amount).toFixed(2);
-      return;
-    }
+    if (Number.isNaN(newAmount) || newAmount < 0) { input.value = Number(item.amount).toFixed(2); return; }
     if (Math.abs(newAmount - Number(item.amount)) < 0.005) return;
     if (Math.abs(newAmount - Number(item.base_amount)) < 0.005 && item.is_override) {
       try {
         await fetchJson(`/fixed-costs/${item.fixed_cost_id}/overrides/${selectedMonth}`, { method: 'DELETE' });
         await loadMonthData();
-        showToast('Override removido.', 'success');
+        showToast('Ajuste removido, voltou ao base.', 'success');
       } catch (err) { showToast(err.message, 'error'); }
       return;
     }
@@ -232,88 +366,152 @@ function buildMonthRow(item) {
     if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
     if (event.key === 'Escape') { input.value = Number(item.amount).toFixed(2); input.blur(); }
   });
+
   const revertBtn = li.querySelector('[data-action="revert"]');
   if (revertBtn) {
     revertBtn.addEventListener('click', async () => {
       try {
         await fetchJson(`/fixed-costs/${item.fixed_cost_id}/overrides/${selectedMonth}`, { method: 'DELETE' });
         await loadMonthData();
-        showToast('Override removido.', 'success');
+        showToast('Ajuste removido.', 'success');
       } catch (err) { showToast(err.message, 'error'); }
     });
   }
   return li;
 }
 
-function formatDate(iso) {
-  const [year, month, day] = String(iso).split('-');
-  if (!year || !month || !day) return iso;
-  return `${day}/${month}/${year}`;
-}
+// ── Categories & costs (base section) ──────────────────────────────────────
 
 async function loadCategories() {
   categories = await fetchJson('/fixed-cost-categories');
-  const list = document.getElementById('category-list');
-  const select = document.getElementById('cost-category');
-  list.innerHTML = '';
-  select.innerHTML = '';
-  document.getElementById('category-count').textContent =
-    categories.length === 1 ? '1 categoria' : `${categories.length} categorias`;
-  const customCount = categories.filter((category) => !category.is_default).length;
+  const customCount = categories.filter((cat) => !cat.is_default).length;
   const remaining = Math.max(0, MAX_CUSTOM_CATEGORIES - customCount);
   document.getElementById('custom-category-count').textContent =
-    `${customCount}/${MAX_CUSTOM_CATEGORIES} categorias personalizadas usadas · ${remaining} restante${remaining === 1 ? '' : 's'}`;
+    `${customCount}/${MAX_CUSTOM_CATEGORIES} personalizadas · ${remaining} restante${remaining === 1 ? '' : 's'}`;
   const addButton = document.querySelector('#category-form button[type="submit"]');
   if (addButton) {
     addButton.disabled = customCount >= MAX_CUSTOM_CATEGORIES;
     addButton.classList.toggle('opacity-50', customCount >= MAX_CUSTOM_CATEGORIES);
     addButton.classList.toggle('cursor-not-allowed', customCount >= MAX_CUSTOM_CATEGORIES);
   }
+  renderCategoryCostList();
+}
+
+function buildCategoryCostGroup(category, costs) {
+  const wrapper = document.createElement('section');
+  wrapper.className = 'rounded-xl border border-slate-200 overflow-hidden';
+  wrapper.style.borderTopColor = category.color;
+  wrapper.style.borderTopWidth = '3px';
+
+  const activeTotal = costs.filter((c) => c.active).reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const customBadge = category.is_default
+    ? ''
+    : '<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">personalizada</span>';
+  const deleteButton = category.is_default
+    ? ''
+    : '<button type="button" data-action="delete" class="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors">Excluir</button>';
+
+  wrapper.innerHTML = `
+    <div class="px-4 py-3 flex flex-wrap items-center justify-between gap-2 bg-slate-50 border-b border-slate-100">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="size-2.5 rounded-full shrink-0" style="background:${escapeHtml(category.color)}"></span>
+        <h3 class="font-semibold text-slate-900 text-sm truncate">${escapeHtml(category.name)}</h3>
+        ${customBadge}
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold tabular text-slate-700">${currency.format(activeTotal)}</span>
+        <button type="button" data-action="toggle-add"
+          class="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">
+          <span class="text-base leading-none" aria-hidden="true">＋</span> Adicionar
+        </button>
+        ${deleteButton}
+      </div>
+    </div>
+
+    <div data-add-form class="hidden px-4 py-3 bg-indigo-50/40 border-b border-indigo-100">
+      <form class="grid grid-cols-1 lg:grid-cols-[1fr_140px_90px_auto] gap-2" data-add-category="${category.id}">
+        <input name="description" type="text" required value="${escapeHtml(category.name)}"
+          placeholder="Descrição" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+        <input name="amount" type="number" step="0.01" min="0.01" required placeholder="Valor (R$)"
+          class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+        <input name="due_day" type="number" min="1" max="31" required placeholder="Dia"
+          class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
+      </form>
+    </div>
+
+    <ul class="divide-y divide-slate-100 text-sm"></ul>
+  `;
+
+  // Toggle add form
+  const addFormContainer = wrapper.querySelector('[data-add-form]');
+  wrapper.querySelector('[data-action="toggle-add"]').addEventListener('click', () => {
+    const hidden = addFormContainer.classList.toggle('hidden');
+    if (!hidden) {
+      const descInput = addFormContainer.querySelector('input[name="description"]');
+      descInput.value = category.name;
+      addFormContainer.querySelector('input[name="amount"]').focus();
+    }
+  });
+
+  // Submit add form
+  const form = wrapper.querySelector('form[data-add-category]');
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const description = String(data.get('description') || '').trim();
+    const amount = Number(data.get('amount'));
+    const due_day = Number(data.get('due_day'));
+    if (!description || !amount || !due_day) return;
+    try {
+      await fetchJson('/fixed-costs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category_id: category.id, description, amount, due_day }),
+      });
+      form.reset();
+      form.elements.description.value = category.name;
+      addFormContainer.classList.add('hidden');
+      await Promise.all([loadCosts(), loadMonthData()]);
+      showToast('Custo fixo adicionado.', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  });
+
+  // Cost list
+  const innerList = wrapper.querySelector('ul');
+  if (costs.length === 0) {
+    innerList.innerHTML = '<li class="py-4 text-xs text-slate-400 text-center">Nenhum custo cadastrado. Clique em Adicionar para criar.</li>';
+  } else {
+    for (const cost of costs) innerList.appendChild(buildCostRow(cost));
+  }
+
+  // Delete category
+  const deleteAction = wrapper.querySelector('[data-action="delete"]');
+  if (deleteAction) {
+    deleteAction.addEventListener('click', async () => {
+      if (!confirm(`Excluir categoria "${category.name}"?`)) return;
+      try {
+        await fetchJson(`/fixed-cost-categories/${category.id}`, { method: 'DELETE' });
+        await Promise.all([loadCategories(), loadCosts(), loadMonthData()]);
+        showToast('Categoria excluída.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+  return wrapper;
+}
+
+function renderCategoryCostList() {
+  const list = document.getElementById('category-cost-list');
+  if (!list) return;
+  list.innerHTML = '';
   if (categories.length === 0) {
-    list.innerHTML = '<li class="py-6 text-sm text-slate-500 text-center">Nenhuma categoria cadastrada ainda.</li>';
-    select.innerHTML = '<option value="">Cadastre uma categoria primeiro</option>';
+    list.innerHTML = '<div class="py-8 text-sm text-slate-500 text-center">Nenhuma categoria ainda.</div>';
     return;
   }
   for (const category of categories) {
-    const option = document.createElement('option');
-    option.value = category.id;
-    option.textContent = category.name;
-    select.appendChild(option);
-    list.appendChild(buildCategoryRow(category));
+    const costs = fixedCosts.filter((cost) => Number(cost.category_id) === Number(category.id));
+    list.appendChild(buildCategoryCostGroup(category, costs));
   }
-}
-
-function buildCategoryRow(category) {
-  const li = document.createElement('li');
-  li.className = 'py-3 flex items-center gap-3';
-  const badge = category.is_default
-    ? '<span class="text-[10px] font-semibold uppercase tracking-wider text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">padrão</span>'
-    : '<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">personalizada</span>';
-  const deleteButton = category.is_default
-    ? ''
-    : '<button type="button" data-action="delete" class="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors shrink-0">Excluir</button>';
-  li.innerHTML = `
-    <span class="size-4 rounded-full shrink-0" style="background:${escapeHtml(category.color)}"></span>
-    <div class="flex-1 min-w-0">
-      <div class="flex items-center gap-2">
-        <p class="font-medium text-slate-900 truncate">${escapeHtml(category.name)}</p>
-        ${badge}
-      </div>
-      <p class="text-xs text-slate-500">ordem ${category.sort_order}</p>
-    </div>
-    ${deleteButton}
-  `;
-  const deleteAction = li.querySelector('[data-action="delete"]');
-  if (!deleteAction) return li;
-  deleteAction.addEventListener('click', async () => {
-    if (!confirm(`Excluir categoria "${category.name}"?`)) return;
-    try {
-      await fetchJson(`/fixed-cost-categories/${category.id}`, { method: 'DELETE' });
-      await Promise.all([loadCategories(), loadCosts(), loadMonthData()]);
-      showToast('Categoria excluída.', 'success');
-    } catch (err) { showToast(err.message, 'error'); }
-  });
-  return li;
 }
 
 async function loadTemplates() {
@@ -321,23 +519,31 @@ async function loadTemplates() {
   if (!list) return;
   try {
     const templates = await fetchJson('/fixed-costs/templates');
-    list.innerHTML = templates.map((template) => `
-      <button
-        type="button"
-        data-template="${escapeHtml(template.label)}"
-        class="text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors"
-      >
-        ${escapeHtml(template.label)}
-      </button>
-    `).join('');
+    list.innerHTML = templates.map((template) => {
+      const emoji = TEMPLATE_EMOJIS[template.label] || '📋';
+      return `
+        <button type="button" data-template="${escapeHtml(template.label)}"
+          class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+          <span>${emoji}</span>${escapeHtml(template.label)}
+        </button>
+      `;
+    }).join('');
     list.querySelectorAll('button[data-template]').forEach((button) => {
       button.addEventListener('click', () => {
         const template = templates.find((item) => item.label === button.dataset.template);
         if (!template) return;
-        if (template.category_id) document.getElementById('cost-category').value = template.category_id;
-        document.getElementById('cost-description').value = template.description;
-        document.getElementById('cost-day').value = template.due_day;
-        document.getElementById('cost-amount').focus();
+        // Find the category group and open its add form
+        const form = document.querySelector(`form[data-add-category="${template.category_id}"]`);
+        if (!form) return;
+        const addFormContainer = form.closest('[data-add-form]');
+        if (addFormContainer) {
+          addFormContainer.classList.remove('hidden');
+          // Scroll to it
+          addFormContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        form.elements.description.value = template.description;
+        form.elements.due_day.value = template.due_day;
+        form.elements.amount.focus();
       });
     });
   } catch (err) {
@@ -348,40 +554,35 @@ async function loadTemplates() {
 async function loadCosts() {
   const showInactive = document.getElementById('show-inactive').checked;
   const costs = await fetchJson('/fixed-costs' + (showInactive ? '?include_inactive=true' : ''));
-  const list = document.getElementById('cost-list');
-  list.innerHTML = '';
+  fixedCosts = costs;
   document.getElementById('cost-count').textContent =
     costs.length === 1 ? '1 custo' : `${costs.length} custos`;
-  const activeTotal = costs
-    .filter((cost) => cost.active)
-    .reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
+  const activeTotal = costs.filter((c) => c.active).reduce((sum, c) => sum + Number(c.amount || 0), 0);
   document.getElementById('active-total').textContent = currency.format(activeTotal);
-  if (costs.length === 0) {
-    list.innerHTML = '<li class="py-6 text-sm text-slate-500 text-center">Nenhum custo fixo cadastrado ainda.</li>';
-    return;
-  }
-  for (const cost of costs) list.appendChild(buildCostRow(cost));
+  renderCategoryCostList();
 }
 
 function buildCostRow(cost) {
   const li = document.createElement('li');
-  li.className = 'py-3 flex items-center gap-3';
-  const activeLabel = cost.active ? 'Desativar' : 'Reativar';
+  li.className = 'py-3 px-4 flex items-center gap-3 hover:bg-slate-50 transition-colors';
   li.innerHTML = `
-    <span class="inline-flex items-center justify-center size-9 rounded-lg bg-slate-100 text-slate-700 font-semibold text-sm shrink-0 tabular">${cost.due_day}</span>
-    <span class="size-3 rounded-full shrink-0" style="background:${escapeHtml(cost.category_color)}"></span>
+    <span class="inline-flex items-center justify-center size-9 rounded-lg bg-slate-100 text-slate-700 font-bold text-sm shrink-0 tabular">${cost.due_day}</span>
     <div class="flex-1 min-w-0">
-      <p class="font-medium break-words ${cost.active ? 'text-slate-900' : 'text-slate-400 line-through'}">${escapeHtml(cost.description)}</p>
-      <p class="text-xs text-slate-500 mt-0.5">${escapeHtml(cost.category_name)} · dia ${cost.due_day} de cada mês</p>
+      <p class="font-medium text-sm break-words ${cost.active ? 'text-slate-900' : 'text-slate-400 line-through'}">${escapeHtml(cost.description)}</p>
+      <p class="text-xs text-slate-400 mt-0.5">dia ${cost.due_day} de cada mês</p>
     </div>
-    <p class="font-semibold tabular ${cost.active ? 'text-slate-900' : 'text-slate-400'}">${currency.format(cost.amount)}</p>
-    <button type="button" data-action="edit" class="text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors shrink-0">Editar</button>
-    <button type="button" data-action="toggle" class="text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors shrink-0">${activeLabel}</button>
-    <button type="button" data-action="delete" class="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors shrink-0">Excluir</button>
+    <p class="font-semibold tabular text-sm shrink-0 ${cost.active ? 'text-slate-900' : 'text-slate-400'}">${currency.format(cost.amount)}</p>
+    <div class="flex items-center gap-1 shrink-0">
+      <button type="button" data-action="edit"
+        class="text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">Editar</button>
+      <button type="button" data-action="toggle"
+        class="text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors">${cost.active ? 'Desativar' : 'Reativar'}</button>
+      <button type="button" data-action="delete"
+        class="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors">Excluir</button>
+    </div>
   `;
-  li.querySelector('[data-action="edit"]').addEventListener('click', () => {
-    renderCostEditRow(li, cost);
-  });
+
+  li.querySelector('[data-action="edit"]').addEventListener('click', () => renderCostEditRow(li, cost));
   li.querySelector('[data-action="toggle"]').addEventListener('click', async () => {
     try {
       await fetchJson(`/fixed-costs/${cost.id}`, {
@@ -405,31 +606,35 @@ function buildCostRow(cost) {
 }
 
 function categoryOptions(selectedId) {
-  return categories.map((category) => {
-    const selected = Number(category.id) === Number(selectedId) ? 'selected' : '';
-    return `<option value="${category.id}" ${selected}>${escapeHtml(category.name)}</option>`;
+  return categories.map((cat) => {
+    const selected = Number(cat.id) === Number(selectedId) ? 'selected' : '';
+    return `<option value="${cat.id}" ${selected}>${escapeHtml(cat.name)}</option>`;
   }).join('');
 }
 
 function renderCostEditRow(li, cost) {
-  li.className = 'py-3';
+  li.className = 'py-3 px-4 bg-indigo-50/40';
   li.innerHTML = `
-    <form class="grid grid-cols-1 lg:grid-cols-[160px_1fr_140px_100px_auto_auto] gap-2">
-      <select name="category_id" required class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">${categoryOptions(cost.category_id)}</select>
-      <input name="description" type="text" required value="${escapeHtml(cost.description)}" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-      <input name="amount" type="number" step="0.01" min="0.01" required value="${Number(cost.amount).toFixed(2)}" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-      <input name="due_day" type="number" min="1" max="31" required value="${cost.due_day}" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+    <form class="grid grid-cols-1 lg:grid-cols-[160px_1fr_140px_90px_auto_auto] gap-2 w-full">
+      <select name="category_id" required
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white">
+        ${categoryOptions(cost.category_id)}
+      </select>
+      <input name="description" type="text" required value="${escapeHtml(cost.description)}"
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+      <input name="amount" type="number" step="0.01" min="0.01" required value="${Number(cost.amount).toFixed(2)}"
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+      <input name="due_day" type="number" min="1" max="31" required value="${cost.due_day}"
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
       <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-3 py-2">Salvar</button>
-      <button type="button" data-action="cancel" class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100">Cancelar</button>
+      <button type="button" data-action="cancel"
+        class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100">Cancelar</button>
     </form>
   `;
-  const form = li.querySelector('form');
-  li.querySelector('[data-action="cancel"]').addEventListener('click', () => {
-    li.replaceWith(buildCostRow(cost));
-  });
-  form.addEventListener('submit', async (event) => {
+  li.querySelector('[data-action="cancel"]').addEventListener('click', () => li.replaceWith(buildCostRow(cost)));
+  li.querySelector('form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const data = new FormData(form);
+    const data = new FormData(li.querySelector('form'));
     try {
       await fetchJson(`/fixed-costs/${cost.id}`, {
         method: 'PATCH',
@@ -447,14 +652,15 @@ function renderCostEditRow(li, cost) {
   });
 }
 
+// ── Category form ───────────────────────────────────────────────────────────
+
 document.getElementById('category-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const name = document.getElementById('category-name').value.trim();
   const color = document.getElementById('category-color').value;
   const sort_order = Number(document.getElementById('category-order').value || 0);
   if (!name) return;
-  const customCount = categories.filter((category) => !category.is_default).length;
-  if (customCount >= MAX_CUSTOM_CATEGORIES) {
+  if (categories.filter((c) => !c.is_default).length >= MAX_CUSTOM_CATEGORIES) {
     showToast('Limite de 5 categorias personalizadas atingido.', 'error');
     return;
   }
@@ -470,29 +676,9 @@ document.getElementById('category-form').addEventListener('submit', async (event
   } catch (err) { showToast(err.message, 'error'); }
 });
 
-document.getElementById('cost-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const category_id = Number(document.getElementById('cost-category').value);
-  const description = document.getElementById('cost-description').value.trim();
-  const amount = Number(document.getElementById('cost-amount').value);
-  const due_day = Number(document.getElementById('cost-day').value);
-  if (!category_id || !description || !amount || !due_day) return;
-  try {
-    await fetchJson('/fixed-costs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category_id, description, amount, due_day }),
-    });
-    document.getElementById('cost-description').value = '';
-    document.getElementById('cost-amount').value = '';
-    document.getElementById('cost-day').value = '';
-    document.getElementById('cost-description').focus();
-    await Promise.all([loadCosts(), loadMonthData()]);
-    showToast('Custo fixo adicionado.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
-
 document.getElementById('show-inactive').addEventListener('change', loadCosts);
+
+// ── Transaction suggestions ─────────────────────────────────────────────────
 
 async function loadTransactionSuggestions() {
   const list = document.getElementById('transaction-suggestions');
@@ -501,30 +687,27 @@ async function loadTransactionSuggestions() {
     const transactions = await fetchJson('/transactions?account_type=ALL&include_ignored=true');
     const rows = transactions.slice(0, TRANSACTION_SUGGESTIONS_MAX);
     if (rows.length === 0) {
-      list.innerHTML = '<li class="py-6 text-sm text-slate-500 text-center">Nenhuma transação recente encontrada.</li>';
+      list.innerHTML = '<li class="py-8 text-sm text-slate-500 text-center">Nenhuma transação recente encontrada.</li>';
       return;
     }
     list.innerHTML = '';
     rows.forEach((tx, index) => {
       const row = buildTransactionSuggestionRow(tx);
-      if (index >= TRANSACTION_SUGGESTIONS_INITIAL) {
-        row.classList.add('transaction-suggestion-extra', 'hidden');
-      }
+      if (index >= TRANSACTION_SUGGESTIONS_INITIAL) row.classList.add('transaction-suggestion-extra', 'hidden');
       list.appendChild(row);
     });
     if (rows.length > TRANSACTION_SUGGESTIONS_INITIAL) {
       const more = document.createElement('li');
       more.className = 'py-3 text-center';
       more.innerHTML = `
-        <button type="button" class="inline-flex items-center gap-2 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors" data-action="show-more-transactions">
+        <button type="button" data-action="show-more"
+          class="inline-flex items-center gap-2 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors">
           <span aria-hidden="true">＋</span>
           Ver mais ${rows.length - TRANSACTION_SUGGESTIONS_INITIAL} transações
         </button>
       `;
-      more.querySelector('[data-action="show-more-transactions"]').addEventListener('click', () => {
-        list.querySelectorAll('.transaction-suggestion-extra').forEach((row) => {
-          row.classList.remove('hidden');
-        });
+      more.querySelector('[data-action="show-more"]').addEventListener('click', () => {
+        list.querySelectorAll('.transaction-suggestion-extra').forEach((row) => row.classList.remove('hidden'));
         more.remove();
       });
       list.appendChild(more);
@@ -536,14 +719,26 @@ async function loadTransactionSuggestions() {
 
 function buildTransactionSuggestionRow(tx) {
   const li = document.createElement('li');
-  li.className = 'py-3 flex items-center gap-3';
+  li.className = 'py-3 px-1 flex items-center gap-3 hover:bg-slate-50 rounded-lg transition-colors';
+
+  const txDate = new Date(tx.date + 'T00:00:00');
+  const day = String(txDate.getDate()).padStart(2, '0');
+  const monthLabel = MONTH_LABELS[txDate.getMonth()];
+
   li.innerHTML = `
-    <div class="flex-1 min-w-0">
-      <p class="font-medium text-slate-900 truncate">${escapeHtml(tx.description)}</p>
-      <p class="text-xs text-slate-500 mt-0.5">${formatDate(tx.date)} · ${escapeHtml(tx.custom_category_name || tx.category || 'Sem categoria')}</p>
+    <div class="flex flex-col items-center justify-center size-10 rounded-xl bg-slate-100 shrink-0">
+      <span class="text-base font-bold text-slate-700 leading-none tabular">${day}</span>
+      <span class="text-[9px] text-slate-400 uppercase tracking-wide leading-none mt-0.5">${monthLabel}</span>
     </div>
-    <p class="font-semibold tabular text-slate-900">${currency.format(Math.abs(Number(tx.amount) || 0))}</p>
-    <button type="button" data-action="use" class="text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors shrink-0">Criar custo</button>
+    <div class="flex-1 min-w-0">
+      <p class="font-medium text-slate-900 text-sm truncate">${escapeHtml(tx.description)}</p>
+      <p class="text-xs text-slate-400 mt-0.5">${escapeHtml(tx.custom_category_name || tx.category || 'Sem categoria')}</p>
+    </div>
+    <p class="font-semibold tabular text-sm text-slate-800 shrink-0">${currency.format(Math.abs(Number(tx.amount) || 0))}</p>
+    <button type="button" data-action="use"
+      class="shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg transition-colors">
+      + Criar custo
+    </button>
   `;
   li.querySelector('[data-action="use"]').addEventListener('click', async () => {
     try {
@@ -559,20 +754,15 @@ function buildTransactionSuggestionRow(tx) {
   return li;
 }
 
+// ── Init ───────────────────────────────────────────────────────────────────
+
 (async () => {
   selectedMonth = currentYearMonth();
-  monthStrip = Array.from({ length: MONTH_WINDOW }, (_, i) =>
-    shiftYearMonth(selectedMonth, i)
-  );
+  monthStrip = Array.from({ length: MONTH_WINDOW }, (_, i) => shiftYearMonth(selectedMonth, i));
   renderMonthStrip();
   try {
     await loadCategories();
-    await Promise.all([
-      loadTemplates(),
-      loadCosts(),
-      loadMonthData(),
-      loadTransactionSuggestions(),
-    ]);
+    await Promise.all([loadTemplates(), loadCosts(), loadMonthData(), loadTransactionSuggestions()]);
     document.getElementById('subtitle').textContent =
       'Cadastre compromissos recorrentes para calcular sua sobra mensal.';
   } catch (err) {
