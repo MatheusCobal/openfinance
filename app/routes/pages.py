@@ -28,6 +28,11 @@ def orcamento():
     return FileResponse(STATIC_DIR / "orcamento.html")
 
 
+@router.get("/regras", include_in_schema=False)
+def regras():
+    return FileResponse(STATIC_DIR / "regras.html")
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}

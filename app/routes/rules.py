@@ -10,8 +10,11 @@ from app.services.rules import (
     RuleValidationError,
     delete_bank_cashflow_exclusion_rule as delete_bank_cashflow_exclusion_rule_service,
     delete_bank_income_exclusion_rule as delete_bank_income_exclusion_rule_service,
+    delete_description_category_rule as delete_description_category_rule_service,
+    delete_ignored_description_rule as delete_ignored_description_rule_service,
     list_bank_cashflow_exclusion_rules as list_bank_cashflow_exclusion_rules_service,
     list_bank_income_exclusion_rules as list_bank_income_exclusion_rules_service,
+    list_description_category_rules as list_description_category_rules_service,
     list_ignored_description_rules as list_ignored_description_rules_service,
     upsert_bank_cashflow_exclusion_rule as upsert_bank_cashflow_exclusion_rule_service,
     upsert_bank_income_exclusion_rule as upsert_bank_income_exclusion_rule_service,
@@ -109,6 +112,11 @@ def delete_bank_cashflow_exclusion_rule(
     return None
 
 
+@router.get("/category-rules/description")
+def list_description_category_rules(session: Session = Depends(get_session)):
+    return list_description_category_rules_service(session)
+
+
 @router.post("/category-rules/description")
 def upsert_description_category_rule(
     body: DescriptionCategoryRuleUpsert,
@@ -122,6 +130,15 @@ def upsert_description_category_rule(
         )
     except (RuleValidationError, RuleCategoryNotFoundError) as exc:
         _handle_rule_error(exc)
+
+
+@router.delete("/category-rules/description/{rule_id}", status_code=204)
+def delete_description_category_rule(
+    rule_id: int,
+    session: Session = Depends(get_session),
+):
+    delete_description_category_rule_service(session, rule_id)
+    return None
 
 
 @router.get("/transaction-ignore-rules/description")
@@ -138,3 +155,12 @@ def upsert_ignored_description_rule(
         return upsert_ignored_description_rule_service(session, body.pattern)
     except (RuleValidationError, RuleCategoryNotFoundError) as exc:
         _handle_rule_error(exc)
+
+
+@router.delete("/transaction-ignore-rules/description/{rule_id}", status_code=204)
+def delete_ignored_description_rule(
+    rule_id: int,
+    session: Session = Depends(get_session),
+):
+    delete_ignored_description_rule_service(session, rule_id)
+    return None

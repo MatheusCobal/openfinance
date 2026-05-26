@@ -237,10 +237,63 @@ def upsert_description_category_rule(
     }
 
 
+def list_description_category_rules(session: Session):
+    rules = session.exec(
+        select(DescriptionCategoryRule).order_by(DescriptionCategoryRule.pattern)
+    ).all()
+    categories = {
+        category.id: category
+        for category in session.exec(select(Category)).all()
+    }
+    return [
+        {
+            "id": rule.id,
+            "pattern": rule.pattern,
+            "pattern_normalized": rule.pattern_normalized,
+            "category_id": rule.category_id,
+            "category_name": categories.get(rule.category_id).name
+            if categories.get(rule.category_id)
+            else None,
+            "category_color": categories.get(rule.category_id).color
+            if categories.get(rule.category_id)
+            else None,
+            "affected_count": count_description_rule_matches(
+                rule.pattern_normalized, session
+            ),
+        }
+        for rule in rules
+    ]
+
+
+def delete_description_category_rule(session: Session, rule_id: int) -> None:
+    rule = session.get(DescriptionCategoryRule, rule_id)
+    if rule is not None:
+        session.delete(rule)
+        session.commit()
+
+
 def list_ignored_description_rules(session: Session):
-    return session.exec(
+    rules = session.exec(
         select(IgnoredDescriptionRule).order_by(IgnoredDescriptionRule.pattern)
     ).all()
+    return [
+        {
+            "id": rule.id,
+            "pattern": rule.pattern,
+            "pattern_normalized": rule.pattern_normalized,
+            "affected_count": count_description_rule_matches(
+                rule.pattern_normalized, session
+            ),
+        }
+        for rule in rules
+    ]
+
+
+def delete_ignored_description_rule(session: Session, rule_id: int) -> None:
+    rule = session.get(IgnoredDescriptionRule, rule_id)
+    if rule is not None:
+        session.delete(rule)
+        session.commit()
 
 
 def upsert_ignored_description_rule(session: Session, pattern: str):
