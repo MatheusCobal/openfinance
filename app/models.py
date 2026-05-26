@@ -126,6 +126,15 @@ class Budget(SQLModel, table=True):
     monthly_target: Decimal
 
 
+class ExpectedIncome(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    description: str
+    amount: Decimal
+    expected_day: int
+    active: bool = Field(default=True, index=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class BudgetOverride(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("category_id", "year_month", name="uq_budgetoverride_month"),

@@ -56,7 +56,6 @@ function renderRuleItem({ summary, sub, onDelete }) {
   return li;
 }
 
-// ── Descrição → categoria ─────────────────────────────────────────
 async function loadDescCategoryRules() {
   try {
     const rules = await fetchJson('/category-rules/description');
@@ -102,149 +101,6 @@ document.getElementById('desc-cat-form').addEventListener('submit', async (event
   } catch (err) { showToast(err.message, 'error'); }
 });
 
-// ── Ignorar descrição ─────────────────────────────────────────────
-async function loadIgnoreRules() {
-  try {
-    const rules = await fetchJson('/transaction-ignore-rules/description');
-    const list = document.getElementById('ignore-list');
-    list.innerHTML = '';
-    document.getElementById('ignore-count').textContent = ruleCountLabel(rules.length);
-    if (rules.length === 0) {
-      list.innerHTML = '<li class="py-3 text-sm text-slate-500">Nenhuma regra cadastrada.</li>';
-      return;
-    }
-    for (const rule of rules) {
-      list.appendChild(renderRuleItem({
-        summary: `<span class="text-slate-700">"${escapeHtml(rule.pattern)}"</span>`,
-        sub: affectedLabel(rule.affected_count),
-        onDelete: async () => {
-          if (!confirm(`Excluir regra "${rule.pattern}"?`)) return;
-          try {
-            await fetchJson(`/transaction-ignore-rules/description/${rule.id}`, { method: 'DELETE' });
-            await loadIgnoreRules();
-            showToast('Regra excluída.', 'success');
-          } catch (err) { showToast(err.message, 'error'); }
-        },
-      }));
-    }
-  } catch (err) { showToast(`Erro ao listar regras: ${err.message}`, 'error'); }
-}
-
-document.getElementById('ignore-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const pattern = document.getElementById('ignore-pattern').value.trim();
-  if (!pattern) return;
-  try {
-    await fetchJson('/transaction-ignore-rules/description', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pattern }),
-    });
-    document.getElementById('ignore-pattern').value = '';
-    await loadIgnoreRules();
-    showToast('Regra adicionada.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
-
-// ── Excluir de receitas (banco) ───────────────────────────────────
-async function loadBankIncomeRules() {
-  try {
-    const rules = await fetchJson('/bank-income/exclusion-rules');
-    const list = document.getElementById('bank-income-list');
-    list.innerHTML = '';
-    document.getElementById('bank-income-count').textContent = ruleCountLabel(rules.length);
-    if (rules.length === 0) {
-      list.innerHTML = '<li class="py-3 text-sm text-slate-500">Nenhuma regra cadastrada.</li>';
-      return;
-    }
-    for (const rule of rules) {
-      const kind = rule.pluggy_category ? 'Categoria Pluggy' : 'Descrição';
-      const value = rule.pluggy_category || rule.pattern || '—';
-      list.appendChild(renderRuleItem({
-        summary: `<span class="text-xs uppercase tracking-wider text-slate-400 mr-2">${escapeHtml(kind)}</span> <span class="text-slate-700">${escapeHtml(value)}</span>`,
-        sub: affectedLabel(rule.affected_count),
-        onDelete: async () => {
-          if (!confirm(`Excluir regra de "${value}"?`)) return;
-          try {
-            await fetchJson(`/bank-income/exclusion-rules/${rule.id}`, { method: 'DELETE' });
-            await loadBankIncomeRules();
-            showToast('Regra excluída.', 'success');
-          } catch (err) { showToast(err.message, 'error'); }
-        },
-      }));
-    }
-  } catch (err) { showToast(`Erro ao listar regras: ${err.message}`, 'error'); }
-}
-
-document.getElementById('bank-income-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const kind = document.getElementById('bank-income-kind').value;
-  const value = document.getElementById('bank-income-value').value.trim();
-  if (!value) return;
-  const body = kind === 'pluggy_category' ? { pluggy_category: value } : { pattern: value };
-  try {
-    await fetchJson('/bank-income/exclusion-rules', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    document.getElementById('bank-income-value').value = '';
-    await loadBankIncomeRules();
-    showToast('Regra adicionada.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
-
-// ── Excluir de fluxo bancário ─────────────────────────────────────
-async function loadBankCashflowRules() {
-  try {
-    const rules = await fetchJson('/bank-cashflow/exclusion-rules');
-    const list = document.getElementById('bank-cashflow-list');
-    list.innerHTML = '';
-    document.getElementById('bank-cashflow-count').textContent = ruleCountLabel(rules.length);
-    if (rules.length === 0) {
-      list.innerHTML = '<li class="py-3 text-sm text-slate-500">Nenhuma regra cadastrada.</li>';
-      return;
-    }
-    for (const rule of rules) {
-      const directionLabel = rule.direction === 'IN' ? 'Entradas' : rule.direction === 'OUT' ? 'Saídas' : 'Ambos';
-      const kind = rule.pluggy_category ? 'Categoria Pluggy' : 'Descrição';
-      const value = rule.pluggy_category || rule.pattern || '—';
-      list.appendChild(renderRuleItem({
-        summary: `<span class="text-xs uppercase tracking-wider text-slate-400 mr-2">${escapeHtml(directionLabel)} · ${escapeHtml(kind)}</span> <span class="text-slate-700">${escapeHtml(value)}</span>`,
-        sub: affectedLabel(rule.affected_count),
-        onDelete: async () => {
-          if (!confirm(`Excluir regra de "${value}"?`)) return;
-          try {
-            await fetchJson(`/bank-cashflow/exclusion-rules/${rule.id}`, { method: 'DELETE' });
-            await loadBankCashflowRules();
-            showToast('Regra excluída.', 'success');
-          } catch (err) { showToast(err.message, 'error'); }
-        },
-      }));
-    }
-  } catch (err) { showToast(`Erro ao listar regras: ${err.message}`, 'error'); }
-}
-
-document.getElementById('bank-cashflow-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const direction = document.getElementById('bank-cashflow-direction').value;
-  const kind = document.getElementById('bank-cashflow-kind').value;
-  const value = document.getElementById('bank-cashflow-value').value.trim();
-  if (!value) return;
-  const body = { direction, ...(kind === 'pluggy_category' ? { pluggy_category: value } : { pattern: value }) };
-  try {
-    await fetchJson('/bank-cashflow/exclusion-rules', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    document.getElementById('bank-cashflow-value').value = '';
-    await loadBankCashflowRules();
-    showToast('Regra adicionada.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
-
-// ── Bootstrap ─────────────────────────────────────────────────────
 async function loadCategories() {
   try {
     categories = await fetchJson('/categories');
@@ -258,11 +114,6 @@ async function loadCategories() {
 
 (async () => {
   await loadCategories();
-  await Promise.all([
-    loadDescCategoryRules(),
-    loadIgnoreRules(),
-    loadBankIncomeRules(),
-    loadBankCashflowRules(),
-  ]);
-  document.getElementById('subtitle').textContent = 'Gerencie todas as regras de categorização e exclusão.';
+  await loadDescCategoryRules();
+  document.getElementById('subtitle').textContent = 'Gerencie as regras de categorização por descrição.';
 })();
