@@ -4,16 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
-    <title>Regras · OpenFinance</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%99%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+    <title>Receita futura · OpenFinance</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
-          },
-        },
+        theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } },
       };
     </script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
@@ -48,11 +44,11 @@
           <span class="size-5 inline-flex items-center justify-center text-lg leading-none">🎯</span>
           Orçamento
         </a>
-        <a href="/receita-futura" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+        <a href="/receita-futura" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700">
           <span class="size-5 inline-flex items-center justify-center text-lg leading-none">💰</span>
           Receita futura
         </a>
-        <a href="/regras" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700">
+        <a href="/regras" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
           <span class="size-5 inline-flex items-center justify-center text-lg leading-none">⚙️</span>
           Regras
         </a>
@@ -62,35 +58,44 @@
     <div class="ml-56 min-h-screen flex flex-col">
       <header class="bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between gap-4 shrink-0">
         <div class="min-w-0">
-          <h1 class="text-lg font-bold text-slate-900">Regras</h1>
+          <h1 class="text-lg font-bold text-slate-900">Receita futura estimada</h1>
           <p class="text-xs text-slate-500 truncate" id="subtitle">Carregando…</p>
         </div>
       </header>
 
       <div id="toast" class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-xl text-white text-sm px-4 py-3 shadow-lg"></div>
 
-      <main class="flex-1 px-8 py-6 space-y-6 max-w-5xl">
+      <main class="flex-1 px-8 py-6 max-w-4xl">
 
-        <!-- Descrição → categoria -->
         <section class="bg-white rounded-2xl border border-slate-200 p-6">
           <div class="flex items-baseline justify-between mb-1">
-            <h2 class="text-base font-semibold text-slate-900">Descrição → categoria</h2>
-            <span class="text-xs text-slate-500" id="desc-cat-count">—</span>
+            <h2 class="text-base font-semibold text-slate-900">Entradas cadastradas</h2>
+            <span class="text-xs text-slate-500" id="entry-count">—</span>
           </div>
-          <p class="text-xs text-slate-500 mb-4">Quando a descrição da transação contém o padrão, ela é categorizada conforme a regra.</p>
+          <p class="text-xs text-slate-500 mb-4">Cadastre suas receitas previstas (salário, freela, aluguel etc). Cada entrada tem um dia esperado e pode ser desativada sem apagar.</p>
 
-          <form id="desc-cat-form" class="flex flex-col sm:flex-row gap-2 mb-4">
-            <input id="desc-cat-pattern" type="text" required placeholder="Padrão na descrição (ex: Uber)" class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-            <select id="desc-cat-category" required class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"></select>
+          <form id="entry-form" class="grid grid-cols-1 sm:grid-cols-[1fr_140px_100px_auto] gap-2 mb-5">
+            <input id="entry-description" type="text" required placeholder="Descrição (ex: Salário)" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+            <input id="entry-amount" type="number" step="0.01" min="0.01" required placeholder="Valor (R$)" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+            <input id="entry-day" type="number" min="1" max="31" required placeholder="Dia" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
             <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Adicionar</button>
           </form>
 
-          <ul id="desc-cat-list" class="divide-y divide-slate-100 text-sm"></ul>
+          <div class="flex items-center gap-2 mb-3">
+            <label class="text-xs text-slate-600 inline-flex items-center gap-2 cursor-pointer">
+              <input id="show-inactive" type="checkbox" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              Mostrar inativas
+            </label>
+            <span class="text-xs text-slate-400">·</span>
+            <span class="text-xs text-slate-600">Total ativo: <span id="active-total" class="font-semibold tabular">—</span></span>
+          </div>
+
+          <ul id="entry-list" class="divide-y divide-slate-100 text-sm"></ul>
         </section>
 
       </main>
     </div>
 
-    <script src="/static/regras.js?v=2"></script>
+    <script src="/static/receita_futura.js?v=1"></script>
   </body>
 </html>

@@ -33,6 +33,11 @@ def regras():
     return FileResponse(STATIC_DIR / "regras.html")
 
 
+@router.get("/receita-futura", include_in_schema=False)
+def receita_futura():
+    return FileResponse(STATIC_DIR / "receita_futura.html")
+
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
