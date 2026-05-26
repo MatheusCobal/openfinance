@@ -1197,10 +1197,8 @@ async function loadIncomeEntries() {
   list.innerHTML = '';
   document.getElementById('income-entry-count').textContent =
     entries.length === 1 ? '1 entrada' : `${entries.length} entradas`;
-  const activeTotal = entries
-    .filter((entry) => entry.active)
-    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  document.getElementById('income-active-total').textContent = currency.format(activeTotal);
+  // Note: income-active-total (hero card) is owned by loadIncomeMonthBreakdown,
+  // which shows the effective month total (with overrides). We don't overwrite it here.
   if (entries.length === 0) {
     list.innerHTML = `
       <li class="py-6 mx-0 flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200">
@@ -1218,6 +1216,9 @@ async function loadIncomeMonthBreakdown() {
   if (!incomeSelectedMonth) return;
   const data = await fetchJson(`/expected-income/by-month?year_month=${incomeSelectedMonth}`);
   document.getElementById('income-month-total').textContent = currency.format(data.total);
+  // Hero card shows the effective month total (includes any overrides)
+  const heroEl = document.getElementById('income-active-total');
+  if (heroEl) heroEl.textContent = currency.format(data.total);
   const list = document.getElementById('income-month-breakdown');
   list.innerHTML = '';
   if (data.entries.length === 0) {
