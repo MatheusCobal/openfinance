@@ -673,6 +673,14 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
     entries = []
     category_totals: dict[int, Decimal] = {}
     total = Decimal("0")
+    actual_total = Decimal("0")
+    pending_total = Decimal("0")
+    variance_total = Decimal("0")
+    positive_variance_total = Decimal("0")
+    negative_variance_total = Decimal("0")
+    reserved_or_actual_total = Decimal("0")
+    paid_count = 0
+    pending_count = 0
     for cost in costs:
         category = categories.get(cost.category_id)
         if category is None:
@@ -691,7 +699,36 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
             )
             match_source = "auto" if matched_transaction is not None else None
         status = _status_for_cost(due_date, matched_transaction, today)
+
+        # Plan-vs-actual fields. When a transaction is matched the bill is
+        # considered "paid": the actual amount drives availability and any
+        # difference vs the planned amount becomes a variance (positive =
+        # overshoot reducing availability, negative = release back).
+        # When unmatched the planned amount stays reserved as the pending
+        # obligation.
+        if matched_transaction is not None:
+            actual_amount = abs(matched_transaction.amount)
+            pending_amount = Decimal("0")
+            variance = actual_amount - effective_amount
+            reserved_or_actual_amount = actual_amount
+            paid_count += 1
+        else:
+            actual_amount = Decimal("0")
+            pending_amount = effective_amount
+            variance = Decimal("0")
+            reserved_or_actual_amount = effective_amount
+            pending_count += 1
+
         total += effective_amount
+        actual_total += actual_amount
+        pending_total += pending_amount
+        variance_total += variance
+        if variance > 0:
+            positive_variance_total += variance
+        elif variance < 0:
+            negative_variance_total += -variance
+        reserved_or_actual_total += reserved_or_actual_amount
+
         category_totals[cost.category_id] = (
             category_totals.get(cost.category_id, Decimal("0")) + effective_amount
         )
@@ -706,6 +743,11 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
                 "due_day": cost.due_day,
                 "base_amount": float(cost.amount),
                 "amount": float(effective_amount),
+                "planned_amount": float(effective_amount),
+                "actual_amount": float(actual_amount),
+                "pending_amount": float(pending_amount),
+                "variance": float(variance),
+                "reserved_or_actual_amount": float(reserved_or_actual_amount),
                 "is_override": override is not None,
                 "override_id": override.id if override is not None else None,
                 "due_date": due_date.isoformat(),
@@ -737,9 +779,47 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
     return {
         "year_month": year_month,
         "total": float(total),
+        "planned_total": float(total),
+        "actual_total": float(actual_total),
+        "pending_total": float(pending_total),
+        "variance_total": float(variance_total),
+        "positive_variance_total": float(positive_variance_total),
+        "negative_variance_total": float(negative_variance_total),
+        "reserved_or_actual_total": float(reserved_or_actual_total),
+        "paid_count": paid_count,
+        "pending_count": pending_count,
         "categories": category_rows,
         "entries": entries,
     }
+
+
+def accounted_transaction_ids_for_month(
+    session: Session,
+    year_month: str,
+    today: Optional[date] = None,
+) -> set[str]:
+    """Transactions already "spoken for" by a fixed cost in ``year_month``.
+
+    Returns the UNION of:
+      - Manual ``FixedCostTransactionMatch`` rows for the month (matches the
+        user explicitly persisted).
+      - Auto-detected matches that ``monthly_breakdown`` finds by description +
+        amount similarity (``match_source == "auto"`` entries).
+
+    Any caller that wants to avoid double-counting a fixed cost — variable
+    budget consumption, discretionary invoice, unbudgeted spending — must
+    consult this set, not ``FixedCostTransactionMatch`` alone. The auto-detected
+    ones don't exist in the DB until the user confirms them, so a SELECT on
+    that table would miss them and let the same transaction reduce the
+    available-to-spend twice.
+    """
+    breakdown = monthly_breakdown(session, year_month)
+    ids: set[str] = set()
+    for entry in breakdown["entries"]:
+        matched = entry.get("matched_transaction")
+        if matched and matched.get("id"):
+            ids.add(matched["id"])
+    return ids
 
 
 def scheduled_installments_summary(
@@ -893,21 +973,22 @@ def spending_capacity_summary(
     today = today if today is not None else date.today()
     income = expected_income_breakdown(session, year_month)
     fixed = monthly_breakdown(session, year_month)
-    # Transactions already accounted for as fixed costs (e.g. condomínio
-    # paid on the credit card) must NOT also be counted in the invoice —
-    # otherwise the "remaining after invoice" line subtracts them twice.
-    fixed_cost_matched_ids: set[str] = set(
-        session.exec(
-            select(FixedCostTransactionMatch.transaction_id).where(
-                FixedCostTransactionMatch.year_month == year_month
-            )
-        ).all()
-    )
+    # Transactions already accounted for as a fixed cost — manual matches
+    # AND auto-detected matches that monthly_breakdown produced above — must
+    # NOT also be counted in the discretionary invoice or in the variable
+    # budget. Otherwise an auto-matched water bill (PIX) gets subtracted
+    # twice: once as fixed_cost_reserved_total and once as
+    # unbudgeted_variable_spent.
+    fixed_cost_accounted_ids: set[str] = {
+        entry["matched_transaction"]["id"]
+        for entry in fixed["entries"]
+        if entry.get("matched_transaction") and entry["matched_transaction"].get("id")
+    }
     invoice = invoice_summary(
         session,
         from_date=first_day,
         to_date=last_day,
-        exclude_transaction_ids=fixed_cost_matched_ids,
+        exclude_transaction_ids=fixed_cost_accounted_ids,
     )
     variable_budgets = budget_progress_summary(
         session,
@@ -915,10 +996,22 @@ def spending_capacity_summary(
         first_day=first_day,
         last_day=last_day,
         today=today,
+        fixed_cost_accounted_transaction_ids=fixed_cost_accounted_ids,
     )
 
     expected_income_total = Decimal(str(income["total"]))
     fixed_cost_total = Decimal(str(fixed["total"]))
+    fixed_cost_planned_total = Decimal(str(fixed["planned_total"]))
+    fixed_cost_actual_total = Decimal(str(fixed["actual_total"]))
+    fixed_cost_pending_total = Decimal(str(fixed["pending_total"]))
+    fixed_cost_variance_total = Decimal(str(fixed["variance_total"]))
+    fixed_cost_positive_variance_total = Decimal(
+        str(fixed["positive_variance_total"])
+    )
+    fixed_cost_negative_variance_total = Decimal(
+        str(fixed["negative_variance_total"])
+    )
+    fixed_cost_reserved_total = Decimal(str(fixed["reserved_or_actual_total"]))
     card_invoice_gross_total = Decimal(str(invoice["invoice_gross_total"]))
     card_invoice_discretionary_total = Decimal(
         str(invoice["invoice_discretionary_total"])
@@ -1017,28 +1110,61 @@ def spending_capacity_summary(
     savings_target_total = savings_effective_target(session, year_month)
     savings_breakdown = savings_monthly_breakdown(session, year_month)
 
+    # ---- Reserva (CDB / Fixed income) plan vs actual ----
+    # planned_target  = SavingsTarget for the month (the "savings target").
+    # applied         = sum of CDB applications classified as
+    #                   INVESTMENT_NOISE (see investment_application_transactions).
+    # pending         = how much of the plan we still owe ourselves.
+    # over_application = applied above the plan, also a real cash outflow.
+    # reserved_total  = max(target, applied) → the amount that reduces
+    #                   "Disponível para gastar" so the cash that actually
+    #                   left the account is honored AND the unfulfilled
+    #                   reservation stays reserved.
+    reserve_target_total = savings_target_total
+    reserve_application_total = reserva_application_total
+    reserve_rescue_total = reserva_rescue_total
+    reserve_net_total = reserva_net_total
+    reserve_pending_total = max(
+        reserve_target_total - reserve_application_total, Decimal("0")
+    )
+    reserve_over_application_total = max(
+        reserve_application_total - reserve_target_total, Decimal("0")
+    )
+    reserve_reserved_total = max(reserve_target_total, reserve_application_total)
+
     planned_expense_total = (
         fixed_cost_total + variable_budget_total + savings_target_total
     )
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
     remaining_after_plan = expected_income_total - planned_expense_total
-    # ``available_to_spend`` answers "how much of my income is still
-    # unspent / un-allocated after honoring fixed costs, what I've already
-    # spent on variable, and the savings reservation". The formula reduces
-    # to: income - fixed - actual_variable_spent - savings_reservation.
-    available_to_spend = (
-        remaining_after_plan
-        + variable_budget_remaining
-        - variable_budget_free_impact
+
+    # ---- Headline: "Disponível para gastar no mês" ----
+    # Cash logic:
+    #   income
+    # - fixed_cost_reserved_total   (planned for pending bills + actual for paid)
+    # - variable_budget_consumed    (min(spent, target) across budgeted categories)
+    # - variable_budget_overage     (overspend on budgeted categories)
+    # - unbudgeted_variable_spent   (spend in categories without a budget)
+    # - reserve_reserved_total      (max(target, applied) — honor the plan AND
+    #                               the real cash that moved to CDB)
+    # This is the single source of truth. The credit-card invoice is
+    # cash-flow timing only — individual purchases already consumed the
+    # category budgets above, so subtracting the invoice again would
+    # double count.
+    budget_available_to_spend = (
+        expected_income_total
+        - fixed_cost_reserved_total
+        - variable_budget_consumed
+        - variable_budget_overage
+        - unbudgeted_variable_spent
+        - reserve_reserved_total
     )
-    # The savings reservation is what makes ``discretionary_available``
-    # differ from ``available_to_spend``: the latter already subtracts the
-    # savings target. We keep both for backwards compatibility, but
-    # ``discretionary_available`` is the headline number users should look
-    # at when asking "quanto posso gastar este mês?".
-    discretionary_available = available_to_spend
+    # Keep the legacy aliases pointing at the same number so existing
+    # consumers (tests, frontend) keep working while the new field rolls out.
+    available_to_spend = budget_available_to_spend
+    discretionary_available = budget_available_to_spend
     received_based_available_to_spend = (
-        available_to_spend
+        budget_available_to_spend
         - income_to_receive
         + income_over_expected
     )
@@ -1048,6 +1174,14 @@ def spending_capacity_summary(
     remaining_after_plan_and_invoice = (
         remaining_after_plan - card_invoice_discretionary_total
     )
+
+    # ---- Projected cash available (cash-flow / timing view) ----
+    # Answers: "considering current bank balance, future income and pending
+    # obligations, what should my bank cash look like at the end of the month?"
+    # Requires a persisted current account balance, which the Account model
+    # doesn't store yet. Return None so the frontend renders an explicit
+    # "indisponível" instead of faking a number derived from monthly totals.
+    projected_cash_available: Optional[float] = None
 
     # ---- Daily discretionary verba ----
     # How much can I spend per day for the rest of the month?
@@ -1062,7 +1196,7 @@ def spending_capacity_summary(
         days_remaining_in_month = (last_day - today).days + 1
     if days_remaining_in_month > 0:
         daily_discretionary_remaining = (
-            max(discretionary_available, Decimal("0"))
+            max(budget_available_to_spend, Decimal("0"))
             / Decimal(days_remaining_in_month)
         )
     else:
@@ -1070,18 +1204,32 @@ def spending_capacity_summary(
 
     # ---- Plan health flag ----
     # Single answer to "is this month's plan sustainable?":
-    #   over     → discretionary_available is negative (you've over-committed)
+    #   over     → budget_available_to_spend is negative (you've over-committed)
     #   tight    → margin < 10% of income (one surprise away from over)
     #   healthy  → comfortable margin
     #   unknown  → no income configured, can't grade
     if expected_income_total <= 0:
         plan_status = "unknown"
-    elif discretionary_available < 0:
+    elif budget_available_to_spend < 0:
         plan_status = "over"
-    elif (discretionary_available / expected_income_total) < Decimal("0.10"):
+    elif (budget_available_to_spend / expected_income_total) < Decimal("0.10"):
         plan_status = "tight"
     else:
         plan_status = "healthy"
+
+    # ---- Reserva summary block (mirrors fixed/expected/budget shapes) ----
+    reserve_block = {
+        "year_month": year_month,
+        "target_total": float(reserve_target_total),
+        "application_total": float(reserve_application_total),
+        "rescue_total": float(reserve_rescue_total),
+        "net_total": float(reserve_net_total),
+        "pending_total": float(reserve_pending_total),
+        "over_application_total": float(reserve_over_application_total),
+        "reserved_total": float(reserve_reserved_total),
+        "application_count": len(reserva_application_txs),
+        "rescue_count": len(reserva_rescue_txs),
+    }
 
     return {
         "year_month": year_month,
@@ -1102,6 +1250,19 @@ def spending_capacity_summary(
         "income_over_expected": float(income_over_expected),
         "income_received_progress_pct": income_received_progress_pct,
         "fixed_cost_total": float(fixed_cost_total),
+        "fixed_cost_planned_total": float(fixed_cost_planned_total),
+        "fixed_cost_actual_total": float(fixed_cost_actual_total),
+        "fixed_cost_pending_total": float(fixed_cost_pending_total),
+        "fixed_cost_variance_total": float(fixed_cost_variance_total),
+        "fixed_cost_positive_variance_total": float(
+            fixed_cost_positive_variance_total
+        ),
+        "fixed_cost_negative_variance_total": float(
+            fixed_cost_negative_variance_total
+        ),
+        "fixed_cost_reserved_total": float(fixed_cost_reserved_total),
+        "fixed_cost_paid_count": fixed["paid_count"],
+        "fixed_cost_pending_count": fixed["pending_count"],
         "variable_budget_total": float(variable_budget_total),
         "planned_variable_total": float(variable_budget_total),
         "variable_budget_spent": float(variable_budget_spent),
@@ -1114,7 +1275,16 @@ def spending_capacity_summary(
         "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
         "savings_target_total": float(savings_target_total),
         "savings_target": savings_breakdown,
+        "reserve_target_total": float(reserve_target_total),
+        "reserve_application_total": float(reserve_application_total),
+        "reserve_rescue_total": float(reserve_rescue_total),
+        "reserve_net_total": float(reserve_net_total),
+        "reserve_pending_total": float(reserve_pending_total),
+        "reserve_over_application_total": float(reserve_over_application_total),
+        "reserve_reserved_total": float(reserve_reserved_total),
         "discretionary_available": float(discretionary_available),
+        "budget_available_to_spend": float(budget_available_to_spend),
+        "projected_cash_available": projected_cash_available,
         "daily_discretionary_remaining": float(daily_discretionary_remaining),
         "days_remaining_in_month": days_remaining_in_month,
         "plan_status": plan_status,
@@ -1152,6 +1322,7 @@ def spending_capacity_summary(
         "fixed_costs": fixed,
         "expected_income": income,
         "variable_budgets": variable_budgets,
+        "reserve": reserve_block,
     }
 
 
@@ -1170,16 +1341,32 @@ def spending_capacity_monthly_summary(
     totals = {
         "expected_income_total": Decimal("0"),
         "received_income_total": Decimal("0"),
+        "income_to_receive": Decimal("0"),
         "bank_inflows_total": Decimal("0"),
         "bank_outflows_total": Decimal("0"),
         "reserva_application_total": Decimal("0"),
         "reserva_rescue_total": Decimal("0"),
         "reserva_net_total": Decimal("0"),
+        "reserve_target_total": Decimal("0"),
+        "reserve_application_total": Decimal("0"),
+        "reserve_pending_total": Decimal("0"),
+        "reserve_reserved_total": Decimal("0"),
         "fixed_cost_total": Decimal("0"),
+        "fixed_cost_planned_total": Decimal("0"),
+        "fixed_cost_actual_total": Decimal("0"),
+        "fixed_cost_pending_total": Decimal("0"),
+        "fixed_cost_variance_total": Decimal("0"),
+        "fixed_cost_reserved_total": Decimal("0"),
+        "variable_budget_total": Decimal("0"),
         "variable_budget_spent": Decimal("0"),
+        "variable_budget_consumed": Decimal("0"),
+        "variable_budget_remaining": Decimal("0"),
+        "variable_budget_overage": Decimal("0"),
         "savings_target_total": Decimal("0"),
         "card_invoice_gross_total": Decimal("0"),
         "card_invoice_discretionary_total": Decimal("0"),
+        "card_invoice_fixed_cost_total": Decimal("0"),
+        "budget_available_to_spend": Decimal("0"),
         "discretionary_available": Decimal("0"),
     }
     for offset in range(months):
@@ -1190,14 +1377,27 @@ def spending_capacity_monthly_summary(
             "month": year_month,
             "expected_income_total": capacity["expected_income_total"],
             "received_income_total": capacity["received_income_total"],
+            "income_to_receive": capacity["income_to_receive"],
             "bank_inflows_total": capacity["bank_inflows_total"],
             "bank_outflows_total": capacity["bank_outflows_total"],
             "reserva_application_total": capacity["reserva_application_total"],
             "reserva_rescue_total": capacity["reserva_rescue_total"],
             "reserva_net_total": capacity["reserva_net_total"],
+            "reserve_target_total": capacity["reserve_target_total"],
+            "reserve_application_total": capacity["reserve_application_total"],
+            "reserve_pending_total": capacity["reserve_pending_total"],
+            "reserve_reserved_total": capacity["reserve_reserved_total"],
             "fixed_cost_total": capacity["fixed_cost_total"],
+            "fixed_cost_planned_total": capacity["fixed_cost_planned_total"],
+            "fixed_cost_actual_total": capacity["fixed_cost_actual_total"],
+            "fixed_cost_pending_total": capacity["fixed_cost_pending_total"],
+            "fixed_cost_variance_total": capacity["fixed_cost_variance_total"],
+            "fixed_cost_reserved_total": capacity["fixed_cost_reserved_total"],
             "variable_budget_total": capacity["variable_budget_total"],
             "variable_budget_spent": capacity["variable_budget_spent"],
+            "variable_budget_consumed": capacity["variable_budget_consumed"],
+            "variable_budget_remaining": capacity["variable_budget_remaining"],
+            "variable_budget_overage": capacity["variable_budget_overage"],
             "savings_target_total": capacity["savings_target_total"],
             "card_invoice_gross_total": capacity["card_invoice_gross_total"],
             "card_invoice_discretionary_total": capacity[
@@ -1206,7 +1406,9 @@ def spending_capacity_monthly_summary(
             "card_invoice_fixed_cost_total": capacity[
                 "card_invoice_fixed_cost_total"
             ],
+            "budget_available_to_spend": capacity["budget_available_to_spend"],
             "discretionary_available": capacity["discretionary_available"],
+            "projected_cash_available": capacity["projected_cash_available"],
             "daily_discretionary_remaining": capacity[
                 "daily_discretionary_remaining"
             ],

@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 
 from sqlmodel import Session, select
 
@@ -32,6 +32,7 @@ def budget_progress_summary(
     last_day: date,
     today: date,
     include_ignored: bool = False,
+    fixed_cost_accounted_transaction_ids: Optional[Set[str]] = None,
 ):
     resolver = CategoryResolver(session)
     # NOTE: now includes BANK outflows (PIX/débito) — previously only
@@ -43,23 +44,21 @@ def budget_progress_summary(
         end_date=last_day,
         include_ignored=include_ignored,
     )
-    active_fixed_cost_ids = set(
-        session.exec(
-            select(FixedCost.id).where(FixedCost.active.is_(True))
-        ).all()
-    )
-    fixed_cost_transaction_ids = set()
-    if active_fixed_cost_ids:
-        fixed_cost_transaction_ids = set(
-            session.exec(
-                select(FixedCostTransactionMatch.transaction_id).where(
-                    FixedCostTransactionMatch.year_month == year_month,
-                    FixedCostTransactionMatch.fixed_cost_id.in_(
-                        active_fixed_cost_ids
-                    ),
-                )
-            ).all()
+    # ``fixed_cost_accounted_transaction_ids`` is the SOURCE OF TRUTH for
+    # transactions that belong to a fixed cost (manual matches + auto-detected
+    # ones from monthly_breakdown). Without this set, an auto-matched bill
+    # (PIX da conta de água, etc.) would consume the variable budget AND the
+    # fixed-cost reservation — getting subtracted twice from the available.
+    # The caller (spending_capacity_summary) can pre-compute and pass it to
+    # avoid double work; if omitted we compute it here so the standalone
+    # /budgets/progress endpoint still excludes auto-matched transactions.
+    if fixed_cost_accounted_transaction_ids is None:
+        from app.services.fixed_costs import accounted_transaction_ids_for_month
+
+        fixed_cost_accounted_transaction_ids = accounted_transaction_ids_for_month(
+            session, year_month
         )
+    fixed_cost_transaction_ids = set(fixed_cost_accounted_transaction_ids)
     if fixed_cost_transaction_ids:
         transactions = [
             tx for tx in transactions if tx.id not in fixed_cost_transaction_ids
