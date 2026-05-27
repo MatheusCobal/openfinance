@@ -225,6 +225,147 @@ def credit_card_spend_transactions(
     return [tx for tx in transactions if classifier.is_card_purchase(tx)]
 
 
+def _investment_transactions(
+    session: Session,
+    start_date: date,
+    end_date: date,
+    direction: str,
+) -> list[Transaction]:
+    """Internal helper for investment_application_/investment_rescue_ pickers.
+
+    direction: 'out' (applications, amount < 0) or 'in' (rescues, amount > 0).
+    """
+    from app.services.classification import TransactionKind
+
+    classifier = TransactionClassifier.from_session(session)
+    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
+    if not bank_account_ids:
+        return []
+    amount_cond = Transaction.amount < 0 if direction == "out" else Transaction.amount > 0
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id.in_(bank_account_ids),
+            Transaction.date >= start_date,
+            Transaction.date <= end_date,
+            amount_cond,
+        )
+        .order_by(Transaction.date.asc())
+    ).all()
+    return [
+        tx for tx in rows
+        if classifier.classify(tx).kind == TransactionKind.INVESTMENT_NOISE
+    ]
+
+
+def investment_application_transactions(
+    session: Session,
+    start_date: date,
+    end_date: date,
+) -> list[Transaction]:
+    """Return CDB/investment APPLICATIONS (money going into investments).
+
+    Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
+    bank_outflow_transactions and tracked separately as "Reserva".
+    """
+    return _investment_transactions(session, start_date, end_date, "out")
+
+
+def investment_rescue_transactions(
+    session: Session,
+    start_date: date,
+    end_date: date,
+) -> list[Transaction]:
+    """Return CDB/investment RESCUES (money coming back from investments).
+
+    Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
+    bank_inflow_transactions and tracked separately as "Reserva".
+    """
+    return _investment_transactions(session, start_date, end_date, "in")
+
+
+def bank_inflow_transactions(
+    session: Session,
+    start_date: date,
+    end_date: date,
+) -> list[Transaction]:
+    """Return ALL bank inflow transactions that pass the cashflow filter.
+
+    Follows the same logic as the 'Entradas e Saídas' tab — includes CDB
+    rescues, same-person transfers, and everything else that enters the bank
+    account, excluding only BankCashflowExclusionRule-matched inflows and
+    hard-coded structural noise (investment_noise / internal_transfer).
+    Does NOT apply BankIncomeExclusionRule, so CDB rescues are included.
+    """
+    classifier = TransactionClassifier.from_session(session)
+    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
+    if not bank_account_ids:
+        return []
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id.in_(bank_account_ids),
+            Transaction.date >= start_date,
+            Transaction.date <= end_date,
+            Transaction.amount > 0,
+        )
+        .order_by(Transaction.date.asc())
+    ).all()
+    return [tx for tx in rows if classifier.is_bank_cashflow(tx)]
+
+
+def bank_outflow_transactions(
+    session: Session,
+    start_date: date,
+    end_date: date,
+) -> list[Transaction]:
+    """Return BANK outflow transactions (PIX, débito) that are not cashflow-excluded
+    and are not credit card invoice payments.
+
+    Invoice payments are excluded because they are already captured as
+    ``card_invoice_gross_total`` on the credit side — counting the bank
+    debit that funds the payment would subtract the invoice twice.
+    Pluggy assigns ``CREDIT_CARD_PAYMENT_CATEGORIES`` to the bank-side
+    payment transaction just as it does to the credit-side one.
+    """
+    from app.services.classification import (
+        CREDIT_CARD_PAYMENT_CATEGORIES,
+        CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS,
+        TransactionKind,
+    )
+    from app.categorization import normalize_description
+
+    classifier = TransactionClassifier.from_session(session)
+    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
+    if not bank_account_ids:
+        return []
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id.in_(bank_account_ids),
+            Transaction.date >= start_date,
+            Transaction.date <= end_date,
+        )
+        .order_by(Transaction.date.asc())
+    ).all()
+    out: list[Transaction] = []
+    for tx in rows:
+        classification = classifier.classify(tx)
+        if classification.kind != TransactionKind.BANK_OUTFLOW:
+            continue
+        if classification.cashflow_excluded:
+            continue
+        # Exclude bank-side credit card invoice payments to avoid
+        # double-counting (the card charges are already in card_invoice_gross_total).
+        if tx.category in CREDIT_CARD_PAYMENT_CATEGORIES:
+            continue
+        desc = normalize_description(tx.description)
+        if any(p and p in desc for p in CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS):
+            continue
+        out.append(tx)
+    return out
+
+
 def discretionary_spend_transactions(
     session: Session,
     start_date: date,

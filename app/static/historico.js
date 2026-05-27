@@ -41,6 +41,8 @@ const HISTORY_TABS = [
   { key: 'invoices', label: 'Faturas cartão' },
   { key: 'income', label: 'Receitas' },
   { key: 'cashflow', label: 'Entradas e saídas' },
+  { key: 'reserve', label: 'Reserva' },
+  { key: 'planning', label: 'Planejado' },
 ];
 
 let activeTab = 'categories';
@@ -48,6 +50,8 @@ let categoryHistory = null;
 let invoiceHistory = null;
 let incomeHistory = null;
 let cashflowData = null;
+let planningHistory = null;
+let reserveData = null;
 let exclusionRules = null;
 let cashflowRules = null;
 
@@ -104,6 +108,22 @@ function cashflowDirectionLabel(direction) {
   return 'Entradas e saídas';
 }
 
+function planStatusLabel(status) {
+  const labels = {
+    healthy: 'Saudável',
+    tight: 'Apertado',
+    over: 'Estourado',
+    unknown: 'Sem receita',
+  };
+  return labels[status] || 'Sem status';
+}
+
+function planStatusClasses(status) {
+  if (status === 'healthy') return 'bg-emerald-50 text-emerald-700';
+  if (status === 'tight') return 'bg-amber-50 text-amber-700';
+  if (status === 'over') return 'bg-red-50 text-red-700';
+  return 'bg-slate-100 text-slate-600';
+}
 function destroyCharts() {
   charts.forEach((chart) => chart.destroy());
   charts.clear();
@@ -1272,8 +1292,235 @@ function renderCashflow() {
   bindCashflowRulesEvents(section);
 }
 
+function renderPlanningHistory() {
+  const data = planningHistory;
+  const section = document.getElementById('planning-tab');
+  const subtitle = document.getElementById('subtitle');
+
+  destroyCharts();
+  hideAllTabSections();
+  section.classList.remove('hidden');
+
+  const months = data?.months || [];
+  if (months.length === 0) {
+    section.innerHTML = '';
+    renderEmpty(
+      'Nenhum planejamento mensal encontrado.',
+      'Configure receitas, custos fixos e metas para acompanhar a evolução.',
+    );
+    subtitle.textContent = 'Sem planejamento';
+    return;
+  }
+  hideEmpty();
+
+  const latest = months[months.length - 1];
+  const computeLivre = (month) =>
+    (month.bank_inflows_total || 0) -
+    (month.card_invoice_gross_total || 0) -
+    (month.bank_outflows_total || 0);
+  const averageDiscretionary =
+    months.reduce((sum, month) => sum + computeLivre(month), 0) /
+    months.length;
+  const summary = data.summary || {};
+
+  const rows = [...months].reverse().map((month) => {
+    const available = computeLivre(month);
+    const availableColor = available >= 0 ? 'text-emerald-700' : 'text-red-700';
+    const availableSign = available >= 0 ? '+' : '−';
+    return `
+      <tr class="border-t border-slate-100 hover:bg-slate-50">
+        <td class="px-5 py-3 text-sm font-medium text-slate-900 whitespace-nowrap">
+          ${escapeHtml(formatMonthLong(month.month))}
+          <span class="mt-1 inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${planStatusClasses(month.plan_status)}">
+            ${escapeHtml(planStatusLabel(month.plan_status))}
+          </span>
+        </td>
+        <td class="px-5 py-3 text-right text-sm tabular text-emerald-700">${currency.format(month.bank_inflows_total || 0)}</td>
+        <td class="px-5 py-3 text-right text-sm tabular text-slate-700">${currency.format(month.card_invoice_gross_total || 0)}</td>
+        <td class="px-5 py-3 text-right text-sm tabular text-slate-700">${currency.format(month.bank_outflows_total || 0)}</td>
+        <td class="px-5 py-3 text-right text-sm tabular text-indigo-700">${currency.format(month.reserva_application_total || 0)}</td>
+        <td class="px-5 py-3 text-right text-sm tabular font-semibold ${availableColor}">
+          ${availableSign}${currency.format(Math.abs(available))}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  subtitle.textContent = `Planejado · ${pluralMeses(months.length)}`;
+
+  section.innerHTML = `
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Entradas</p>
+        <p class="mt-2 text-2xl font-bold tabular text-emerald-700">${currency.format(summary.bank_inflows_total || 0)}</p>
+        <p class="text-xs text-slate-500 mt-2">Inclui resgates de CDB · ${pluralMeses(months.length)}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Fatura cartão</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(summary.card_invoice_gross_total || 0)}</p>
+        <p class="text-xs text-slate-500 mt-2">Total cobrado no cartão</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Saídas PIX/débito</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(summary.bank_outflows_total || 0)}</p>
+        <p class="text-xs text-slate-500 mt-2">Saídas bancárias diretas</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Disponível médio</p>
+        <p class="mt-2 text-2xl font-bold tabular ${averageDiscretionary >= 0 ? 'text-emerald-700' : 'text-red-700'}">${averageDiscretionary >= 0 ? '+' : '−'}${currency.format(Math.abs(averageDiscretionary))}</p>
+        <p class="text-xs text-slate-500 mt-2">Último mês: ${escapeHtml(planStatusLabel(latest.plan_status).toLowerCase())}</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold text-slate-900">Histórico mensal de planejamento</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead>
+            <tr class="text-xs uppercase tracking-wider text-slate-500 bg-slate-50">
+              <th class="px-5 py-2 text-left font-medium">Mês</th>
+              <th class="px-5 py-2 text-right font-medium">Entradas</th>
+              <th class="px-5 py-2 text-right font-medium">Fatura real</th>
+              <th class="px-5 py-2 text-right font-medium">Saídas PIX</th>
+              <th class="px-5 py-2 text-right font-medium">Reserva</th>
+              <th class="px-5 py-2 text-right font-medium">Livre</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+
+function renderReserve() {
+  const data = reserveData;
+  const section = document.getElementById('reserve-tab');
+  const subtitle = document.getElementById('subtitle');
+
+  destroyCharts();
+  hideAllTabSections();
+  section.classList.remove('hidden');
+
+  const months = data?.months || [];
+  if (months.length === 0) {
+    section.innerHTML = '';
+    renderEmpty(
+      'Nenhuma movimentação de reserva encontrada.',
+      'Aplicações e resgates em CDB (categoria Fixed income) vão aparecer aqui.',
+    );
+    subtitle.textContent = 'Sem reserva';
+    return;
+  }
+  hideEmpty();
+
+  const summary = data.summary || {};
+  const netColor = summary.net_total >= 0 ? 'text-indigo-700' : 'text-amber-700';
+  const netSign = summary.net_total >= 0 ? '+' : '−';
+
+  const monthsAsc = [...months];
+  const rows = [...months].reverse().map((m) => {
+    const net = Number(m.net_total || 0);
+    const netRowColor = net >= 0 ? 'text-indigo-700' : 'text-amber-700';
+    const netRowSign = net >= 0 ? '+' : '−';
+    const txRows = (m.transactions || []).map((tx) => {
+      const isApp = tx.direction === 'application';
+      const sign = isApp ? '−' : '+';
+      const color = isApp ? 'text-amber-700' : 'text-indigo-700';
+      const label = isApp ? 'Aplicação' : 'Resgate';
+      return `
+        <tr class="border-t border-slate-100">
+          <td class="px-4 py-2 text-sm text-slate-700 whitespace-nowrap">${escapeHtml(tx.date)}</td>
+          <td class="px-4 py-2 text-xs text-slate-500">${escapeHtml(label)}</td>
+          <td class="px-4 py-2 text-sm text-slate-700">${escapeHtml(tx.description)}</td>
+          <td class="px-4 py-2 text-right text-sm tabular font-medium ${color}">${sign}${currency.format(Math.abs(tx.amount))}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <details class="border-t border-slate-100 group" ${m.month === monthsAsc[monthsAsc.length-1].month ? 'open' : ''}>
+        <summary class="flex items-center justify-between px-5 py-3.5 cursor-pointer hover:bg-slate-50 select-none">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="text-sm font-semibold text-slate-900">${escapeHtml(formatMonthLong(m.month))}</span>
+            <span class="text-xs text-slate-400">${m.application_count} aplic · ${m.rescue_count} resg</span>
+          </div>
+          <div class="flex items-center gap-6 shrink-0 text-sm tabular">
+            <span class="text-slate-500">Aplicado <span class="font-medium text-amber-700">${currency.format(m.applications_total)}</span></span>
+            <span class="text-slate-500">Resgatado <span class="font-medium text-indigo-700">${currency.format(m.rescues_total)}</span></span>
+            <span class="font-semibold ${netRowColor}">${netRowSign}${currency.format(Math.abs(net))}</span>
+            <span class="text-slate-500">Acumulado <span class="font-medium text-slate-700">${currency.format(m.cumulative_net_total)}</span></span>
+          </div>
+        </summary>
+        ${txRows ? `
+          <div class="px-5 pb-5 bg-slate-50/50">
+            <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table class="w-full">
+                <thead>
+                  <tr class="text-xs uppercase tracking-wider text-slate-400 bg-slate-50">
+                    <th class="px-4 py-2 text-left font-medium">Data</th>
+                    <th class="px-4 py-2 text-left font-medium">Tipo</th>
+                    <th class="px-4 py-2 text-left font-medium">Descrição</th>
+                    <th class="px-4 py-2 text-right font-medium">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>${txRows}</tbody>
+              </table>
+            </div>
+          </div>
+        ` : `
+          <div class="px-5 pb-4 text-xs text-slate-400">Sem movimentações no mês.</div>
+        `}
+      </details>
+    `;
+  }).join('');
+
+  subtitle.textContent = `Reserva de emergência · ${pluralMeses(months.length)}`;
+
+  section.innerHTML = `
+    <div class="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-3 text-sm text-indigo-800 mb-2">
+      Movimentações detectadas como CDB (Pluggy <code>Fixed income</code>).
+      Aplicações somam à reserva, resgates devolvem ao saldo da conta.
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Aplicado</p>
+        <p class="mt-2 text-2xl font-bold tabular text-amber-700">${currency.format(summary.applications_total || 0)}</p>
+        <p class="text-xs text-slate-500 mt-2">${pluralMeses(months.length)}</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Resgatado</p>
+        <p class="mt-2 text-2xl font-bold tabular text-indigo-700">${currency.format(summary.rescues_total || 0)}</p>
+        <p class="text-xs text-slate-500 mt-2">Saiu do CDB</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Líquido</p>
+        <p class="mt-2 text-2xl font-bold tabular ${netColor}">${netSign}${currency.format(Math.abs(summary.net_total || 0))}</p>
+        <p class="text-xs text-slate-500 mt-2">Aplicado − Resgatado</p>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Acumulado</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(summary.cumulative_net_total || 0)}</p>
+        <p class="text-xs text-slate-500 mt-2">Reserva construída no período</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold text-slate-900">Movimentações por mês</h2>
+      </div>
+      ${rows}
+    </div>
+  `;
+}
+
+
 function hideAllTabSections() {
-  ['cards', 'invoices', 'income-tab', 'cashflow-tab'].forEach((id) => {
+  ['cards', 'invoices', 'income-tab', 'cashflow-tab', 'planning-tab', 'reserve-tab'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
       el.classList.add('hidden');
@@ -1317,6 +1564,24 @@ function renderActiveTab() {
       return;
     }
     renderCashflow();
+  } else if (activeTab === 'reserve') {
+    if (!reserveData) {
+      renderUnavailable(
+        'Não foi possível carregar a reserva.',
+        'Tente atualizar novamente em alguns segundos.',
+      );
+      return;
+    }
+    renderReserve();
+  } else if (activeTab === 'planning') {
+    if (!planningHistory) {
+      renderUnavailable(
+        'Não foi possível carregar o planejamento.',
+        'Tente atualizar novamente em alguns segundos.',
+      );
+      return;
+    }
+    renderPlanningHistory();
   } else {
     if (!categoryHistory) {
       renderUnavailable(
@@ -1343,6 +1608,8 @@ async function loadData() {
     ['rules', fetchJson('/bank-income/exclusion-rules')],
     ['cashflow', fetchJson('/bank-cashflow/monthly?months=12')],
     ['cashflowRules', fetchJson('/bank-cashflow/exclusion-rules')],
+    ['planning', fetchJson('/spending-capacity/monthly?months=12')],
+    ['reserve', fetchJson('/emergency-reserve/monthly?months=6')],
   ];
   const results = await Promise.allSettled(requests.map(([, request]) => request));
   const failures = [];
@@ -1360,13 +1627,15 @@ async function loadData() {
     if (key === 'rules') exclusionRules = result.value;
     if (key === 'cashflow') cashflowData = result.value;
     if (key === 'cashflowRules') cashflowRules = result.value;
+    if (key === 'planning') planningHistory = result.value;
+    if (key === 'reserve') reserveData = result.value;
   });
 
   if (!exclusionRules) exclusionRules = [];
   if (!cashflowRules) cashflowRules = [];
   if (
     !categoryHistory && !invoiceHistory && !incomeHistory &&
-    !cashflowData
+    !cashflowData && !planningHistory && !reserveData
   ) {
     throw new Error('Falha ao carregar histórico');
   }

@@ -11,6 +11,7 @@ from app.routes import (
     fixed_costs,
     history,
     pages,
+    reserve,
     rules,
     savings,
     sync,
@@ -38,3 +39,4 @@ app.include_router(history.router)
 app.include_router(expected_income.router)
 app.include_router(fixed_costs.router)
 app.include_router(savings.router)
+app.include_router(reserve.router)

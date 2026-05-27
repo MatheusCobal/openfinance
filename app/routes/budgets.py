@@ -124,3 +124,5 @@ def budgets_progress(
         today=today,
         include_ignored=include_ignored,
     )
+
+

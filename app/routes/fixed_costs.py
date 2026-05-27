@@ -22,6 +22,7 @@ from app.services.fixed_costs import (
     list_fixed_cost_templates,
     monthly_breakdown,
     set_override,
+    spending_capacity_monthly_summary,
     spending_capacity_summary,
     upcoming_months,
     update_fixed_cost,
@@ -320,5 +321,16 @@ def spending_capacity_route(
 ):
     try:
         return spending_capacity_summary(session, year_month)
+    except FixedCostValidationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/spending-capacity/monthly")
+def spending_capacity_monthly_route(
+    months: int = 12,
+    session: Session = Depends(get_session),
+):
+    try:
+        return spending_capacity_monthly_summary(session, months)
     except FixedCostValidationError as exc:
         raise HTTPException(400, str(exc))

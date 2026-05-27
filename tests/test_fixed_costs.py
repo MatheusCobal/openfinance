@@ -238,6 +238,9 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(capacity["unbudgeted_variable_spent"], 0.0)
         self.assertEqual(capacity["planned_expense_total"], 4000.0)
         self.assertEqual(capacity["card_invoice_total"], 1900.0)
+        self.assertEqual(capacity["card_invoice_gross_total"], 1900.0)
+        self.assertEqual(capacity["card_invoice_discretionary_total"], 1900.0)
+        self.assertEqual(capacity["card_invoice_fixed_cost_total"], 0.0)
         self.assertEqual(capacity["planned_after_fixed_costs"], 8000.0)
         self.assertEqual(capacity["remaining_after_plan"], 6000.0)
         self.assertEqual(capacity["available_to_spend"], 6100.0)
@@ -250,6 +253,10 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(
             capacity["invoice_paid_total"] + capacity["invoice_open_total"],
             capacity["card_invoice_total"],
+        )
+        self.assertEqual(
+            capacity["invoice_paid_gross_total"] + capacity["invoice_open_gross_total"],
+            capacity["card_invoice_gross_total"],
         )
 
         variable_items = {
@@ -392,15 +399,76 @@ class FixedCostsTest(unittest.TestCase):
             "/spending-capacity", params={"year_month": "2026-05"}
         ).json()
         # The R$ 740 pharmacy purchase is already counted as a fixed cost
-        # (fixed_cost_total) — it MUST NOT also show up in the card invoice,
-        # otherwise "remaining after invoice" double-subtracts it. The R$ 260
-        # unrelated restaurant transaction must remain in the invoice.
+        # (fixed_cost_total). It still belongs to the real card invoice
+        # (gross), but must leave the planning invoice (discretionary) so
+        # "remaining after invoice" does not double-subtract it.
         self.assertEqual(capacity["card_invoice_total"], 260.0)
+        self.assertEqual(capacity["card_invoice_gross_total"], 1000.0)
+        self.assertEqual(capacity["card_invoice_discretionary_total"], 260.0)
+        self.assertEqual(capacity["card_invoice_fixed_cost_total"], 740.0)
         self.assertEqual(capacity["invoice_open_total"], 260.0)
+        self.assertEqual(capacity["invoice_open_gross_total"], 1000.0)
+        self.assertEqual(capacity["invoice_open_discretionary_total"], 260.0)
         self.assertEqual(capacity["invoice_paid_total"], 0.0)
         self.assertEqual(capacity["fixed_cost_total"], 740.0)
         self.assertEqual(capacity["variable_budget_spent"], 0.0)
         self.assertEqual(capacity["variable_budget_remaining"], 1000.0)
+
+    def test_manual_fixed_cost_match_reduces_discretionary_invoice_in_paid_mode(self):
+        with Session(self.engine) as session:
+            session.add(Category(id=11, name="Saúde", color="#38bdf8", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Pharmacy", category_id=11))
+            session.add(Budget(category_id=11, monthly_target=Decimal("1000")))
+            session.add_all(
+                [
+                    Transaction(
+                        id="tx-paid-venvanse",
+                        account_id="credit-1",
+                        date=date(2026, 5, 12),
+                        amount=Decimal("740.00"),
+                        description="Farmacia Venvanse",
+                        category="Pharmacy",
+                    ),
+                    Transaction(
+                        id="tx-paid-invoice",
+                        account_id="credit-1",
+                        date=date(2026, 5, 20),
+                        amount=Decimal("-1200.00"),
+                        description="Pagamento recebido",
+                        category="Credit card payment",
+                    ),
+                ]
+            )
+            session.commit()
+
+        fixed_category = self.client.post(
+            "/fixed-cost-categories",
+            json={"name": "Medicamento", "color": "#38bdf8"},
+        ).json()
+        fixed_cost = self.client.post(
+            "/fixed-costs",
+            json={
+                "category_id": fixed_category["id"],
+                "description": "Venvanse",
+                "amount": 740,
+                "due_day": 12,
+            },
+        ).json()
+        self.client.post(
+            f"/fixed-costs/{fixed_cost['id']}/matches",
+            json={"transaction_id": "tx-paid-venvanse", "year_month": "2026-05"},
+        )
+
+        capacity = self.client.get(
+            "/spending-capacity", params={"year_month": "2026-05"}
+        ).json()
+
+        self.assertEqual(capacity["invoice_mode"], "paid")
+        self.assertEqual(capacity["card_invoice_gross_total"], 1200.0)
+        self.assertEqual(capacity["card_invoice_discretionary_total"], 460.0)
+        self.assertEqual(capacity["card_invoice_fixed_cost_total"], 740.0)
+        self.assertEqual(capacity["invoice_paid_gross_total"], 1200.0)
+        self.assertEqual(capacity["invoice_paid_discretionary_total"], 460.0)
 
     def test_create_fixed_cost_from_transaction_uses_resolved_category(self):
         with Session(self.engine) as session:
@@ -662,6 +730,29 @@ class SavingsTargetTest(unittest.TestCase):
         ).json()
         self.assertEqual(june["savings_target_total"], 2000.0)
 
+    def test_spending_capacity_monthly_history_shape(self):
+        response = self.client.get(
+            "/spending-capacity/monthly",
+            params={"months": 1},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["month_count"], 1)
+        row = payload["months"][0]
+        self.assertIn("card_invoice_gross_total", row)
+        self.assertIn("card_invoice_discretionary_total", row)
+        self.assertIn("discretionary_available", row)
+        self.assertIn("plan_status", row)
+        self.assertIn("card_invoice_gross_total", payload["summary"])
+        self.assertEqual(
+            self.client.get(
+                "/spending-capacity/monthly",
+                params={"months": 25},
+            ).status_code,
+            400,
+        )
+
 
 class SpendingCapacityDiagnosticsTest(unittest.TestCase):
     """Covers #5 daily verba, #6 plan_status, #7 today injection, #8 installments."""
@@ -892,6 +983,80 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
                 session, "2026-05", today=date(2026, 5, 5)
             )
             self.assertEqual(summary["total"], 400.0)
+
+
+class BankOutflowExcludesInvoicePaymentTest(unittest.TestCase):
+    """bank_outflow_transactions must exclude credit-card invoice payments.
+
+    When the user pays the invoice from the bank account, Pluggy records a
+    BANK outflow with category "Credit card payment". That outflow must NOT
+    appear in bank_outflows_total — the card charges are already captured
+    in card_invoice_gross_total, so counting the bank payment would double-
+    subtract the invoice amount.
+    """
+
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
+            session.add(Account(id="bank-1", item_id="item-1", name="Bank", type="BANK"))
+            session.add_all([
+                # Regular PIX to a merchant — should be included
+                Transaction(
+                    id="tx-pix-mercado",
+                    account_id="bank-1",
+                    date=date(2026, 5, 10),
+                    amount=Decimal("-350.00"),
+                    description="PIX Mercado",
+                    category="Supermarket",
+                ),
+                # Bank-side credit card invoice payment — must be EXCLUDED
+                Transaction(
+                    id="tx-fatura-bank",
+                    account_id="bank-1",
+                    date=date(2026, 5, 15),
+                    amount=Decimal("-2500.00"),
+                    description="Pagamento fatura cartao",
+                    category="Credit card payment",
+                ),
+            ])
+            session.commit()
+
+    def test_invoice_payment_excluded_from_bank_outflows(self):
+        from app.services.transactions import bank_outflow_transactions
+
+        with Session(self.engine) as session:
+            txs = bank_outflow_transactions(
+                session,
+                start_date=date(2026, 5, 1),
+                end_date=date(2026, 5, 31),
+            )
+        ids = [tx.id for tx in txs]
+        self.assertIn("tx-pix-mercado", ids)
+        self.assertNotIn("tx-fatura-bank", ids)
+
+    def test_bank_outflows_total_excludes_invoice_payment(self):
+        from app.services.fixed_costs import spending_capacity_summary
+
+        def override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+        try:
+            with Session(self.engine) as session:
+                capacity = spending_capacity_summary(
+                    session, "2026-05", today=date(2026, 5, 31)
+                )
+            # Only the PIX (350) should appear — not the invoice payment (2500)
+            self.assertAlmostEqual(capacity["bank_outflows_total"], 350.0, places=2)
+        finally:
+            app.dependency_overrides.clear()
 
 
 if __name__ == "__main__":

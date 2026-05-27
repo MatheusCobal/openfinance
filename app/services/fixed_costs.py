@@ -23,7 +23,13 @@ from app.services.fixed_cost_defaults import (
     FIXED_COST_TEMPLATES,
 )
 from app.services.transaction_reports import invoice_summary
-from app.services.transactions import bank_income_transactions
+from app.services.transactions import (
+    bank_income_transactions,
+    bank_inflow_transactions,
+    bank_outflow_transactions,
+    investment_application_transactions,
+    investment_rescue_transactions,
+)
 
 
 class FixedCostValidationError(ValueError):
@@ -913,9 +919,25 @@ def spending_capacity_summary(
 
     expected_income_total = Decimal(str(income["total"]))
     fixed_cost_total = Decimal(str(fixed["total"]))
-    card_invoice_total = Decimal(str(invoice["invoice_total"]))
-    invoice_paid_total = Decimal(str(invoice["invoice_paid_total"]))
-    invoice_open_total = Decimal(str(invoice["invoice_open_total"]))
+    card_invoice_gross_total = Decimal(str(invoice["invoice_gross_total"]))
+    card_invoice_discretionary_total = Decimal(
+        str(invoice["invoice_discretionary_total"])
+    )
+    card_invoice_total = card_invoice_discretionary_total
+    invoice_paid_gross_total = Decimal(str(invoice["invoice_paid_gross_total"]))
+    invoice_paid_discretionary_total = Decimal(
+        str(invoice["invoice_paid_discretionary_total"])
+    )
+    invoice_open_gross_total = Decimal(str(invoice["invoice_open_gross_total"]))
+    invoice_open_discretionary_total = Decimal(
+        str(invoice["invoice_open_discretionary_total"])
+    )
+    invoice_paid_total = invoice_paid_discretionary_total
+    invoice_open_total = invoice_open_discretionary_total
+    card_invoice_fixed_cost_total = max(
+        card_invoice_gross_total - card_invoice_discretionary_total,
+        Decimal("0"),
+    )
     variable_budget_total = Decimal(str(variable_budgets["summary"]["target"]))
     variable_budget_spent = Decimal(
         str(variable_budgets["summary"]["projected_spent"])
@@ -952,6 +974,32 @@ def spending_capacity_summary(
         (tx.amount for tx in received_income_transactions),
         Decimal("0"),
     )
+    bank_inflow_txs = bank_inflow_transactions(session, first_day, min(last_day, today))
+    bank_inflows_total = sum(
+        (tx.amount for tx in bank_inflow_txs),
+        Decimal("0"),
+    )
+    bank_outflow_txs = bank_outflow_transactions(session, first_day, min(last_day, today))
+    bank_outflows_total = sum(
+        (abs(tx.amount) for tx in bank_outflow_txs),
+        Decimal("0"),
+    )
+    reserva_application_txs = investment_application_transactions(
+        session, first_day, min(last_day, today)
+    )
+    reserva_application_total = sum(
+        (abs(tx.amount) for tx in reserva_application_txs),
+        Decimal("0"),
+    )
+    reserva_rescue_txs = investment_rescue_transactions(
+        session, first_day, min(last_day, today)
+    )
+    reserva_rescue_total = sum(
+        (tx.amount for tx in reserva_rescue_txs),
+        Decimal("0"),
+    )
+    reserva_net_total = reserva_application_total - reserva_rescue_total
+
     income_to_receive = max(
         expected_income_total - received_income_total,
         Decimal("0"),
@@ -994,8 +1042,12 @@ def spending_capacity_summary(
         - income_to_receive
         + income_over_expected
     )
-    remaining_after_invoice = planned_after_fixed_costs - card_invoice_total
-    remaining_after_plan_and_invoice = remaining_after_plan - card_invoice_total
+    remaining_after_invoice = (
+        planned_after_fixed_costs - card_invoice_discretionary_total
+    )
+    remaining_after_plan_and_invoice = (
+        remaining_after_plan - card_invoice_discretionary_total
+    )
 
     # ---- Daily discretionary verba ----
     # How much can I spend per day for the rest of the month?
@@ -1038,6 +1090,13 @@ def spending_capacity_summary(
         "received_income_total": float(received_income_total),
         "valor_recebido": float(received_income_total),
         "received_income_count": len(received_income_transactions),
+        "bank_inflows_total": float(bank_inflows_total),
+        "bank_outflows_total": float(bank_outflows_total),
+        "reserva_application_total": float(reserva_application_total),
+        "reserva_rescue_total": float(reserva_rescue_total),
+        "reserva_net_total": float(reserva_net_total),
+        "reserva_application_count": len(reserva_application_txs),
+        "reserva_rescue_count": len(reserva_rescue_txs),
         "income_to_receive": float(income_to_receive),
         "receita_a_receber": float(income_to_receive),
         "income_over_expected": float(income_over_expected),
@@ -1061,11 +1120,26 @@ def spending_capacity_summary(
         "plan_status": plan_status,
         "planned_expense_total": float(planned_expense_total),
         "card_invoice_total": float(card_invoice_total),
+        "card_invoice_gross_total": float(card_invoice_gross_total),
+        "card_invoice_discretionary_total": float(
+            card_invoice_discretionary_total
+        ),
+        "card_invoice_fixed_cost_total": float(card_invoice_fixed_cost_total),
         "invoice_paid_total": float(invoice_paid_total),
         "invoice_open_total": float(invoice_open_total),
+        "invoice_paid_gross_total": float(invoice_paid_gross_total),
+        "invoice_paid_discretionary_total": float(
+            invoice_paid_discretionary_total
+        ),
+        "invoice_open_gross_total": float(invoice_open_gross_total),
+        "invoice_open_discretionary_total": float(
+            invoice_open_discretionary_total
+        ),
         "invoice_mode": invoice["invoice_mode"],
         "invoice_paid_count": invoice["invoice_paid_count"],
         "invoice_open_count": invoice["invoice_open_count"],
+        "invoice_gross_count": invoice["invoice_gross_count"],
+        "invoice_discretionary_count": invoice["invoice_discretionary_count"],
         "invoice_open_since": invoice["invoice_open_since"],
         "planned_after_fixed_costs": float(planned_after_fixed_costs),
         "remaining_after_plan": float(remaining_after_plan),
@@ -1078,4 +1152,73 @@ def spending_capacity_summary(
         "fixed_costs": fixed,
         "expected_income": income,
         "variable_budgets": variable_budgets,
+    }
+
+
+def spending_capacity_monthly_summary(
+    session: Session,
+    months: int = 12,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    if not (1 <= months <= 24):
+        raise FixedCostValidationError("months must be between 1 and 24")
+    today = today if today is not None else date.today()
+    current_month = today.strftime("%Y-%m")
+    start_month = _shift_year_month(current_month, -(months - 1))
+
+    rows: list[Dict[str, Any]] = []
+    totals = {
+        "expected_income_total": Decimal("0"),
+        "received_income_total": Decimal("0"),
+        "bank_inflows_total": Decimal("0"),
+        "bank_outflows_total": Decimal("0"),
+        "reserva_application_total": Decimal("0"),
+        "reserva_rescue_total": Decimal("0"),
+        "reserva_net_total": Decimal("0"),
+        "fixed_cost_total": Decimal("0"),
+        "variable_budget_spent": Decimal("0"),
+        "savings_target_total": Decimal("0"),
+        "card_invoice_gross_total": Decimal("0"),
+        "card_invoice_discretionary_total": Decimal("0"),
+        "discretionary_available": Decimal("0"),
+    }
+    for offset in range(months):
+        year_month = _shift_year_month(start_month, offset)
+        capacity = spending_capacity_summary(session, year_month, today=today)
+        row = {
+            "year_month": year_month,
+            "month": year_month,
+            "expected_income_total": capacity["expected_income_total"],
+            "received_income_total": capacity["received_income_total"],
+            "bank_inflows_total": capacity["bank_inflows_total"],
+            "bank_outflows_total": capacity["bank_outflows_total"],
+            "reserva_application_total": capacity["reserva_application_total"],
+            "reserva_rescue_total": capacity["reserva_rescue_total"],
+            "reserva_net_total": capacity["reserva_net_total"],
+            "fixed_cost_total": capacity["fixed_cost_total"],
+            "variable_budget_total": capacity["variable_budget_total"],
+            "variable_budget_spent": capacity["variable_budget_spent"],
+            "savings_target_total": capacity["savings_target_total"],
+            "card_invoice_gross_total": capacity["card_invoice_gross_total"],
+            "card_invoice_discretionary_total": capacity[
+                "card_invoice_discretionary_total"
+            ],
+            "card_invoice_fixed_cost_total": capacity[
+                "card_invoice_fixed_cost_total"
+            ],
+            "discretionary_available": capacity["discretionary_available"],
+            "daily_discretionary_remaining": capacity[
+                "daily_discretionary_remaining"
+            ],
+            "days_remaining_in_month": capacity["days_remaining_in_month"],
+            "plan_status": capacity["plan_status"],
+        }
+        rows.append(row)
+        for key in totals:
+            totals[key] += Decimal(str(row[key]))
+
+    return {
+        "months": rows,
+        "month_count": len(rows),
+        "summary": {key: float(value) for key, value in totals.items()},
     }

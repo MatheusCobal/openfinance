@@ -525,6 +525,50 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(payload["pattern_normalized"], "pix qr code")
         self.assertEqual(payload["affected_count"], 1)
 
+    def test_description_rule_suggestions_group_repeated_unruled_descriptions(self):
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    Transaction(
+                        id="tx-padaria-1",
+                        account_id="credit-1",
+                        date=self.current_month_day,
+                        amount=Decimal("-10.00"),
+                        description="Padaria Centro",
+                        category="Food",
+                    ),
+                    Transaction(
+                        id="tx-padaria-2",
+                        account_id="credit-1",
+                        date=self.current_month_day,
+                        amount=Decimal("-15.00"),
+                        description="Padaria Centro",
+                        category="Food",
+                    ),
+                ]
+            )
+            session.commit()
+
+        response = self.client.get(
+            "/category-rules/description/suggestions",
+            params={"months": 1, "min_count": 2, "limit": 5},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        suggestions = response.json()["suggestions"]
+        padaria = next(
+            item
+            for item in suggestions
+            if item["pattern_normalized"] == normalize_description("Padaria Centro")
+        )
+        self.assertEqual(padaria["transaction_count"], 2)
+        self.assertEqual(padaria["total"], 25.0)
+        self.assertEqual(padaria["current_category_name"], "Outros")
+        self.assertNotIn(
+            normalize_description("Cobasi Canoas"),
+            {item["pattern_normalized"] for item in suggestions},
+        )
+
     def test_rule_upserts_are_idempotent(self):
         first_response = self.client.post(
             "/category-rules/description",

@@ -27,24 +27,15 @@ CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS = tuple(
     )
 )
 
-# Intentionally empty by default. These two constants used to ship with
-# hard-coded patterns ("Resgate", "Rendimentos", "Aplicação", "Proceeds
-# interests and dividends", etc.), but they conflated two different concepts:
-#
-# - "Real income" (the Receitas tab) is what the user EARNS — salary,
-#   freelancing, etc. — and excluding interest/CDB rescues from there is
-#   legitimate. That's handled via BankIncomeExclusionRule, which the user
-#   manages from the UI.
-# - "Cash flow" (the Entradas e Saídas tab) is what MOVES through the bank
-#   account. A CDB rescue of R$10k IS R$10k entering the bank, regardless of
-#   where it came from. Hiding it makes the cash-flow view lie.
-#
-# Keeping the lists empty by default means investments are classified as
-# BANK_INCOME / BANK_OUTFLOW like any other movement. Users who want to
-# fine-tune their cash-flow view can add BankCashflowExclusionRule entries
-# (per-direction) via the existing CRUD endpoints, and BankIncomeExclusionRule
-# entries to refine the "real income" view.
-INVESTMENT_NOISE_CATEGORIES: set[str] = set()
+# Investment movements (CDB applications + rescues) are tagged as
+# INVESTMENT_NOISE so they:
+#   - Don't show as outflows/inflows in the Entradas e Saídas tab
+#   - Are excluded from bank_inflows_total / bank_outflows_total in Planejado
+#   - Are tracked separately as "Reserva" via investment_application_transactions
+#     and investment_rescue_transactions (see app/services/transactions.py)
+# Pluggy uses "Fixed income" for CDB applications/rescues — the main use
+# case here. Extend this set if other investment categories appear.
+INVESTMENT_NOISE_CATEGORIES: set[str] = {"Fixed income"}
 INVESTMENT_NOISE_DESCRIPTION_PATTERNS: tuple[str, ...] = ()
 
 # Same rationale as INVESTMENT_NOISE: hardcoding categories here removes user
