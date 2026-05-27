@@ -6,12 +6,13 @@ from typing import Dict, Optional
 from sqlmodel import Session, select
 
 from app.categorization import CategoryResolver
-from app.models import Budget, BudgetOverride, Transaction
-from app.services.transactions import (
-    SPENDING_ACCOUNT_TYPES,
-    filter_ignored_transactions,
-    filter_transactions_by_account_type,
+from app.models import (
+    Budget,
+    BudgetOverride,
+    FixedCost,
+    FixedCostTransactionMatch,
 )
+from app.services.transactions import discretionary_spend_transactions
 
 
 def budget_status(progress_pct: Optional[float]) -> Optional[str]:
@@ -33,22 +34,36 @@ def budget_progress_summary(
     include_ignored: bool = False,
 ):
     resolver = CategoryResolver(session)
-    transactions = session.exec(
-        select(Transaction).where(
-            Transaction.date >= first_day,
-            Transaction.date <= last_day,
+    # NOTE: now includes BANK outflows (PIX/débito) — previously only
+    # CREDIT purchases were tracked, which made debit/PIX spending
+    # invisible to the budget cards.
+    transactions = discretionary_spend_transactions(
+        session,
+        start_date=first_day,
+        end_date=last_day,
+        include_ignored=include_ignored,
+    )
+    active_fixed_cost_ids = set(
+        session.exec(
+            select(FixedCost.id).where(FixedCost.active.is_(True))
+        ).all()
+    )
+    fixed_cost_transaction_ids = set()
+    if active_fixed_cost_ids:
+        fixed_cost_transaction_ids = set(
+            session.exec(
+                select(FixedCostTransactionMatch.transaction_id).where(
+                    FixedCostTransactionMatch.year_month == year_month,
+                    FixedCostTransactionMatch.fixed_cost_id.in_(
+                        active_fixed_cost_ids
+                    ),
+                )
+            ).all()
         )
-    ).all()
-    transactions = filter_transactions_by_account_type(
-        transactions,
-        session,
-        SPENDING_ACCOUNT_TYPES,
-    )
-    transactions = filter_ignored_transactions(
-        transactions,
-        session,
-        include_ignored,
-    )
+    if fixed_cost_transaction_ids:
+        transactions = [
+            tx for tx in transactions if tx.id not in fixed_cost_transaction_ids
+        ]
 
     actual_spent_by_category: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     future_spent_by_category: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
@@ -76,6 +91,10 @@ def budget_progress_summary(
     total_target = Decimal("0")
     total_actual_spent = Decimal("0")
     total_future_spent = Decimal("0")
+    total_target_consumed = Decimal("0")
+    total_target_remaining = Decimal("0")
+    total_target_overage = Decimal("0")
+    total_free_impact = Decimal("0")
     unbudgeted_actual_spent = Decimal("0")
     unbudgeted_future_spent = Decimal("0")
     unbudgeted_count = 0
@@ -106,16 +125,28 @@ def budget_progress_summary(
 
         actual_progress_pct = None
         progress_pct = None
+        target_consumed = Decimal("0")
+        target_remaining = None
+        target_overage = Decimal("0")
+        free_impact = projected_spent
         if target is not None and target > 0:
             total_target += target
             total_actual_spent += actual_spent
             total_future_spent += future_spent
+            target_consumed = min(projected_spent, target)
+            target_remaining = max(target - projected_spent, Decimal("0"))
+            target_overage = max(projected_spent - target, Decimal("0"))
+            free_impact = target_overage
+            total_target_consumed += target_consumed
+            total_target_remaining += target_remaining
+            total_target_overage += target_overage
             actual_progress_pct = (float(actual_spent) / float(target)) * 100
             progress_pct = (float(projected_spent) / float(target)) * 100
         else:
             unbudgeted_actual_spent += actual_spent
             unbudgeted_future_spent += future_spent
             unbudgeted_count += actual_count + future_count
+        total_free_impact += free_impact
         items.append(
             {
                 "category_id": cat.id,
@@ -133,6 +164,13 @@ def budget_progress_summary(
                 "future_spent": float(future_spent),
                 "projected_spent": float(projected_spent),
                 "spent": float(projected_spent),
+                "invoice_spent": float(projected_spent),
+                "target_consumed": float(target_consumed),
+                "remaining_target": (
+                    float(target_remaining) if target_remaining is not None else None
+                ),
+                "overage": float(target_overage),
+                "free_impact": float(free_impact),
                 "actual_count": actual_count,
                 "future_count": future_count,
                 "count": actual_count + future_count,
@@ -160,12 +198,18 @@ def budget_progress_summary(
             "actual_spent": float(total_actual_spent),
             "future_spent": float(total_future_spent),
             "projected_spent": float(total_actual_spent + total_future_spent),
+            "invoice_spent": float(total_actual_spent + total_future_spent),
+            "target_consumed": float(total_target_consumed),
+            "target_remaining": float(total_target_remaining),
+            "target_overage": float(total_target_overage),
+            "free_impact": float(total_free_impact),
             "unbudgeted_actual_spent": float(unbudgeted_actual_spent),
             "unbudgeted_future_spent": float(unbudgeted_future_spent),
             "unbudgeted_projected_spent": float(
                 unbudgeted_actual_spent + unbudgeted_future_spent
             ),
             "unbudgeted_count": unbudgeted_count,
+            "fixed_cost_matched_transaction_count": len(fixed_cost_transaction_ids),
             "actual_progress_pct": (
                 (float(total_actual_spent) / float(total_target)) * 100
                 if total_target > 0

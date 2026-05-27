@@ -225,6 +225,60 @@ def credit_card_spend_transactions(
     return [tx for tx in transactions if classifier.is_card_purchase(tx)]
 
 
+def discretionary_spend_transactions(
+    session: Session,
+    start_date: date,
+    end_date: date,
+    include_ignored: bool = False,
+) -> list[Transaction]:
+    """Return transactions that count as personal discretionary spending.
+
+    Includes:
+      - CREDIT purchases (non-invoice-payment, non-ignored)
+      - BANK outflows that pass cashflow filters (non-internal-transfer,
+        non-investment-noise, non-cashflow-excluded, non-ignored)
+
+    Used by ``budget_progress_summary`` so PIX/débito leaving the bank
+    account is visible to the budget — historically only credit-card
+    spending was counted, which under-reported real expenses in Brazil.
+    """
+    from app.services.classification import TransactionKind
+
+    classifier = TransactionClassifier.from_session(session)
+    tracked_account_ids = set(
+        account_ids_by_type(session, TRACKED_ACCOUNT_TYPES)
+    )
+    if not tracked_account_ids:
+        return []
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id.in_(tracked_account_ids),
+            Transaction.date >= start_date,
+            Transaction.date <= end_date,
+        )
+        .order_by(Transaction.date.asc())
+    ).all()
+    out: list[Transaction] = []
+    for tx in rows:
+        classification = classifier.classify(tx)
+        if classification.ignored and not include_ignored:
+            continue
+        kind = classification.kind
+        if kind == TransactionKind.CARD_PURCHASE:
+            out.append(tx)
+            continue
+        # BANK side: only outflows count as spending, and only when they
+        # survive the cashflow filters (so we drop internal transfers and
+        # investment movements).
+        if (
+            kind == TransactionKind.BANK_OUTFLOW
+            and not classification.cashflow_excluded
+        ):
+            out.append(tx)
+    return out
+
+
 def count_bank_income_exclusion_matches(
     rule: BankIncomeExclusionRule,
     session: Session,

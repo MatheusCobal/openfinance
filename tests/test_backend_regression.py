@@ -371,6 +371,43 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(items_by_name["Pets"]["target_scope"], "month")
         self.assertEqual(items_by_name["Pets"]["target"], 100.0)
         self.assertEqual(items_by_name["Pets"]["actual_spent"], 50.0)
+        # The R$ 260 PIX outflow (tx-bank-outflow) falls into "Outros"
+        # — no budget — so it must surface as unbudgeted spend, not as
+        # silent invisible spending like before.
+        self.assertEqual(
+            payload["summary"]["unbudgeted_actual_spent"], 260.0
+        )
+        self.assertEqual(items_by_name["Outros"]["actual_spent"], 260.0)
+
+    def test_budget_progress_includes_bank_pix_in_budgeted_category(self):
+        # PIX outflows tagged with a category that has a budget must count
+        # toward that budget — historically only CREDIT spend was tracked
+        # and PIX was invisible.
+        with Session(self.engine) as session:
+            session.add(Budget(category_id=1, monthly_target=Decimal("500.00")))
+            # PIX to a store that maps via DescriptionCategoryRule to "Pets"
+            session.add(
+                Transaction(
+                    id="tx-pix-cobasi",
+                    account_id="bank-1",
+                    date=self.current_month_day,
+                    amount=Decimal("-120.00"),
+                    description="Cobasi Canoas PIX",
+                    category="Transfers",
+                )
+            )
+            session.add(Budget(category_id=2, monthly_target=Decimal("300.00")))
+            session.commit()
+
+        response = self.client.get(
+            "/budgets/progress",
+            params={"year_month": self.current_month},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        items = {item["category_name"]: item for item in response.json()["items"]}
+        # Pets had R$ 50 on credit + R$ 120 via PIX = R$ 170
+        self.assertEqual(items["Pets"]["actual_spent"], 170.0)
 
     def test_credit_card_payments_snapshot_uses_invoice_payment_only(self):
         response = self.client.get(

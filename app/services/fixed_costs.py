@@ -5,13 +5,25 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session, select
 
 from app.categorization import normalize_description
-from app.models import FixedCost, FixedCostCategory, FixedCostOverride, Transaction
+from app.models import (
+    FixedCost,
+    FixedCostCategory,
+    FixedCostOverride,
+    FixedCostTransactionMatch,
+    Transaction,
+)
+from app.services.budgets import budget_progress_summary
 from app.services.expected_income import monthly_breakdown as expected_income_breakdown
+from app.services.savings import (
+    effective_target as savings_effective_target,
+    monthly_breakdown as savings_monthly_breakdown,
+)
 from app.services.fixed_cost_defaults import (
     DEFAULT_FIXED_COST_CATEGORIES,
     FIXED_COST_TEMPLATES,
 )
-from app.services.transaction_reports import stats_summary
+from app.services.transaction_reports import invoice_summary
+from app.services.transactions import bank_income_transactions
 
 
 class FixedCostValidationError(ValueError):
@@ -132,6 +144,22 @@ def _serialize_transaction_match(tx: Transaction) -> Dict[str, Any]:
         "amount_abs": float(abs(tx.amount)),
         "description": tx.description,
         "pluggy_category": tx.category,
+    }
+
+
+def _serialize_fixed_cost_transaction_match(
+    match: FixedCostTransactionMatch,
+    cost: Optional[FixedCost] = None,
+    tx: Optional[Transaction] = None,
+) -> Dict[str, Any]:
+    return {
+        "id": match.id,
+        "fixed_cost_id": match.fixed_cost_id,
+        "fixed_cost_description": cost.description if cost is not None else None,
+        "transaction_id": match.transaction_id,
+        "year_month": match.year_month,
+        "created_at": match.created_at.isoformat(),
+        "transaction": _serialize_transaction_match(tx) if tx is not None else None,
     }
 
 
@@ -419,12 +447,137 @@ def delete_fixed_cost(session: Session, cost_id: int) -> bool:
     cost = session.get(FixedCost, cost_id)
     if cost is None:
         return False
+    matches = session.exec(
+        select(FixedCostTransactionMatch).where(
+            FixedCostTransactionMatch.fixed_cost_id == cost_id
+        )
+    ).all()
     overrides = session.exec(
         select(FixedCostOverride).where(FixedCostOverride.fixed_cost_id == cost_id)
     ).all()
+    for match in matches:
+        session.delete(match)
     for override in overrides:
         session.delete(override)
     session.delete(cost)
+    session.commit()
+    return True
+
+
+def _transaction_month(tx: Transaction) -> str:
+    return tx.date.strftime("%Y-%m")
+
+
+def _matches_for_month(
+    session: Session,
+    year_month: str,
+) -> list[FixedCostTransactionMatch]:
+    _validate_month(year_month)
+    return session.exec(
+        select(FixedCostTransactionMatch).where(
+            FixedCostTransactionMatch.year_month == year_month
+        )
+    ).all()
+
+
+def _transactions_by_id(
+    session: Session,
+    transaction_ids: set[str],
+) -> dict[str, Transaction]:
+    if not transaction_ids:
+        return {}
+    return {
+        tx.id: tx
+        for tx in session.exec(
+            select(Transaction).where(Transaction.id.in_(transaction_ids))
+        ).all()
+    }
+
+
+def list_fixed_cost_transaction_matches(
+    session: Session,
+    year_month: str,
+) -> List[Dict[str, Any]]:
+    matches = _matches_for_month(session, year_month)
+    transactions = _transactions_by_id(
+        session, {match.transaction_id for match in matches}
+    )
+    costs = {
+        cost.id: cost
+        for cost in session.exec(
+            select(FixedCost).where(
+                FixedCost.id.in_({match.fixed_cost_id for match in matches})
+            )
+        ).all()
+    } if matches else {}
+    return [
+        _serialize_fixed_cost_transaction_match(
+            match,
+            costs.get(match.fixed_cost_id),
+            transactions.get(match.transaction_id),
+        )
+        for match in sorted(matches, key=lambda item: item.created_at)
+    ]
+
+
+def create_fixed_cost_transaction_match(
+    session: Session,
+    fixed_cost_id: int,
+    transaction_id: str,
+    year_month: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    cost = session.get(FixedCost, fixed_cost_id)
+    tx = session.get(Transaction, transaction_id)
+    if cost is None or tx is None:
+        return None
+
+    target_month = year_month or _transaction_month(tx)
+    _validate_month(target_month)
+    if _transaction_month(tx) != target_month:
+        raise FixedCostValidationError("transaction date must be in year_month")
+
+    existing_for_transaction = session.exec(
+        select(FixedCostTransactionMatch).where(
+            FixedCostTransactionMatch.transaction_id == transaction_id
+        )
+    ).first()
+    if existing_for_transaction is not None:
+        if (
+            existing_for_transaction.fixed_cost_id == fixed_cost_id
+            and existing_for_transaction.year_month == target_month
+        ):
+            return _serialize_fixed_cost_transaction_match(
+                existing_for_transaction,
+                cost,
+                tx,
+            )
+        raise FixedCostValidationError("transaction already matched to fixed cost")
+
+    existing_for_cost_month = session.exec(
+        select(FixedCostTransactionMatch).where(
+            FixedCostTransactionMatch.fixed_cost_id == fixed_cost_id,
+            FixedCostTransactionMatch.year_month == target_month,
+        )
+    ).first()
+    if existing_for_cost_month is not None:
+        raise FixedCostValidationError("fixed cost already matched for this month")
+
+    match = FixedCostTransactionMatch(
+        fixed_cost_id=fixed_cost_id,
+        transaction_id=transaction_id,
+        year_month=target_month,
+    )
+    session.add(match)
+    session.commit()
+    session.refresh(match)
+    return _serialize_fixed_cost_transaction_match(match, cost, tx)
+
+
+def delete_fixed_cost_transaction_match(session: Session, match_id: int) -> bool:
+    match = session.get(FixedCostTransactionMatch, match_id)
+    if match is None:
+        return False
+    session.delete(match)
     session.commit()
     return True
 
@@ -497,6 +650,19 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
             Transaction.date <= last_day,
         )
     ).all()
+    manual_matches = _matches_for_month(session, year_month)
+    manual_transactions = _transactions_by_id(
+        session, {match.transaction_id for match in manual_matches}
+    )
+    manual_by_cost: dict[int, tuple[FixedCostTransactionMatch, Transaction]] = {}
+    for match in manual_matches:
+        tx = manual_transactions.get(match.transaction_id)
+        if tx is not None:
+            manual_by_cost[match.fixed_cost_id] = (match, tx)
+    manual_transaction_ids = set(manual_transactions.keys())
+    auto_match_transactions = [
+        tx for tx in month_transactions if tx.id not in manual_transaction_ids
+    ]
 
     entries = []
     category_totals: dict[int, Decimal] = {}
@@ -508,9 +674,16 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
         override = overrides.get(cost.id)
         effective_amount = override.amount if override is not None else cost.amount
         due_date = _date_for_month_day(year_month, cost.due_day)
-        matched_transaction = _find_matching_transaction(
-            cost, effective_amount, month_transactions
-        )
+        manual_match = None
+        manual_cost_match = manual_by_cost.get(cost.id)
+        if manual_cost_match is not None:
+            manual_match, matched_transaction = manual_cost_match
+            match_source = "manual"
+        else:
+            matched_transaction = _find_matching_transaction(
+                cost, effective_amount, auto_match_transactions
+            )
+            match_source = "auto" if matched_transaction is not None else None
         status = _status_for_cost(due_date, matched_transaction, today)
         total += effective_amount
         category_totals[cost.category_id] = (
@@ -531,6 +704,10 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
                 "override_id": override.id if override is not None else None,
                 "due_date": due_date.isoformat(),
                 "status": status,
+                "match_source": match_source,
+                "fixed_cost_transaction_match_id": (
+                    manual_match.id if manual_match is not None else None
+                ),
                 "matched_transaction": _serialize_transaction_match(matched_transaction)
                 if matched_transaction is not None
                 else None,
@@ -559,17 +736,95 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
     }
 
 
+def scheduled_installments_summary(
+    session: Session,
+    year_month: str,
+    today: Optional[date] = None,
+) -> Dict[str, Any]:
+    """Future-dated credit-card purchases that will land in ``year_month``.
+
+    These are typically scheduled card installments (3x, 6x, 12x…) that
+    Pluggy already exposes with the future invoice date. We only count
+    transactions strictly AFTER ``today`` so they don't double-count with
+    spending already realized in the current month.
+    """
+    _validate_month(year_month)
+    today = today if today is not None else date.today()
+    first_day, last_day = _month_bounds(year_month)
+    window_start = max(first_day, today + timedelta(days=1))
+    if window_start > last_day:
+        return {
+            "year_month": year_month,
+            "total": 0.0,
+            "count": 0,
+            "transactions": [],
+        }
+
+    from app.services.transactions import account_ids_by_type
+    from app.services.classification import SPENDING_ACCOUNT_TYPES
+
+    credit_account_ids = account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
+    if not credit_account_ids:
+        return {
+            "year_month": year_month,
+            "total": 0.0,
+            "count": 0,
+            "transactions": [],
+        }
+
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id.in_(credit_account_ids),
+            Transaction.date >= window_start,
+            Transaction.date <= last_day,
+        )
+        .order_by(Transaction.date.asc(), Transaction.description.asc())
+    ).all()
+
+    total = Decimal("0")
+    items: list[Dict[str, Any]] = []
+    for tx in rows:
+        amount = abs(tx.amount)
+        total += amount
+        items.append(
+            {
+                "transaction_id": tx.id,
+                "date": tx.date.isoformat(),
+                "description": tx.description,
+                "amount": float(amount),
+                "category": tx.category,
+            }
+        )
+    return {
+        "year_month": year_month,
+        "total": float(total),
+        "count": len(items),
+        "transactions": items,
+    }
+
+
 def upcoming_months(
     session: Session,
     start_year_month: str,
     months: int,
+    today: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
     if not (1 <= months <= 24):
         raise FixedCostValidationError("months must be between 1 and 24")
-    return [
-        monthly_breakdown(session, _shift_year_month(start_year_month, offset))
-        for offset in range(months)
-    ]
+    today = today if today is not None else date.today()
+    out: list[Dict[str, Any]] = []
+    for offset in range(months):
+        ym = _shift_year_month(start_year_month, offset)
+        breakdown = monthly_breakdown(session, ym)
+        installments = scheduled_installments_summary(session, ym, today=today)
+        breakdown["installments"] = installments
+        # Convenience headline so consumers don't have to add it themselves
+        breakdown["projected_total"] = (
+            breakdown["total"] + installments["total"]
+        )
+        out.append(breakdown)
+    return out
 
 
 def set_override(
@@ -626,26 +881,201 @@ def delete_override(session: Session, cost_id: int, year_month: str) -> bool:
 def spending_capacity_summary(
     session: Session,
     year_month: str,
+    today: Optional[date] = None,
 ) -> Dict[str, Any]:
     first_day, last_day = _month_bounds(year_month)
+    today = today if today is not None else date.today()
     income = expected_income_breakdown(session, year_month)
     fixed = monthly_breakdown(session, year_month)
-    invoice = stats_summary(session, first_day, last_day)
+    # Transactions already accounted for as fixed costs (e.g. condomínio
+    # paid on the credit card) must NOT also be counted in the invoice —
+    # otherwise the "remaining after invoice" line subtracts them twice.
+    fixed_cost_matched_ids: set[str] = set(
+        session.exec(
+            select(FixedCostTransactionMatch.transaction_id).where(
+                FixedCostTransactionMatch.year_month == year_month
+            )
+        ).all()
+    )
+    invoice = invoice_summary(
+        session,
+        from_date=first_day,
+        to_date=last_day,
+        exclude_transaction_ids=fixed_cost_matched_ids,
+    )
+    variable_budgets = budget_progress_summary(
+        session,
+        year_month=year_month,
+        first_day=first_day,
+        last_day=last_day,
+        today=today,
+    )
 
     expected_income_total = Decimal(str(income["total"]))
     fixed_cost_total = Decimal(str(fixed["total"]))
     card_invoice_total = Decimal(str(invoice["invoice_total"]))
+    invoice_paid_total = Decimal(str(invoice["invoice_paid_total"]))
+    invoice_open_total = Decimal(str(invoice["invoice_open_total"]))
+    variable_budget_total = Decimal(str(variable_budgets["summary"]["target"]))
+    variable_budget_spent = Decimal(
+        str(variable_budgets["summary"]["projected_spent"])
+    )
+    variable_budget_actual_spent = Decimal(
+        str(variable_budgets["summary"]["actual_spent"])
+    )
+    variable_budget_future_spent = Decimal(
+        str(variable_budgets["summary"]["future_spent"])
+    )
+    unbudgeted_variable_spent = Decimal(
+        str(variable_budgets["summary"]["unbudgeted_projected_spent"])
+    )
+    variable_budget_consumed = Decimal(
+        str(variable_budgets["summary"]["target_consumed"])
+    )
+    variable_budget_remaining = Decimal(
+        str(variable_budgets["summary"]["target_remaining"])
+    )
+    variable_budget_overage = Decimal(
+        str(variable_budgets["summary"]["target_overage"])
+    )
+    variable_budget_free_impact = Decimal(
+        str(variable_budgets["summary"]["free_impact"])
+    )
+    received_income_transactions = []
+    if first_day <= today:
+        received_income_transactions = bank_income_transactions(
+            session,
+            first_day,
+            min(last_day, today),
+        )
+    received_income_total = sum(
+        (tx.amount for tx in received_income_transactions),
+        Decimal("0"),
+    )
+    income_to_receive = max(
+        expected_income_total - received_income_total,
+        Decimal("0"),
+    )
+    income_over_expected = max(
+        received_income_total - expected_income_total,
+        Decimal("0"),
+    )
+    income_received_progress_pct = (
+        (float(received_income_total) / float(expected_income_total)) * 100
+        if expected_income_total > 0
+        else None
+    )
+
+    savings_target_total = savings_effective_target(session, year_month)
+    savings_breakdown = savings_monthly_breakdown(session, year_month)
+
+    planned_expense_total = (
+        fixed_cost_total + variable_budget_total + savings_target_total
+    )
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
+    remaining_after_plan = expected_income_total - planned_expense_total
+    # ``available_to_spend`` answers "how much of my income is still
+    # unspent / un-allocated after honoring fixed costs, what I've already
+    # spent on variable, and the savings reservation". The formula reduces
+    # to: income - fixed - actual_variable_spent - savings_reservation.
+    available_to_spend = (
+        remaining_after_plan
+        + variable_budget_remaining
+        - variable_budget_free_impact
+    )
+    # The savings reservation is what makes ``discretionary_available``
+    # differ from ``available_to_spend``: the latter already subtracts the
+    # savings target. We keep both for backwards compatibility, but
+    # ``discretionary_available`` is the headline number users should look
+    # at when asking "quanto posso gastar este mês?".
+    discretionary_available = available_to_spend
+    received_based_available_to_spend = (
+        available_to_spend
+        - income_to_receive
+        + income_over_expected
+    )
     remaining_after_invoice = planned_after_fixed_costs - card_invoice_total
+    remaining_after_plan_and_invoice = remaining_after_plan - card_invoice_total
+
+    # ---- Daily discretionary verba ----
+    # How much can I spend per day for the rest of the month?
+    # - If the month is fully in the past → no future days, no verba.
+    # - If the month is fully in the future → spread across all 30/31 days.
+    # - Mid-month → include today (inclusive) through last_day.
+    if today > last_day:
+        days_remaining_in_month = 0
+    elif today < first_day:
+        days_remaining_in_month = (last_day - first_day).days + 1
+    else:
+        days_remaining_in_month = (last_day - today).days + 1
+    if days_remaining_in_month > 0:
+        daily_discretionary_remaining = (
+            max(discretionary_available, Decimal("0"))
+            / Decimal(days_remaining_in_month)
+        )
+    else:
+        daily_discretionary_remaining = Decimal("0")
+
+    # ---- Plan health flag ----
+    # Single answer to "is this month's plan sustainable?":
+    #   over     → discretionary_available is negative (you've over-committed)
+    #   tight    → margin < 10% of income (one surprise away from over)
+    #   healthy  → comfortable margin
+    #   unknown  → no income configured, can't grade
+    if expected_income_total <= 0:
+        plan_status = "unknown"
+    elif discretionary_available < 0:
+        plan_status = "over"
+    elif (discretionary_available / expected_income_total) < Decimal("0.10"):
+        plan_status = "tight"
+    else:
+        plan_status = "healthy"
 
     return {
         "year_month": year_month,
         "expected_income_total": float(expected_income_total),
+        "receita_esperada": float(expected_income_total),
+        "received_income_total": float(received_income_total),
+        "valor_recebido": float(received_income_total),
+        "received_income_count": len(received_income_transactions),
+        "income_to_receive": float(income_to_receive),
+        "receita_a_receber": float(income_to_receive),
+        "income_over_expected": float(income_over_expected),
+        "income_received_progress_pct": income_received_progress_pct,
         "fixed_cost_total": float(fixed_cost_total),
+        "variable_budget_total": float(variable_budget_total),
+        "planned_variable_total": float(variable_budget_total),
+        "variable_budget_spent": float(variable_budget_spent),
+        "variable_budget_actual_spent": float(variable_budget_actual_spent),
+        "variable_budget_future_spent": float(variable_budget_future_spent),
+        "variable_budget_consumed": float(variable_budget_consumed),
+        "variable_budget_remaining": float(variable_budget_remaining),
+        "variable_budget_overage": float(variable_budget_overage),
+        "variable_budget_free_impact": float(variable_budget_free_impact),
+        "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
+        "savings_target_total": float(savings_target_total),
+        "savings_target": savings_breakdown,
+        "discretionary_available": float(discretionary_available),
+        "daily_discretionary_remaining": float(daily_discretionary_remaining),
+        "days_remaining_in_month": days_remaining_in_month,
+        "plan_status": plan_status,
+        "planned_expense_total": float(planned_expense_total),
         "card_invoice_total": float(card_invoice_total),
+        "invoice_paid_total": float(invoice_paid_total),
+        "invoice_open_total": float(invoice_open_total),
         "invoice_mode": invoice["invoice_mode"],
+        "invoice_paid_count": invoice["invoice_paid_count"],
+        "invoice_open_count": invoice["invoice_open_count"],
+        "invoice_open_since": invoice["invoice_open_since"],
         "planned_after_fixed_costs": float(planned_after_fixed_costs),
+        "remaining_after_plan": float(remaining_after_plan),
+        "available_to_spend": float(available_to_spend),
+        "received_based_available_to_spend": float(
+            received_based_available_to_spend
+        ),
         "remaining_after_invoice": float(remaining_after_invoice),
+        "remaining_after_plan_and_invoice": float(remaining_after_plan_and_invoice),
         "fixed_costs": fixed,
         "expected_income": income,
+        "variable_budgets": variable_budgets,
     }

@@ -12,6 +12,7 @@ from app.routes import (
     history,
     pages,
     rules,
+    savings,
     sync,
     transactions,
 )
@@ -36,3 +37,4 @@ app.include_router(budgets.router)
 app.include_router(history.router)
 app.include_router(expected_income.router)
 app.include_router(fixed_costs.router)
+app.include_router(savings.router)

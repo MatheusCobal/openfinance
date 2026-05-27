@@ -11,11 +11,14 @@ from app.services.fixed_costs import (
     create_fixed_cost,
     create_fixed_cost_category,
     create_fixed_cost_from_transaction,
+    create_fixed_cost_transaction_match,
     delete_fixed_cost,
     delete_fixed_cost_category,
+    delete_fixed_cost_transaction_match,
     delete_override,
     list_fixed_cost_categories,
     list_fixed_costs,
+    list_fixed_cost_transaction_matches,
     list_fixed_cost_templates,
     monthly_breakdown,
     set_override,
@@ -65,6 +68,11 @@ class FixedCostFromTransactionCreate(BaseModel):
     description: Optional[str] = None
     amount: Optional[Decimal] = None
     due_day: Optional[int] = None
+
+
+class FixedCostTransactionMatchCreate(BaseModel):
+    transaction_id: str
+    year_month: Optional[str] = None
 
 
 @router.get("/fixed-cost-categories")
@@ -219,6 +227,47 @@ def by_month_route(
         return monthly_breakdown(session, year_month)
     except FixedCostValidationError as exc:
         raise HTTPException(400, str(exc))
+
+
+@router.get("/fixed-costs/matches")
+def list_transaction_matches_route(
+    year_month: str,
+    session: Session = Depends(get_session),
+):
+    try:
+        return list_fixed_cost_transaction_matches(session, year_month)
+    except FixedCostValidationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/fixed-costs/{cost_id}/matches")
+def create_transaction_match_route(
+    cost_id: int,
+    body: FixedCostTransactionMatchCreate,
+    session: Session = Depends(get_session),
+):
+    try:
+        result = create_fixed_cost_transaction_match(
+            session,
+            fixed_cost_id=cost_id,
+            transaction_id=body.transaction_id,
+            year_month=body.year_month,
+        )
+    except FixedCostValidationError as exc:
+        raise HTTPException(400, str(exc))
+    if result is None:
+        raise HTTPException(404, "fixed cost or transaction not found")
+    return result
+
+
+@router.delete("/fixed-costs/matches/{match_id}", status_code=204)
+def delete_transaction_match_route(
+    match_id: int,
+    session: Session = Depends(get_session),
+):
+    if not delete_fixed_cost_transaction_match(session, match_id):
+        raise HTTPException(404, "fixed cost transaction match not found")
+    return None
 
 
 @router.get("/fixed-costs/upcoming")

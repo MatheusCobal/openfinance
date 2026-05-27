@@ -309,6 +309,91 @@ def monthly_stats_summary(
     return {"months": months, "categories": categories}
 
 
+def invoice_summary(
+    session: Session,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    exclude_transaction_ids: Optional[set[str]] = None,
+) -> Dict[str, Any]:
+    """Single source of truth for credit-card invoice numbers.
+
+    Always returns BOTH ``invoice_paid_total`` (invoice payments made in the
+    period) and ``invoice_open_total`` (credit-card purchases since the last
+    payment, up to ``effective_to``) so the caller can pick the right one
+    without worrying about silent mode-switches mid-month.
+
+    ``invoice_total``/``invoice_mode`` are kept for backwards compatibility:
+    ``paid`` is preferred when there is at least one payment in the period.
+
+    ``exclude_transaction_ids`` is used by the spending-capacity card to
+    drop transactions that already count somewhere else (notably fixed
+    costs billed on the card), avoiding double counting.
+    """
+    today = date.today()
+    effective_to = to_date if to_date is not None else today
+    skip_ids: set[str] = exclude_transaction_ids or set()
+
+    classifier = TransactionClassifier.from_session(session)
+    all_up_to = session.exec(
+        select(Transaction).where(Transaction.date <= effective_to)
+    ).all()
+
+    payments = [tx for tx in all_up_to if classifier.is_invoice_payment(tx)]
+    payments_in_period = [
+        tx
+        for tx in payments
+        if (from_date is None or tx.date >= from_date) and tx.id not in skip_ids
+    ]
+
+    paid_total = sum(
+        (abs(tx.amount) for tx in payments_in_period), Decimal("0")
+    )
+    paid_count = len(payments_in_period)
+    paid_dates = sorted(tx.date.isoformat() for tx in payments_in_period)
+
+    last_payment_date = max((tx.date for tx in payments), default=None)
+    lower = last_payment_date if last_payment_date is not None else date.min
+    if from_date is not None and from_date > lower:
+        lower = from_date
+    credit_account_ids = set(
+        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
+    )
+    open_txs = [
+        tx
+        for tx in all_up_to
+        if tx.account_id in credit_account_ids
+        and tx.date > lower
+        and tx.id not in skip_ids
+    ]
+    open_total = sum((abs(tx.amount) for tx in open_txs), Decimal("0"))
+    open_count = len(open_txs)
+    open_since = last_payment_date.isoformat() if last_payment_date else None
+
+    if payments_in_period:
+        invoice_mode = "paid"
+        invoice_total = paid_total
+        invoice_count = paid_count
+        invoice_since: Optional[str] = None
+    else:
+        invoice_mode = "open"
+        invoice_total = open_total
+        invoice_count = open_count
+        invoice_since = open_since
+
+    return {
+        "invoice_mode": invoice_mode,
+        "invoice_total": float(invoice_total),
+        "invoice_count": invoice_count,
+        "invoice_since": invoice_since,
+        "invoice_paid_dates": paid_dates,
+        "invoice_paid_total": float(paid_total),
+        "invoice_paid_count": paid_count,
+        "invoice_open_total": float(open_total),
+        "invoice_open_count": open_count,
+        "invoice_open_since": open_since,
+    }
+
+
 def stats_summary(
     session: Session,
     from_date: Optional[date] = None,
@@ -388,46 +473,7 @@ def stats_summary(
         for month, total in sorted(totals_by_month.items())
     ]
 
-    # Invoice card: hybrid metric. If the selected period contains any invoice
-    # payment, show those (the cycle has closed). Otherwise show the open
-    # invoice — CREDIT purchases since the last payment up to effective_to.
-    classifier = TransactionClassifier.from_session(session)
-    all_up_to = session.exec(
-        select(Transaction).where(Transaction.date <= effective_to)
-    ).all()
-    payments = [tx for tx in all_up_to if classifier.is_invoice_payment(tx)]
-    payments_in_period = [
-        tx for tx in payments if from_date is None or tx.date >= from_date
-    ]
-
-    if payments_in_period:
-        invoice_total = sum(
-            (abs(tx.amount) for tx in payments_in_period), Decimal("0")
-        )
-        invoice_count = len(payments_in_period)
-        invoice_mode = "paid"
-        invoice_since = None
-        invoice_paid_dates = sorted(
-            tx.date.isoformat() for tx in payments_in_period
-        )
-    else:
-        last_payment_date = max((tx.date for tx in payments), default=None)
-        lower = last_payment_date if last_payment_date is not None else date.min
-        if from_date is not None and from_date > lower:
-            lower = from_date
-        credit_account_ids = set(
-            account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
-        )
-        open_txs = [
-            tx
-            for tx in all_up_to
-            if tx.account_id in credit_account_ids and tx.date > lower
-        ]
-        invoice_total = sum((abs(tx.amount) for tx in open_txs), Decimal("0"))
-        invoice_count = len(open_txs)
-        invoice_mode = "open"
-        invoice_since = last_payment_date.isoformat() if last_payment_date else None
-        invoice_paid_dates = []
+    invoice = invoice_summary(session, from_date=from_date, to_date=to_date)
 
     return {
         "total_spent": float(total_spent),
@@ -435,9 +481,14 @@ def stats_summary(
         "future_transaction_count": future_count,
         "categories": categories,
         "months": months,
-        "invoice_mode": invoice_mode,
-        "invoice_total": float(invoice_total),
-        "invoice_count": invoice_count,
-        "invoice_since": invoice_since,
-        "invoice_paid_dates": invoice_paid_dates,
+        "invoice_mode": invoice["invoice_mode"],
+        "invoice_total": invoice["invoice_total"],
+        "invoice_count": invoice["invoice_count"],
+        "invoice_since": invoice["invoice_since"],
+        "invoice_paid_dates": invoice["invoice_paid_dates"],
+        "invoice_paid_total": invoice["invoice_paid_total"],
+        "invoice_paid_count": invoice["invoice_paid_count"],
+        "invoice_open_total": invoice["invoice_open_total"],
+        "invoice_open_count": invoice["invoice_open_count"],
+        "invoice_open_since": invoice["invoice_open_since"],
     }

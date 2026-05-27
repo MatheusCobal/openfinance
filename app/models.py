@@ -184,6 +184,26 @@ class FixedCostOverride(SQLModel, table=True):
     amount: Decimal
 
 
+class FixedCostTransactionMatch(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "fixed_cost_id",
+            "year_month",
+            name="uq_fixedcosttransactionmatch_entry_month",
+        ),
+        UniqueConstraint(
+            "transaction_id",
+            name="uq_fixedcosttransactionmatch_transaction",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    fixed_cost_id: int = Field(foreign_key="fixedcost.id", index=True)
+    transaction_id: str = Field(foreign_key="transaction.id", index=True)
+    year_month: str = Field(index=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class BudgetOverride(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("category_id", "year_month", name="uq_budgetoverride_month"),
@@ -191,5 +211,22 @@ class BudgetOverride(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     category_id: int = Field(foreign_key="category.id", index=True)
+    year_month: str = Field(index=True)
+    monthly_target: Decimal
+
+
+class SavingsTarget(SQLModel, table=True):
+    """Default monthly savings target. Singleton row (id=1)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    monthly_target: Decimal
+
+
+class SavingsTargetOverride(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("year_month", name="uq_savingstargetoverride_month"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
     year_month: str = Field(index=True)
     monthly_target: Decimal
