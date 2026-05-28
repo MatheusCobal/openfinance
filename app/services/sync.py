@@ -39,6 +39,7 @@ class AccountSyncResult:
 
 def upsert_item(item_id: str, session: Session) -> Item:
     data = pluggy.get_item(item_id)
+    now = datetime.utcnow()
     item = session.get(Item, item_id)
     if item is None:
         item = Item(
@@ -46,11 +47,17 @@ def upsert_item(item_id: str, session: Session) -> Item:
             connector_id=data["connector"]["id"],
             connector_name=data["connector"].get("name"),
             status=data["status"],
+            is_active=True,
+            last_seen_at=now,
+            deactivated_at=None,
         )
         session.add(item)
     else:
         item.status = data["status"]
         item.connector_name = data["connector"].get("name")
+        item.is_active = True
+        item.last_seen_at = now
+        item.deactivated_at = None
     session.commit()
     session.refresh(item)
     return item
@@ -58,6 +65,7 @@ def upsert_item(item_id: str, session: Session) -> Item:
 
 def upsert_account(raw_account: Dict[str, Any], item_id: str, session: Session) -> None:
     account = session.get(Account, raw_account["id"])
+    now = datetime.utcnow()
     values = {
         "item_id": item_id,
         "name": raw_account["name"],
@@ -65,6 +73,9 @@ def upsert_account(raw_account: Dict[str, Any], item_id: str, session: Session) 
         "subtype": raw_account.get("subtype"),
         "marketing_name": raw_account.get("marketingName"),
         "number": raw_account.get("number"),
+        "is_active": True,
+        "last_seen_at": now,
+        "deactivated_at": None,
     }
     # Pluggy snapshot fields (balance, bankData.*, creditData.*). Only keys
     # with non-null values are returned, so a connector that omits a field
@@ -268,6 +279,53 @@ def sync_item(item_id: str, session: Session) -> Dict[str, Any]:
     return result
 
 
+def _deactivate_accounts(item_id: str, keep_ids: set, session: Session) -> int:
+    """Mark accounts belonging to item_id that are not in keep_ids as inactive."""
+    now = datetime.utcnow()
+    local_accounts = session.exec(select(Account).where(Account.item_id == item_id)).all()
+    count = 0
+    for account in local_accounts:
+        if account.id not in keep_ids and account.is_active:
+            account.is_active = False
+            account.deactivated_at = now
+            session.add(account)
+            count += 1
+    if count:
+        session.commit()
+    return count
+
+
+def reconcile_active_items(session: Session) -> Dict[str, Any]:
+    """Compare local Items against Pluggy and deactivate any that are gone."""
+    remote_items = pluggy.list_items()
+    remote_ids = {item["id"] for item in remote_items}
+    local_items = session.exec(select(Item)).all()
+    now = datetime.utcnow()
+    deactivated_items = 0
+    deactivated_accounts = 0
+    for item in local_items:
+        if item.id not in remote_ids and item.is_active:
+            item.is_active = False
+            item.deactivated_at = now
+            session.add(item)
+            deactivated_items += 1
+            accounts = session.exec(
+                select(Account).where(Account.item_id == item.id)
+            ).all()
+            for account in accounts:
+                if account.is_active:
+                    account.is_active = False
+                    account.deactivated_at = now
+                    session.add(account)
+                    deactivated_accounts += 1
+    session.commit()
+    return {
+        "active_seen": len(remote_ids),
+        "deactivated_items": deactivated_items,
+        "deactivated_accounts": deactivated_accounts,
+    }
+
+
 def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
     raw_accounts = pluggy.list_accounts(item_id)
     accounts_to_sync = tracked_accounts(raw_accounts)
@@ -357,6 +415,10 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
                             }
                         )
 
+    # ---- Deactivate accounts that Pluggy no longer returns for this item ----
+    synced_account_ids = {raw["id"] for raw in accounts_to_sync}
+    deactivated_accounts_count = _deactivate_accounts(item_id, synced_account_ids, session)
+
     # ---- Pluggy snapshot: investments (per item, not per account) ----
     investments_upserted = 0
     investment_transactions_upserted = 0
@@ -389,6 +451,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         "tracked_accounts": len(accounts_to_sync),
         "credit_accounts": synced_accounts_by_type.get("CREDIT", 0),
         "bank_accounts": synced_accounts_by_type.get("BANK", 0),
+        "deactivated_accounts": deactivated_accounts_count,
         "fetched_transactions": fetched_transactions,
         "new_transactions": new_transactions,
         "updated_transactions": updated_transactions,

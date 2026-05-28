@@ -1,11 +1,12 @@
 import logging
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.database import engine, get_session
-from app.models import Item
+from app.models import Account, Item
 from app.services.sync import SyncAlreadyRunning, sync_item as run_sync_item
 
 logger = logging.getLogger("openfinance")
@@ -26,6 +27,12 @@ ERROR_EVENTS = {
     "item/waiting_user_action",
     "item/login_error",
     "item/outdated",
+}
+
+REMOVAL_EVENTS = {
+    "item/deleted",
+    "item/removed",
+    "item/disconnected",
 }
 
 _ERROR_MSG_MAX_LEN = 300
@@ -62,6 +69,8 @@ async def pluggy_webhook(
         else:
             background_tasks.add_task(_do_sync_item, item_id)
             action = "sync_scheduled"
+    elif event in REMOVAL_EVENTS:
+        action = _deactivate_item(item_id, session)
     elif event in ERROR_EVENTS:
         action = _record_item_status(event, item_id, payload, session)
     else:
@@ -81,6 +90,25 @@ def _do_sync_item(item_id: str) -> None:
         logger.info("webhook sync skipped, already running item_id=%s", item_id)
     except Exception:
         logger.exception("webhook sync failed item_id=%s", item_id)
+
+
+def _deactivate_item(item_id: Optional[str], session: Session) -> str:
+    if not item_id:
+        return "missing_item_id"
+    item = session.get(Item, item_id)
+    if item is None:
+        return "item_not_found"
+    now = datetime.utcnow()
+    item.is_active = False
+    item.deactivated_at = now
+    session.add(item)
+    accounts = session.exec(select(Account).where(Account.item_id == item_id)).all()
+    for account in accounts:
+        account.is_active = False
+        account.deactivated_at = now
+        session.add(account)
+    session.commit()
+    return "item_deactivated"
 
 
 def _record_item_status(

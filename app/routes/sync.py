@@ -11,6 +11,7 @@ from app.models import Account, AccountSync, Item
 from app.pluggy_client import pluggy
 from app.services.sync import (
     SyncAlreadyRunning,
+    reconcile_active_items,
     sync_item as run_sync_item,
     upsert_item,
 )
@@ -86,6 +87,8 @@ def sync_health(session: Session = Depends(get_session)):
                 "item_id": item.id,
                 "connector_name": item.connector_name,
                 "status": item.status,
+                "is_active": item.is_active,
+                "deactivated_at": item.deactivated_at,
                 "sync_started_at": item.sync_started_at,
                 "sync_finished_at": item.sync_finished_at,
                 "is_running": is_running,
@@ -101,6 +104,11 @@ def sync_health(session: Session = Depends(get_session)):
             }
         )
     return health
+
+
+@router.post("/sync/reconcile-items")
+def reconcile_items(session: Session = Depends(get_session)):
+    return reconcile_active_items(session)
 
 
 @router.get("/accounts")

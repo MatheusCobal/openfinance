@@ -55,6 +55,24 @@ class PluggyClient:
         response = self._request("POST", "/connect_token", json=body or None)
         return response.json()["accessToken"]
 
+    def list_items(self) -> List[Dict[str, Any]]:
+        """All Pluggy Items for the current credentials."""
+        MAX_PAGES = 20
+        results: List[Dict[str, Any]] = []
+        page = 1
+        while page <= MAX_PAGES:
+            response = self._request(
+                "GET", "/items", params={"pageSize": 100, "page": page}
+            )
+            body = response.json()
+            page_results = body.get("results", []) or []
+            results.extend(page_results)
+            total_pages = body.get("totalPages", 1)
+            if not page_results or page >= total_pages:
+                break
+            page += 1
+        return results
+
     def get_item(self, item_id: str) -> Dict[str, Any]:
         return self._request("GET", f"/items/{item_id}").json()
 

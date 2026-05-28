@@ -23,6 +23,7 @@ from app.models import (
     CreditCardBill,
     Investment,
     InvestmentTransaction,
+    Item,
 )
 from app.pluggy_client import pluggy
 
@@ -318,11 +319,17 @@ def sync_investments(session: Session, item_id: str) -> SnapshotOutcome:
 RESERVE_INVESTMENT_TYPES = {"FIXED_INCOME", "SAVINGS", "MUTUAL_FUND", "TREASURY"}
 
 
+def _active_item_ids(session: Session) -> set:
+    return {item.id for item in session.exec(select(Item)).all() if item.is_active}
+
+
 def reserve_investments(session: Session) -> List[Investment]:
+    active_ids = _active_item_ids(session)
     return [
         inv
         for inv in session.exec(select(Investment)).all()
         if (inv.type or "").upper() in RESERVE_INVESTMENT_TYPES
+        and inv.item_id in active_ids
     ]
 
 
@@ -351,8 +358,12 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
     re-deriving numbers out of raw transactions. The dashboard should treat
     this as the source of truth for "how much money do I have / owe".
     """
-    accounts = list(session.exec(select(Account)).all())
-    investments = list(session.exec(select(Investment)).all())
+    active_ids = _active_item_ids(session)
+    all_accounts = list(session.exec(select(Account)).all())
+    accounts = [a for a in all_accounts if a.is_active and a.item_id in active_ids]
+    investments = [
+        i for i in session.exec(select(Investment)).all() if i.item_id in active_ids
+    ]
 
     bank_accounts = [a for a in accounts if a.type == "BANK"]
     credit_accounts = [a for a in accounts if a.type == "CREDIT"]
@@ -384,6 +395,8 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
             "accounts": [
                 {
                     "id": a.id,
+                    "item_id": a.item_id,
+                    "is_active": a.is_active,
                     "name": a.marketing_name or a.name,
                     "balance": float(a.balance) if a.balance is not None else None,
                     "currency_code": a.currency_code,
@@ -405,6 +418,8 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
             "accounts": [
                 {
                     "id": a.id,
+                    "item_id": a.item_id,
+                    "is_active": a.is_active,
                     "name": a.marketing_name or a.name,
                     "brand": a.credit_brand,
                     "level": a.credit_level,
@@ -481,6 +496,11 @@ def official_bills_total_for_month(
     matched by its ``due_date`` falling inside the month, which is how the
     cash obligation is bucketed in the planning view.
     """
+    active_ids = _active_item_ids(session)
+    active_credit_account_ids = {
+        a.id for a in session.exec(select(Account)).all()
+        if a.type == "CREDIT" and a.is_active and a.item_id in active_ids
+    }
     bills = list(session.exec(select(CreditCardBill)).all())
     matched = [
         bill
@@ -488,6 +508,7 @@ def official_bills_total_for_month(
         if bill.due_date is not None
         and bill.due_date.strftime("%Y-%m") == year_month
         and bill.total_amount is not None
+        and bill.account_id in active_credit_account_ids
     ]
     if not matched:
         return None
@@ -521,6 +542,16 @@ def credit_card_obligation_summary(
     """
     from app.services.transaction_reports import invoice_summary  # avoid circular at import time
 
+    active_ids = _active_item_ids(session)
+    all_credit = [
+        a for a in session.exec(select(Account)).all()
+        if a.type == "CREDIT"
+    ]
+    credit_accounts = [
+        a for a in all_credit if a.is_active and a.item_id in active_ids
+    ]
+    active_credit_account_ids = {a.id for a in credit_accounts}
+
     # ---- Tier 1: Pluggy CreditCardBill due in year_month ----
     bills = list(session.exec(select(CreditCardBill)).all())
     matched_bills = [
@@ -528,9 +559,8 @@ def credit_card_obligation_summary(
         if b.due_date is not None
         and b.due_date.strftime("%Y-%m") == year_month
         and b.total_amount is not None
+        and b.account_id in active_credit_account_ids
     ]
-
-    credit_accounts = [a for a in session.exec(select(Account)).all() if a.type == "CREDIT"]
 
     if matched_bills:
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))

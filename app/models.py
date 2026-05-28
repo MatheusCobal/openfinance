@@ -15,6 +15,9 @@ class Item(SQLModel, table=True):
     sync_started_at: Optional[datetime.datetime] = None
     sync_finished_at: Optional[datetime.datetime] = None
     last_sync_error: Optional[str] = None
+    is_active: bool = Field(default=True)
+    last_seen_at: Optional[datetime.datetime] = None
+    deactivated_at: Optional[datetime.datetime] = None
 
 
 class Account(SQLModel, table=True):
@@ -51,6 +54,9 @@ class Account(SQLModel, table=True):
     credit_status: Optional[str] = None
     credit_holder_type: Optional[str] = None
     balance_updated_at: Optional[datetime.datetime] = None
+    is_active: bool = Field(default=True)
+    last_seen_at: Optional[datetime.datetime] = None
+    deactivated_at: Optional[datetime.datetime] = None
 
 
 class CreditCardBill(SQLModel, table=True):

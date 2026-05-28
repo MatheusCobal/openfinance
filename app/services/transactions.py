@@ -8,6 +8,7 @@ from app.models import (
     BankCashflowExclusionRule,
     BankIncomeExclusionRule,
     IgnoredDescriptionRule,
+    Item,
     Transaction,
 )
 from app.services.classification import (
@@ -61,11 +62,23 @@ def filter_ignored_transactions(
     return [tx for tx in transactions if not classifier.is_ignored(tx)]
 
 
-def account_ids_by_type(session: Session, account_types: set[str]) -> list[str]:
+def account_ids_by_type(
+    session: Session,
+    account_types: set[str],
+    active_only: bool = True,
+) -> list[str]:
+    accounts = session.exec(select(Account)).all()
+    if not active_only:
+        return [a.id for a in accounts if a.type in account_types]
+    active_item_ids = {
+        item.id for item in session.exec(select(Item)).all() if item.is_active
+    }
     return [
-        account.id
-        for account in session.exec(select(Account)).all()
-        if account.type in account_types
+        a.id
+        for a in accounts
+        if a.type in account_types
+        and a.is_active
+        and a.item_id in active_item_ids
     ]
 
 
