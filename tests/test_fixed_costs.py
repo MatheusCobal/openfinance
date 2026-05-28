@@ -13,6 +13,7 @@ from app.models import (
     Budget,
     Category,
     CategoryRule,
+    CreditCardBill,
     ExpectedIncome,
     Item,
     Transaction,
@@ -1729,6 +1730,91 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Formula: 20300 - 300 (fixed) - 500 (var consumed) - 100 (overage) - 1000 (reserve)
         # = 18400   (unbudgeted R$400 is NOT subtracted)
         self.assertEqual(capacity["budget_available_to_spend"], 18400.0)
+
+    # ----- 12. card_invoice_remaining_to_reserve reduces disponível -----
+
+    def test_card_invoice_gap_reduces_budget_available(self):
+        """When the official Pluggy bill exceeds reconstructed card transactions,
+        the gap is subtracted from budget_available_to_spend.
+
+        Verifies:
+        - card_invoice_remaining_to_reserve = max(official - gross, 0) in response
+        - that gap IS subtracted from budget_available_to_spend
+        - unbudgeted_variable_spent (card purchase with no budget) is NOT subtracted
+        - no double-counting: only the gap, not the full bill
+        """
+        with Session(self.engine) as session:
+            # Category mapping so the card purchase resolves to a known category
+            # with no Budget → shows up as unbudgeted_variable_spent (not in formula)
+            session.add(Category(id=95, name="Compras", color="#6366f1", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Shopping", category_id=95))
+            # A card purchase in a category with no budget → unbudgeted, not in formula
+            session.add(
+                Transaction(
+                    id="tx-card-gap-1",
+                    account_id="credit-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("1000"),
+                    description="Compra cartao",
+                    category="Shopping",
+                )
+            )
+            # Official Pluggy bill: R$ 5,000 — larger than the R$ 1,000 transaction
+            session.add(
+                CreditCardBill(
+                    id="bill-gap-1",
+                    account_id="credit-1",
+                    due_date=date(2026, 6, 15),
+                    total_amount=Decimal("5000"),
+                )
+            )
+            session.commit()
+
+        capacity = self._capacity()
+
+        self.assertEqual(capacity["card_invoice_gross_total"], 1000.0)
+        self.assertEqual(capacity["card_invoice_official_total"], 5000.0)
+        # Gap = 5000 - 1000 = 4000; this is the unaccounted obligation
+        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 4000.0)
+        # Unbudgeted card purchase NOT in formula
+        self.assertEqual(capacity["unbudgeted_variable_spent"], 1000.0)
+        # Formula: 20300 - 0 (fixed) - 0 (var consumed) - 0 (overage) - 0 (reserve) - 4000 (gap)
+        self.assertEqual(capacity["budget_available_to_spend"], 16300.0)
+
+    def test_card_invoice_no_gap_when_official_not_larger(self):
+        """When the official bill is less than or equal to gross transactions,
+        card_invoice_remaining_to_reserve is 0 and budget_available_to_spend
+        is not affected by the invoice at all."""
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-card-nogap-1",
+                    account_id="credit-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("2000"),
+                    description="Compra cartao",
+                    category="Shopping",
+                )
+            )
+            # Official bill smaller than reconstructed transactions → gap = 0
+            session.add(
+                CreditCardBill(
+                    id="bill-nogap-1",
+                    account_id="credit-1",
+                    due_date=date(2026, 6, 15),
+                    total_amount=Decimal("1500"),
+                )
+            )
+            session.commit()
+
+        capacity = self._capacity()
+
+        self.assertEqual(capacity["card_invoice_gross_total"], 2000.0)
+        self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
+        # No gap — max(1500 - 2000, 0) = 0
+        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+        # Formula: 20300 - 0 - 0 - 0 - 0 - 0 = 20300
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
 
 if __name__ == "__main__":

@@ -1047,6 +1047,19 @@ def spending_capacity_summary(
     card_open_balance_total = Decimal(str(cc_obligation["current_open_total"])) \
         if cc_obligation["current_open_total"] is not None else Decimal("0")
     credit_card_due_dates = cc_obligation.get("due_dates", [])
+    # ---- Card invoice gap ----
+    # card_invoice_gross_total = all individual card transactions we have records
+    # for (both variable and fixed-cost purchases).  card_invoice_official_total
+    # is the Pluggy official bill / account balance snapshot.  When the official
+    # total is larger than the sum of known transactions, the difference is a real
+    # cash obligation not yet captured in any budget bucket (e.g. prior-month
+    # carry-over, fees, international charges). We reserve that gap explicitly so
+    # it appears in the formula and in the UI without double-counting the purchases
+    # that are already handled via variable_budget_consumed / fixed_cost_reserved.
+    card_invoice_remaining_to_reserve = max(
+        card_invoice_official_total - card_invoice_gross_total,
+        Decimal("0"),
+    )
     variable_budget_total = Decimal(str(variable_budgets["summary"]["target"]))
     variable_budget_spent = Decimal(
         str(variable_budgets["summary"]["projected_spent"])
@@ -1157,28 +1170,31 @@ def spending_capacity_summary(
     # ---- Headline: "Disponível para gastar no mês" ----
     # Cash logic:
     #   income
-    # - fixed_cost_reserved_total   (planned for pending bills + actual for paid)
-    # - variable_budget_consumed    (min(spent, target) across budgeted categories)
-    # - variable_budget_overage     (overspend on budgeted categories)
-    # - reserve_reserved_total      (max(savings_target, applied_to_reserve))
+    # - fixed_cost_reserved_total         (planned for pending bills + actual for paid)
+    # - variable_budget_consumed          (min(spent, target) across budgeted categories)
+    # - variable_budget_overage           (overspend on budgeted categories)
+    # - reserve_reserved_total            (max(savings_target, applied_to_reserve))
+    # - card_invoice_remaining_to_reserve (official bill gap — see below)
     #
-    # NOTE: unbudgeted_variable_spent is intentionally excluded from this
-    # formula. Unbudgeted transactions are spend that hasn't been planned
-    # yet — they appear in the response for auditability/review, but must
-    # not automatically reduce the planned available amount. The user should
-    # review these transactions and either assign budgets or link them to
-    # fixed costs. Until then they are informational only.
+    # NOTE: unbudgeted_variable_spent is intentionally excluded from this formula.
+    # Unbudgeted transactions haven't been planned yet — they appear in the
+    # response for auditability/review, but must not automatically reduce the
+    # planned available amount.  The user should review these and either assign
+    # budgets or link them to fixed costs.
     #
-    # This is the single source of truth. The credit-card invoice is
-    # cash-flow timing only — individual purchases already consumed the
-    # category budgets above, so subtracting the invoice again would
-    # double count.
+    # card_invoice_remaining_to_reserve = max(official_bill - gross_transactions, 0)
+    # Individual card purchases already consumed variable/fixed buckets above.
+    # Subtracting the whole invoice would double-count those purchases.
+    # Only the GAP (official > our per-transaction reconstruction) is reserved here
+    # because that represents real cash obligations we have no individual records for
+    # (prior-month carry-over, fees, international charges, etc.).
     budget_available_to_spend = (
         expected_income_total
         - fixed_cost_reserved_total
         - variable_budget_consumed
         - variable_budget_overage
         - reserve_reserved_total
+        - card_invoice_remaining_to_reserve
     )
     # Keep the legacy aliases pointing at the same number so existing
     # consumers (tests, frontend) keep working while the new field rolls out.
@@ -1302,6 +1318,7 @@ def spending_capacity_summary(
         ),
         "card_invoice_fixed_cost_total": float(card_invoice_fixed_cost_total),
         "card_invoice_official_total": float(card_invoice_official_total),
+        "card_invoice_remaining_to_reserve": float(card_invoice_remaining_to_reserve),
         "card_invoice_source": card_invoice_source,
         "card_open_balance_total": float(card_open_balance_total),
         "credit_card_due_dates": credit_card_due_dates,
@@ -1370,6 +1387,7 @@ def spending_capacity_monthly_summary(
         "card_invoice_gross_total": Decimal("0"),
         "card_invoice_discretionary_total": Decimal("0"),
         "card_invoice_fixed_cost_total": Decimal("0"),
+        "card_invoice_remaining_to_reserve": Decimal("0"),
         "budget_available_to_spend": Decimal("0"),
         "discretionary_available": Decimal("0"),
         "reserve_target_total": Decimal("0"),
@@ -1409,6 +1427,9 @@ def spending_capacity_monthly_summary(
             ],
             "card_invoice_fixed_cost_total": capacity[
                 "card_invoice_fixed_cost_total"
+            ],
+            "card_invoice_remaining_to_reserve": capacity[
+                "card_invoice_remaining_to_reserve"
             ],
             "budget_available_to_spend": capacity["budget_available_to_spend"],
             "discretionary_available": capacity["discretionary_available"],
