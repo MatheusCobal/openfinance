@@ -61,6 +61,7 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn("text/html", response.headers["content-type"])
         self.assertIn("Transações", response.text)
         self.assertIn("/static/transacoes.js", response.text)
+        self.assertNotIn("Fatura planejamento", response.text)
 
     def test_orcamento_redirects_to_custos_fixos(self):
         response = self.client.get("/orcamento")

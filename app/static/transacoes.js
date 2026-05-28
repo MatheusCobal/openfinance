@@ -383,12 +383,12 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
   const balanceCurrent = findMonth(balanceData.months, selectedMonth) || {};
   const balancePrevious = findMonth(balanceData.months, previousKey);
   const invoiceGross = capacityData.card_invoice_gross_total ?? balanceCurrent.card_spend ?? 0;
-  const invoiceDiscretionary = capacityData.card_invoice_discretionary_total ?? capacityData.card_invoice_total ?? invoiceGross;
-  const invoiceFixedCost = capacityData.card_invoice_fixed_cost_total ?? Math.max(invoiceGross - invoiceDiscretionary, 0);
-  const discretionaryAvailable = capacityData.discretionary_available ?? capacityData.available_to_spend ?? capacityData.remaining_after_plan ?? 0;
+  const budgetAvailableToSpend = capacityData.budget_available_to_spend ?? capacityData.discretionary_available ?? capacityData.available_to_spend ?? 0;
   const dailyAvailable = capacityData.daily_discretionary_remaining ?? null;
   const variableBudgetTotal = capacityData.variable_budget_total ?? capacityData.planned_variable_total ?? 0;
-  const variableSpent = capacityData.variable_budget_spent ?? 0;
+  const variableConsumed = (capacityData.variable_budget_consumed || 0) +
+    (capacityData.variable_budget_overage || 0) +
+    (capacityData.unbudgeted_variable_spent || 0);
   const expectedIncome = capacityData.expected_income_total ?? capacityData.receita_esperada ?? 0;
   const receivedIncome = capacityData.received_income_total ?? capacityData.valor_recebido ?? current.income ?? 0;
   const receivedHelp = expectedIncome > 0
@@ -397,6 +397,39 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
   const dailyHelp = dailyAvailable === null
     ? planStatusLabel(capacityData.plan_status)
     : `${planStatusLabel(capacityData.plan_status)} · ${currency.format(dailyAvailable)}/dia`;
+
+  const fixedCostActual = capacityData.fixed_cost_actual_total || 0;
+  const fixedCostPending = capacityData.fixed_cost_pending_total || 0;
+  const fixedCostVariance = capacityData.fixed_cost_variance_total || 0;
+  const fixedCostCount = capacityData.fixed_costs?.entries?.length || 0;
+  const fixedCostSubtext = [
+    `${fixedCostCount} itens`,
+    `pago ${currency.format(fixedCostActual)}`,
+    `pendente ${currency.format(fixedCostPending)}`,
+    ...(fixedCostVariance !== 0 ? [`diferença ${currency.format(Math.abs(fixedCostVariance))}`] : []),
+  ].join(' · ');
+
+  const reserveTarget = capacityData.reserve_target_total || 0;
+  const reserveApplied = capacityData.reserve_applied_total || 0;
+  const reservePending = capacityData.reserve_pending_total || 0;
+  const reserveOver = capacityData.reserve_over_applied_total || 0;
+  let reserveSubtext;
+  if (reserveTarget === 0 && reserveApplied === 0) {
+    reserveSubtext = 'sem meta/aplicação no mês';
+  } else {
+    const parts = [`meta ${currency.format(reserveTarget)} · aplicado ${currency.format(reserveApplied)}`];
+    if (reservePending > 0) parts.push(`falta ${currency.format(reservePending)}`);
+    if (reserveOver > 0) parts.push(`acima ${currency.format(reserveOver)}`);
+    reserveSubtext = parts.join(' · ');
+  }
+
+  const variableParts = [];
+  if (variableBudgetTotal > 0) variableParts.push(`meta ${currency.format(variableBudgetTotal)}`);
+  const unbudgeted = capacityData.unbudgeted_variable_spent || 0;
+  const overage = capacityData.variable_budget_overage || 0;
+  if (unbudgeted > 0) variableParts.push(`sem orçamento ${currency.format(unbudgeted)}`);
+  if (overage > 0) variableParts.push(`estouro ${currency.format(overage)}`);
+  const variableSubtext = variableParts.length > 0 ? variableParts.join(' · ') : 'sem meta configurada';
 
   periodLabel.textContent = formatMonthLabel(selectedMonth);
 
@@ -429,47 +462,35 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
       higherIsBetter: false,
     }),
     flowCard({
-      label: 'Fatura planejamento',
-      icon: '📋',
-      value: invoiceDiscretionary,
-      countLabel: invoiceFixedCost > 0
-        ? `${currency.format(invoiceFixedCost)} já está em fixos`
-        : pluralCompras(capacityData.invoice_discretionary_count || 0),
-      tint: 'slate',
-      higherIsBetter: false,
-    }),
-    flowCard({
       label: 'Custos fixos',
       icon: '📌',
-      value: capacityData.fixed_cost_total || 0,
-      countLabel: `${capacityData.fixed_costs?.entries?.length || 0} itens`,
+      value: capacityData.fixed_cost_reserved_total || 0,
+      countLabel: fixedCostSubtext,
       tint: 'red',
       higherIsBetter: false,
     }),
     flowCard({
       label: 'Variável usado',
       icon: '🧾',
-      value: variableSpent,
-      countLabel: variableBudgetTotal > 0
-        ? `meta ${currency.format(variableBudgetTotal)}`
-        : 'sem meta configurada',
+      value: variableConsumed,
+      countLabel: variableSubtext,
       tint: 'orange',
       higherIsBetter: false,
     }),
     flowCard({
       label: 'Reserva',
       icon: '🏦',
-      value: capacityData.savings_target_total || 0,
-      countLabel: capacityData.savings_target?.scope === 'month' ? 'ajuste do mês' : 'meta padrão',
+      value: capacityData.reserve_reserved_total || 0,
+      countLabel: reserveSubtext,
       tint: 'slate',
       higherIsBetter: true,
     }),
     flowCard({
       label: 'Pode gastar',
       icon: '📌',
-      value: discretionaryAvailable,
+      value: budgetAvailableToSpend,
       help: dailyHelp,
-      tint: discretionaryAvailable >= 0 ? 'emerald' : 'red',
+      tint: budgetAvailableToSpend >= 0 ? 'emerald' : 'red',
       higherIsBetter: true,
       isNet: true,
     }),
@@ -499,6 +520,7 @@ async function loadMonthlyFlow(expectedVersion) {
     const capacityData = await capacityResponse.json();
     if (expectedVersion !== loadVersion) return;
     renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMonth);
+    updateHeroFromCapacity(capacityData);
   } catch (err) {
     console.error('monthly flow load failed:', err);
   }
@@ -546,6 +568,33 @@ function renderSummary(stats) {
     ? 'Nenhuma transação ainda'
     : `${transaction_count} compras em ${categories.length} categoria${categories.length === 1 ? '' : 's'}`;
   document.getElementById('subtitle').textContent = subtitle;
+}
+
+function updateHeroFromCapacity(capacityData) {
+  if (!capacityData) return;
+  const source = capacityData.card_invoice_source;
+  let label, value, supporting;
+  if (source === 'account_balance') {
+    label = 'Fatura aberta / saldo do cartão';
+    value = capacityData.card_open_balance_total ?? 0;
+    supporting = 'dados do saldo do cartão';
+  } else if (source === 'bill') {
+    label = 'Fatura oficial Pluggy';
+    value = capacityData.card_invoice_official_total ?? 0;
+    const dueDates = capacityData.credit_card_due_dates;
+    supporting = Array.isArray(dueDates) && dueDates.length > 0
+      ? `vencimento: ${dueDates.map(formatShortDate).join(', ')}`
+      : 'fatura fechada do cartão';
+  } else if (source === 'transaction_fallback') {
+    label = 'Fatura reconstruída por transações';
+    value = capacityData.card_invoice_gross_total ?? 0;
+    supporting = 'fallback — sem fatura oficial disponível';
+  } else {
+    return;
+  }
+  document.getElementById('stat-label').textContent = label;
+  document.getElementById('stat-total').textContent = currency.format(value);
+  document.getElementById('stat-payment-count').textContent = supporting;
 }
 
 function formatShortDate(iso) {
