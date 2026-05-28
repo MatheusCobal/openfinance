@@ -30,9 +30,7 @@ def transacoes():
 
 @router.get("/orcamento", include_in_schema=False)
 def orcamento():
-    # /orcamento was an early budgets screen that now overlaps entirely with
-    # Planejamento (/custos-fixos). Redirect instead of serving the old page.
-    # orcamento.html/js stay on disk until we confirm nothing links to them.
+    # Legacy budgets screen — redirects permanently to Planejamento.
     return RedirectResponse(url="/custos-fixos", status_code=307)
 
 

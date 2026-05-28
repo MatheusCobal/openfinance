@@ -151,27 +151,34 @@ function renderMonthStrip() {
 
 function renderCapacityFlow(capacity) {
   const container = document.getElementById('capacity-summary');
-  const sobra = capacity.discretionary_available ?? capacity.available_to_spend ?? capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
+  const sobra = capacity.budget_available_to_spend ?? capacity.discretionary_available ?? capacity.available_to_spend ?? 0;
   const sobraPositive = sobra >= 0;
-  const income   = capacity.expected_income_total || 0;
-  const fixed    = capacity.fixed_cost_total       || 0;
-  const variable = capacity.variable_budget_total  || 0;
-  const fixedPct    = income > 0 ? Math.min(100, (fixed    / income) * 100) : 0;
-  const variablePct = income > 0 ? Math.min(100, (variable / income) * 100) : 0;
-  const freePct     = Math.max(0, 100 - fixedPct - variablePct);
+  const income        = capacity.expected_income_total     || 0;
+  const fixedReserved = capacity.fixed_cost_reserved_total || 0;
+  const varConsumed   = capacity.variable_budget_consumed  || 0;
+  const varOverage    = capacity.variable_budget_overage   || 0;
+  const unbudgeted    = capacity.unbudgeted_variable_spent || 0;
+  const varTotal      = varConsumed + varOverage + unbudgeted;
+  const reserve       = capacity.reserve_reserved_total    || 0;
+
+  const fixedPct    = income > 0 ? Math.min(100, (fixedReserved / income) * 100) : 0;
+  const variablePct = income > 0 ? Math.min(100, (varTotal       / income) * 100) : 0;
+  const reservePct  = income > 0 ? Math.min(100, (reserve        / income) * 100) : 0;
+  const freePct     = Math.max(0, 100 - fixedPct - variablePct - reservePct);
 
   const cards = [
-    { icon: '💰', label: 'Receita esperada', value: income,   accent: false },
-    { icon: '🏠', label: 'Custos fixos',     value: fixed,    accent: false },
-    { icon: '🎯', label: 'Metas variáveis',  value: variable, accent: false },
-    { icon: '✨', label: 'Pode gastar',       value: sobra,    accent: true  },
+    { icon: '💰', label: 'Receita esperada',         value: income,        accent: false },
+    { icon: '🏠', label: 'Custos fixos reservados',  value: fixedReserved, accent: false },
+    { icon: '🎯', label: 'Variável + sem orçamento', value: varTotal,      accent: false },
+    { icon: '✨', label: 'Pode gastar',               value: sobra,         accent: true  },
   ];
 
   const rows = [
-    { key: 'receita', icon: '💰', label: 'Receita esperada', value: income   },
-    { key: 'custos',  icon: '🏠', label: 'Custos fixos',     value: fixed    },
-    { key: 'metas',   icon: '🎯', label: 'Metas variáveis',  value: variable },
-    { key: 'livre',   icon: '✨', label: 'Pode gastar',       value: sobra    },
+    { key: 'receita',  icon: '💰', label: 'Receita esperada',         value: income        },
+    { key: 'custos',   icon: '🏠', label: 'Custos fixos reservados',  value: fixedReserved },
+    { key: 'variavel', icon: '🎯', label: 'Variável + sem orçamento', value: varTotal      },
+    { key: 'reserva',  icon: '🐷', label: 'Reserva planejada',        value: reserve       },
+    { key: 'livre',    icon: '✨', label: 'Pode gastar',               value: sobra         },
   ];
 
   container.innerHTML = `
@@ -194,8 +201,9 @@ function renderCapacityFlow(capacity) {
 
     ${income > 0 ? `
       <div class="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-100 mb-2">
-        <div class="h-full bg-slate-400"   style="width:${fixedPct.toFixed(1)}%" title="Custos fixos"></div>
-        <div class="h-full bg-amber-400"   style="width:${variablePct.toFixed(1)}%" title="Metas variáveis"></div>
+        <div class="h-full bg-slate-400"   style="width:${fixedPct.toFixed(1)}%"    title="Custos fixos reservados"></div>
+        <div class="h-full bg-amber-400"   style="width:${variablePct.toFixed(1)}%" title="Variável + sem orçamento"></div>
+        <div class="h-full bg-indigo-300"  style="width:${reservePct.toFixed(1)}%"  title="Reserva planejada"></div>
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
       </div>
       <div class="flex flex-wrap gap-x-4 gap-y-0.5 mb-5">
@@ -203,8 +211,11 @@ function renderCapacityFlow(capacity) {
           <span class="size-2 rounded-full bg-slate-400 shrink-0"></span>Fixos ${fixedPct.toFixed(0)}%
         </span>
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Metas ${variablePct.toFixed(0)}%
+          <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Variável ${variablePct.toFixed(0)}%
         </span>
+        ${reservePct > 0 ? `<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+          <span class="size-2 rounded-full bg-indigo-300 shrink-0"></span>Reserva ${reservePct.toFixed(0)}%
+        </span>` : ''}
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'} shrink-0"></span>Livre ${freePct.toFixed(0)}%
         </span>
@@ -290,7 +301,7 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
     `).join('');
   }
 
-  if (key === 'metas') {
+  if (key === 'variavel') {
     const items = (capacity.variable_budgets?.items || []).filter((i) => i.target !== null && i.target > 0);
     if (!items.length) return '<p class="text-xs text-slate-400 py-2">Nenhuma meta definida.</p>';
     return `
@@ -317,12 +328,53 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
     `;
   }
 
+  if (key === 'reserva') {
+    const target  = capacity.reserve_target_total    || 0;
+    const applied = capacity.reserve_applied_total   || 0;
+    const pending = capacity.reserve_pending_total   || 0;
+    const over    = capacity.reserve_over_applied_total || 0;
+    return `
+      <div class="space-y-2 pt-1">
+        <div class="flex items-baseline gap-3">
+          <span class="w-4"></span>
+          <span class="flex-1 text-xs text-slate-500">Meta mensal</span>
+          <span class="text-sm tabular text-slate-700">${currency.format(target)}</span>
+        </div>
+        <div class="flex items-baseline gap-3">
+          <span class="w-4"></span>
+          <span class="flex-1 text-xs text-slate-500">Aplicado no mês</span>
+          <span class="text-sm tabular text-slate-700">${currency.format(applied)}</span>
+        </div>
+        ${pending > 0 ? `<div class="flex items-baseline gap-3">
+          <span class="w-4"></span>
+          <span class="flex-1 text-xs text-amber-600">Falta aplicar</span>
+          <span class="text-sm tabular text-amber-700">${currency.format(pending)}</span>
+        </div>` : ''}
+        ${over > 0 ? `<div class="flex items-baseline gap-3">
+          <span class="w-4"></span>
+          <span class="flex-1 text-xs text-indigo-600">Aplicado além da meta</span>
+          <span class="text-sm tabular text-indigo-700">${currency.format(over)}</span>
+        </div>` : ''}
+        <p class="text-[11px] text-slate-400 pt-1 border-t border-slate-100 mt-1">
+          Reserva não é despesa, mas reduz o dinheiro livre porque é um compromisso planejado.
+        </p>
+      </div>
+    `;
+  }
+
   if (key === 'livre') {
+    const varConsumed = capacity.variable_budget_consumed  || 0;
+    const varOverage  = capacity.variable_budget_overage   || 0;
+    const unbudgeted  = capacity.unbudgeted_variable_spent || 0;
+    const reserve     = capacity.reserve_reserved_total    || 0;
     const eq = [
-      { label: 'Receita esperada', value: capacity.expected_income_total || 0, op: '',  cls: 'text-slate-700' },
-      { label: 'Custos fixos',     value: capacity.fixed_cost_total       || 0, op: '−', cls: 'text-slate-600' },
-      { label: 'Metas variáveis',  value: capacity.variable_budget_total  || 0, op: '−', cls: 'text-slate-600' },
-      { label: 'Pode gastar',      value: sobra,                                op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
+      { label: 'Receita esperada',        value: capacity.expected_income_total     || 0, op: '',  cls: 'text-slate-700' },
+      { label: 'Custos fixos reservados', value: capacity.fixed_cost_reserved_total || 0, op: '−', cls: 'text-slate-600' },
+      { label: 'Variável consumido',      value: varConsumed,                             op: '−', cls: 'text-slate-600' },
+      { label: 'Estouro variável',        value: varOverage,                              op: '−', cls: 'text-slate-600' },
+      { label: 'Sem orçamento',           value: unbudgeted,                              op: '−', cls: 'text-slate-600' },
+      { label: 'Reserva planejada/aplic.',value: reserve,                                 op: '−', cls: 'text-slate-600' },
+      { label: 'Pode gastar',             value: sobra,                                   op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
     ];
     return `
       <div class="space-y-2 pt-1">
@@ -333,6 +385,9 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
             <span class="text-sm tabular ${r.cls}">${currency.format(r.value)}</span>
           </div>
         `).join('')}
+        <p class="text-[11px] text-slate-400 pt-1 border-t border-slate-100 mt-1">
+          Reserva não é despesa, mas reduz o dinheiro livre porque é um compromisso planejado.
+        </p>
       </div>
     `;
   }

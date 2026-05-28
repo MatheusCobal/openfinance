@@ -1366,6 +1366,11 @@ def spending_capacity_monthly_summary(
         "card_invoice_fixed_cost_total": Decimal("0"),
         "budget_available_to_spend": Decimal("0"),
         "discretionary_available": Decimal("0"),
+        "reserve_target_total": Decimal("0"),
+        "reserve_applied_total": Decimal("0"),
+        "reserve_reserved_total": Decimal("0"),
+        "reserve_pending_total": Decimal("0"),
+        "reserve_over_applied_total": Decimal("0"),
     }
     for offset in range(months):
         year_month = _shift_year_month(start_month, offset)
@@ -1401,6 +1406,12 @@ def spending_capacity_monthly_summary(
             ],
             "budget_available_to_spend": capacity["budget_available_to_spend"],
             "discretionary_available": capacity["discretionary_available"],
+            "reserve_target_total": capacity["reserve_target_total"],
+            "reserve_applied_total": capacity["reserve_applied_total"],
+            "reserve_reserved_total": capacity["reserve_reserved_total"],
+            "reserve_pending_total": capacity["reserve_pending_total"],
+            "reserve_over_applied_total": capacity["reserve_over_applied_total"],
+            "reserve_planning_source": capacity["reserve_planning_source"],
             "projected_cash_available": capacity["projected_cash_available"],
             "daily_discretionary_remaining": capacity[
                 "daily_discretionary_remaining"

@@ -1290,10 +1290,12 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     def test_fixed_income_cdb_not_in_bank_flows_nor_available(self):
         """Pluggy "Fixed income" (CDB) movements:
         - do NOT appear in bank_outflows_total / bank_inflows_total
-        - are still reported as raw reserva_* movements (informational)
-        - do NOT reduce budget_available_to_spend — investing isn't spending,
-          and the reserve now lives in Histórico (real Investment.balance),
-          not in the available-to-spend calculation.
+        - are tracked separately as raw reserva_* movements (informational)
+        - DO reduce budget_available_to_spend via reserve_reserved_total =
+          max(savings_target, applied_to_reserve), because money committed to
+          the reserve is reserved from consumption even though it is not an
+          expense. With no savings target set, reserve_reserved_total equals
+          the gross application amount.
         """
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -1545,6 +1547,33 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(
             row["budget_available_to_spend"], row["discretionary_available"]
         )
+
+
+    def test_monthly_endpoint_includes_reserve_fields(self):
+        """/spending-capacity/monthly must expose reserve planning fields in
+        each month row and in the aggregate summary."""
+        response = self.client.get(
+            "/spending-capacity/monthly", params={"months": 1}
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        row = payload["months"][0]
+        summary = payload["summary"]
+
+        reserve_numeric = [
+            "reserve_target_total",
+            "reserve_applied_total",
+            "reserve_reserved_total",
+            "reserve_pending_total",
+            "reserve_over_applied_total",
+        ]
+        for field in reserve_numeric:
+            self.assertIn(field, row, f"row missing {field}")
+            self.assertIn(field, summary, f"summary missing {field}")
+
+        # reserve_planning_source is a string — in row but NOT summed in summary
+        self.assertIn("reserve_planning_source", row)
+        self.assertEqual(row["reserve_planning_source"], "savings_target")
 
 
 if __name__ == "__main__":
