@@ -1120,6 +1120,12 @@ def spending_capacity_summary(
     )
     reserve_target = savings_effective_target(session, year_month)
     reserve_reserved_total = max(reserve_target, reserve_applied_total)
+    reserve_target_total = reserve_target
+    reserve_pending_total = max(reserve_target - reserve_applied_total, Decimal("0"))
+    reserve_over_applied_total = max(
+        reserve_applied_total - reserve_target, Decimal("0")
+    )
+    reserve_planning_source = "savings_target"
 
     income_to_receive = max(
         expected_income_total - received_income_total,
@@ -1135,13 +1141,14 @@ def spending_capacity_summary(
         else None
     )
 
-    # Reserva is no longer a planning input here. The emergency reserve now
-    # lives in Histórico, sourced from real Pluggy investments
-    # (Investment.balance), not from a manual savings target. The raw CDB
-    # movement totals (reserva_application_total / rescue / net) are still
-    # exposed below as informational, but they do NOT reduce
-    # "Disponível para gastar": moving money to an investment isn't spending,
-    # it's still your money.
+    # ---- Reserve planning notes ----
+    # Current reserve balance → Investment.balance (Pluggy snapshot, Histórico).
+    # Monthly planned reserve → SavingsTarget / SavingsTargetOverride.
+    # reserve_reserved_total = max(target, applied) is subtracted from
+    # budget_available_to_spend because it is money reserved from consumption,
+    # even though it is not an expense — it is the user's own commitment.
+    # The raw CDB movement totals (reserva_application_total / rescue / net)
+    # are still exposed as informational context.
 
     planned_expense_total = fixed_cost_total + variable_budget_total
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
@@ -1186,9 +1193,10 @@ def spending_capacity_summary(
     # ---- Projected cash available (cash-flow / timing view) ----
     # Answers: "considering current bank balance, future income and pending
     # obligations, what should my bank cash look like at the end of the month?"
-    # Requires a persisted current account balance, which the Account model
-    # doesn't store yet. Return None so the frontend renders an explicit
-    # "indisponível" instead of faking a number derived from monthly totals.
+    # Account.balance now exists (synced from Pluggy). projected_cash_available
+    # remains None because the formula still needs validated rules for
+    # bill paid/pending state, reserve pending timing, and partial-month
+    # proration. Do not implement here.
     projected_cash_available: Optional[float] = None
 
     # ---- Daily discretionary verba ----
@@ -1242,6 +1250,10 @@ def spending_capacity_summary(
         "reserve_applied_total": float(reserve_applied_total),
         "reserve_target": float(reserve_target),
         "reserve_reserved_total": float(reserve_reserved_total),
+        "reserve_target_total": float(reserve_target_total),
+        "reserve_pending_total": float(reserve_pending_total),
+        "reserve_over_applied_total": float(reserve_over_applied_total),
+        "reserve_planning_source": reserve_planning_source,
         "income_to_receive": float(income_to_receive),
         "receita_a_receber": float(income_to_receive),
         "income_over_expected": float(income_over_expected),

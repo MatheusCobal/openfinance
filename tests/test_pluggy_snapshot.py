@@ -618,14 +618,18 @@ class BillTransactionSyncTest(_SyncTestBase):
                 "billId": "bill-1",
             },
             {
+                # Installment purchase — carries full installment metadata
                 "id": "tx-bill-2",
                 "date": "2026-05-15",
-                "amount": -80.0,
-                "description": "Farmacia",
-                "category": "Health",
+                "amount": -300.0,
+                "description": "Notebook 3/12",
+                "category": "Electronics",
                 "currencyCode": "BRL",
                 "status": "POSTED",
                 "billId": "bill-1",
+                "installmentNumber": 3,
+                "totalInstallments": 12,
+                "totalAmount": -3600.0,
             },
         ]
 
@@ -638,7 +642,7 @@ class BillTransactionSyncTest(_SyncTestBase):
         self.assertEqual(result["bill_transactions_fetched"], 2)
         self.assertEqual(result["bill_transactions_new"], 2)
 
-        # Transactions are in the DB with correct bill_id
+        # Transactions are in the DB with correct bill_id and metadata
         with Session(self.engine) as session:
             tx1 = session.get(Transaction, "tx-bill-1")
             tx2 = session.get(Transaction, "tx-bill-2")
@@ -647,6 +651,9 @@ class BillTransactionSyncTest(_SyncTestBase):
         self.assertEqual(tx1.status, "POSTED")
         self.assertIsNotNone(tx2)
         self.assertEqual(tx2.bill_id, "bill-1")
+        self.assertEqual(tx2.installment_number, 3)
+        self.assertEqual(tx2.total_installments, 12)
+        self.assertEqual(tx2.total_amount, Decimal("-3600.0"))
 
     def test_bill_transaction_failure_does_not_break_sync(self):
         """A crash while fetching transactions for one bill must leave

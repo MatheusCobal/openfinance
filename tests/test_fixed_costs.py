@@ -1354,14 +1354,18 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             capacity = spending_capacity_summary(
                 session, "2026-06", today=date(2026, 6, 30)
             )
-        self.assertEqual(capacity["reserve_target"], 3000.0)
+        self.assertEqual(capacity["reserve_target_total"], 3000.0)
         self.assertEqual(capacity["reserve_applied_total"], 0.0)
+        self.assertEqual(capacity["reserve_pending_total"], 3000.0)
+        self.assertEqual(capacity["reserve_over_applied_total"], 0.0)
         self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
+        self.assertEqual(capacity["reserve_planning_source"], "savings_target")
         # 20300 - 3000 = 17300
         self.assertEqual(capacity["budget_available_to_spend"], 17300.0)
 
     def test_reserve_target_partial_application_target_wins(self):
-        """Savings target=3000, applied=1500 → max(3000,1500)=3000 reserved."""
+        """Savings target=3000, applied=1000 → max(3000,1000)=3000 reserved,
+        pending=2000, over_applied=0."""
         from app.models import SavingsTarget
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -1372,7 +1376,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                     id="tx-cdb-partial",
                     account_id="bank-1",
                     date=date(2026, 6, 10),
-                    amount=Decimal("-1500"),
+                    amount=Decimal("-1000"),
                     description="Aplicacao CDB",
                     category="Fixed income",
                 )
@@ -1383,15 +1387,18 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             capacity = spending_capacity_summary(
                 session, "2026-06", today=date(2026, 6, 30)
             )
-        self.assertEqual(capacity["reserve_target"], 3000.0)
-        self.assertEqual(capacity["reserve_applied_total"], 1500.0)
-        # target wins: max(3000, 1500) = 3000
+        self.assertEqual(capacity["reserve_target_total"], 3000.0)
+        self.assertEqual(capacity["reserve_applied_total"], 1000.0)
+        self.assertEqual(capacity["reserve_pending_total"], 2000.0)
+        self.assertEqual(capacity["reserve_over_applied_total"], 0.0)
+        # target wins: max(3000, 1000) = 3000
         self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
         # 20300 - 3000 = 17300
         self.assertEqual(capacity["budget_available_to_spend"], 17300.0)
 
     def test_reserve_applied_exceeds_target_applied_wins(self):
-        """Applied=3500 > target=3000 → max(3000,3500)=3500 reserved."""
+        """Applied=3500 > target=3000 → max(3000,3500)=3500 reserved,
+        pending=0, over_applied=500."""
         from app.models import SavingsTarget
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -1413,8 +1420,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             capacity = spending_capacity_summary(
                 session, "2026-06", today=date(2026, 6, 30)
             )
-        self.assertEqual(capacity["reserve_target"], 3000.0)
+        self.assertEqual(capacity["reserve_target_total"], 3000.0)
         self.assertEqual(capacity["reserve_applied_total"], 3500.0)
+        self.assertEqual(capacity["reserve_pending_total"], 0.0)
+        self.assertEqual(capacity["reserve_over_applied_total"], 500.0)
         # applied wins: max(3000, 3500) = 3500
         self.assertEqual(capacity["reserve_reserved_total"], 3500.0)
         # 20300 - 3500 = 16800
