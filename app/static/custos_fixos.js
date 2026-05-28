@@ -7,6 +7,20 @@ const TRANSACTION_SUGGESTIONS_INITIAL = 5;
 const TRANSACTION_SUGGESTIONS_MAX = 50;
 const MONTH_LABELS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
+// ── Description matching helpers (mirrors backend _token_set / normalize_description) ──
+
+function normalizeDescJs(text) {
+  if (!text) return '';
+  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function tokenSetJs(value) {
+  const stopwords = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'com', 'pagamento', 'compra', 'pix', 'qr', 'code']);
+  return new Set(
+    normalizeDescJs(value).split(/\s+/).filter((t) => t.length >= 3 && !stopwords.has(t))
+  );
+}
+
 const TEMPLATE_EMOJIS = {
   'Aluguel': '🏠', 'Condomínio': '🏢', 'Internet': '🌐',
   'Energia': '⚡', 'Água': '💧', 'Escola': '📚',
@@ -91,7 +105,7 @@ function setPlanningTab(tabName, updateUrl = true) {
     custos: 'Cadastre e edite compromissos recorrentes.',
     variaveis: 'Defina metas para gastos variáveis do mês.',
     receita: 'Cadastre o que você espera receber em cada mês.',
-    transacao: 'Transforme uma movimentação recorrente em custo fixo.',
+    transacao: 'Crie um novo custo recorrente a partir de uma transação.',
   };
   document.getElementById('subtitle').textContent = subtitles[activeTab];
   if (updateUrl) {
@@ -432,11 +446,21 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
   }
 
   if (key === 'variavel') {
-    const items = (capacity.variable_budgets?.items || []).filter((i) => i.target !== null && i.target > 0);
-    if (!items.length) return '<p class="text-xs text-slate-400 py-2">Nenhuma meta definida.</p>';
-    return `
+    const allItems = capacity.variable_budgets?.items || [];
+    const budgeted = allItems.filter((i) => i.target !== null && i.target > 0);
+    const unbudgeted = allItems.filter(
+      (i) => (i.target === null || i.target <= 0) && (i.actual_spent + i.future_spent) > 0
+    );
+    const unbudgetedTotal = unbudgeted.reduce((s, i) => s + i.actual_spent + i.future_spent, 0);
+    const unbudgetedCount = unbudgeted.reduce((s, i) => s + (i.actual_count || 0) + (i.future_count || 0), 0);
+
+    if (!budgeted.length && !unbudgeted.length) {
+      return '<p class="text-xs text-slate-400 py-2">Nenhuma meta definida e nenhum gasto variável no mês.</p>';
+    }
+
+    const budgetedHtml = budgeted.length > 0 ? `
       <ul class="space-y-3 pt-1">
-        ${items.map((item) => {
+        ${budgeted.map((item) => {
           const pct = Math.min(100, item.actual_progress_pct || 0);
           const bar = pct >= 100 ? 'bg-red-400' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-400';
           return `
@@ -455,7 +479,39 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
           `;
         }).join('')}
       </ul>
-    `;
+    ` : '';
+
+    const unbudgetedHtml = unbudgeted.length > 0 ? `
+      <div class="${budgeted.length > 0 ? 'mt-3 pt-2 border-t border-slate-200' : 'pt-1'}">
+        <div class="flex items-center justify-between mb-1.5">
+          <p class="text-[11px] font-semibold text-amber-600 uppercase tracking-wider">
+            Sem orçamento definido
+            ${unbudgetedCount > 0 ? `<span class="font-normal text-amber-500 normal-case">(${unbudgetedCount} transação${unbudgetedCount === 1 ? '' : 'ões'})</span>` : ''}
+          </p>
+          <span class="text-xs font-bold tabular text-amber-700">${currency.format(unbudgetedTotal)}</span>
+        </div>
+        <ul class="space-y-1">
+          ${unbudgeted.map((item) => {
+            const spent = item.actual_spent + item.future_spent;
+            const count = (item.actual_count || 0) + (item.future_count || 0);
+            return `
+              <li class="flex items-center gap-2 py-0.5">
+                <span class="size-2 rounded-full shrink-0" style="background:${escapeHtml(item.category_color)}"></span>
+                <span class="flex-1 text-xs text-slate-700 truncate">${escapeHtml(item.category_name)}</span>
+                <span class="text-[10px] text-slate-400 shrink-0">${count} tx</span>
+                <span class="text-xs font-semibold tabular text-amber-600 shrink-0">${currency.format(spent)}</span>
+              </li>
+            `;
+          }).join('')}
+        </ul>
+        <p class="text-[11px] text-slate-400 mt-2 leading-snug">
+          Estes gastos não têm meta e reduzem diretamente o "Disponível para gastar".
+          Defina metas na aba <strong>Metas variáveis</strong> para ter controle granular.
+        </p>
+      </div>
+    ` : '';
+
+    return budgetedHtml + unbudgetedHtml;
   }
 
   if (key === 'reserva') {
@@ -661,42 +717,89 @@ function hexToFaint(hex) {
 
 function buildMonthRow(item) {
   const li = document.createElement('li');
-  li.className = 'py-3 px-3 flex items-start gap-3 bg-white hover:bg-slate-50 transition-colors';
+  // No flex on li itself — the row div inside handles layout; picker can expand below
+  li.className = 'bg-white transition-colors';
 
   const overrideBadge = item.is_override
     ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">ajustado</span>`
-    : '';
-  const matchedInfo = item.matched_transaction
-    ? `<span class="text-[10px] text-emerald-600">↳ conciliado: ${escapeHtml(item.matched_transaction.description.slice(0, 30))}</span>`
     : '';
   const baseHint = item.is_override
     ? `<button type="button" data-action="revert" class="text-[10px] text-indigo-500 hover:text-indigo-700 underline">↩ reverter (${currency.format(item.base_amount)})</button>`
     : '';
 
+  // ── Match section ──
+  let matchLine = '';
+  let linkBtn = '';
+  if (item.matched_transaction) {
+    const tx = item.matched_transaction;
+    const isManual = item.match_source === 'manual';
+    const sourceTag = isManual
+      ? '<span class="text-[9px] font-semibold uppercase tracking-wide bg-emerald-100 text-emerald-700 px-1 py-px rounded">manual</span>'
+      : '<span class="text-[9px] font-semibold uppercase tracking-wide bg-slate-100 text-slate-500 px-1 py-px rounded">auto</span>';
+    const unlinkHtml = isManual
+      ? `<button type="button" data-action="unlink"
+           class="text-[10px] font-medium text-red-500 hover:text-red-700 underline ml-1">
+           Desvincular
+         </button>`
+      : '';
+    matchLine = `
+      <span class="inline-flex flex-wrap items-center gap-1 text-[10px] text-emerald-700">
+        ↳ ${sourceTag}
+        <span class="font-medium truncate max-w-[18rem]">${escapeHtml((tx.description || '').slice(0, 40))}</span>
+        <span class="tabular font-semibold">${currency.format(tx.amount_abs ?? Math.abs(Number(tx.amount)))}</span>
+        <span class="text-slate-400">${formatDate(tx.date)}</span>
+        ${unlinkHtml}
+      </span>
+    `;
+  } else {
+    linkBtn = `
+      <button type="button" data-action="link"
+        class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded transition-colors">
+        Vincular pagamento
+      </button>
+    `;
+  }
+
   li.innerHTML = `
-    <div class="flex flex-col items-center shrink-0 pt-0.5">
-      <span class="inline-flex items-center justify-center size-9 rounded-lg bg-slate-100 text-slate-700 font-bold text-sm tabular">${item.due_day}</span>
-      <span class="text-[9px] text-slate-400 mt-0.5">dia</span>
-    </div>
-    <div class="flex-1 min-w-0">
-      <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
-        <p class="font-medium text-slate-900 text-sm">${escapeHtml(item.description)}</p>
-        ${overrideBadge}
-        ${statusBadge(item.status)}
+    <div class="py-3 px-3 flex items-start gap-3 hover:bg-slate-50">
+      <div class="flex flex-col items-center shrink-0 pt-0.5">
+        <span class="inline-flex items-center justify-center size-9 rounded-lg bg-slate-100 text-slate-700 font-bold text-sm tabular">${item.due_day}</span>
+        <span class="text-[9px] text-slate-400 mt-0.5">dia</span>
       </div>
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
-        <span>vence ${formatDate(item.due_date)}</span>
-        ${matchedInfo}
-        ${baseHint}
+      <div class="flex-1 min-w-0">
+        <div class="flex flex-wrap items-center gap-1.5 mb-0.5">
+          <p class="font-medium text-slate-900 text-sm">${escapeHtml(item.description)}</p>
+          ${overrideBadge}
+          ${statusBadge(item.status)}
+        </div>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+          <span>vence ${formatDate(item.due_date)}</span>
+          ${matchLine}
+          ${baseHint}
+          ${linkBtn}
+        </div>
+      </div>
+      <input
+        type="number" step="0.01" min="0" data-action="edit"
+        class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 shrink-0"
+        value="${Number(item.amount).toFixed(2)}"
+      />
+    </div>
+    <!-- Inline transaction picker — shown when user clicks "Vincular pagamento" -->
+    <div data-tx-picker class="hidden">
+      <div class="mx-3 mb-3 ml-14 rounded-xl border border-indigo-200 bg-indigo-50/50 px-3 pt-2 pb-3">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-semibold text-slate-700">
+            Vincular <span class="text-indigo-700">${escapeHtml(item.description)}</span> a qual transação?
+          </p>
+          <button type="button" data-action="cancel-link" class="text-[11px] text-slate-400 hover:text-slate-700 px-1">✕ fechar</button>
+        </div>
+        <div data-tx-picker-list class="space-y-1 max-h-60 overflow-y-auto pr-0.5"></div>
       </div>
     </div>
-    <input
-      type="number" step="0.01" min="0" data-action="edit"
-      class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 shrink-0"
-      value="${Number(item.amount).toFixed(2)}"
-    />
   `;
 
+  // ── Amount override input ──
   const input = li.querySelector('input[data-action="edit"]');
   const commit = async () => {
     const newAmount = Number(input.value);
@@ -726,6 +829,7 @@ function buildMonthRow(item) {
     if (event.key === 'Escape') { input.value = Number(item.amount).toFixed(2); input.blur(); }
   });
 
+  // ── Revert override ──
   const revertBtn = li.querySelector('[data-action="revert"]');
   if (revertBtn) {
     revertBtn.addEventListener('click', async () => {
@@ -736,7 +840,134 @@ function buildMonthRow(item) {
       } catch (err) { showToast(err.message, 'error'); }
     });
   }
+
+  // ── Vincular pagamento ──
+  const linkButton = li.querySelector('[data-action="link"]');
+  if (linkButton) {
+    const pickerEl = li.querySelector('[data-tx-picker]');
+    const pickerList = li.querySelector('[data-tx-picker-list]');
+    linkButton.addEventListener('click', () => {
+      pickerEl.classList.remove('hidden');
+      openTransactionPicker(pickerList, item);
+    });
+    li.querySelector('[data-action="cancel-link"]').addEventListener('click', () => {
+      pickerEl.classList.add('hidden');
+    });
+  }
+
+  // ── Desvincular ──
+  const unlinkButton = li.querySelector('[data-action="unlink"]');
+  if (unlinkButton) {
+    unlinkButton.addEventListener('click', async () => {
+      if (!confirm(`Desvincular o pagamento de "${item.description}"?`)) return;
+      try {
+        await fetchJson(`/fixed-costs/matches/${item.fixed_cost_transaction_match_id}`, { method: 'DELETE' });
+        await loadMonthData();
+        showToast('Vínculo removido.', 'success');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
   return li;
+}
+
+// ── Transaction picker (inline panel below the fixed-cost row) ──────────────
+
+async function openTransactionPicker(listEl, item) {
+  listEl.innerHTML = '<p class="text-xs text-slate-400 py-3 text-center">Carregando transações…</p>';
+
+  const [year, month] = selectedMonth.split('-').map(Number);
+  const fromDate = `${selectedMonth}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const toDate = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+
+  try {
+    const transactions = await fetchJson(
+      `/transactions?account_type=ALL&from_date=${fromDate}&to_date=${toDate}&include_future=true&include_ignored=true`
+    );
+
+    // Show only outflows (money leaving the user)
+    const outflows = transactions.filter((tx) => Number(tx.amount) < 0);
+    if (outflows.length === 0) {
+      listEl.innerHTML = '<p class="text-xs text-slate-400 py-3 text-center">Nenhuma saída encontrada neste mês.</p>';
+      return;
+    }
+
+    // Score candidates: amount proximity + description token overlap
+    const costTokens = tokenSetJs(item.description);
+    const tolerance = Math.max(Number(item.amount) * 0.15, 10);
+    const scored = outflows.map((tx) => {
+      const txAbs = Math.abs(Number(tx.amount));
+      const amountDelta = Math.abs(txAbs - Number(item.amount));
+      const txTokens = tokenSetJs(tx.description || '');
+      const overlap = [...costTokens].filter((t) => txTokens.has(t)).length;
+      const closeAmount = amountDelta <= tolerance;
+      return { tx, txAbs, amountDelta, overlap, closeAmount };
+    }).sort((a, b) => {
+      // Good candidates (close amount) first, then by token overlap, then by amount delta
+      if (a.closeAmount !== b.closeAmount) return a.closeAmount ? -1 : 1;
+      if (b.overlap !== a.overlap) return b.overlap - a.overlap;
+      return a.amountDelta - b.amountDelta;
+    });
+
+    listEl.innerHTML = '';
+    const showing = scored.slice(0, 20);
+
+    // Header hint
+    if (showing.some((s) => s.closeAmount && s.overlap > 0)) {
+      const hint = document.createElement('p');
+      hint.className = 'text-[10px] text-slate-400 mb-1';
+      hint.textContent = 'Candidatos com melhor compatibilidade aparecem primeiro.';
+      listEl.appendChild(hint);
+    }
+
+    for (const { tx, txAbs, closeAmount, overlap } of showing) {
+      const isGood = closeAmount && overlap > 0;
+      const row = document.createElement('div');
+      row.className = `flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-white/80 ${isGood ? 'bg-emerald-50/70 border border-emerald-100' : 'bg-white/40'}`;
+
+      const categoryLabel = escapeHtml(tx.custom_category_name || tx.category || '');
+      const accountHint = categoryLabel ? `<span class="text-slate-400 text-[9px]">${categoryLabel}</span>` : '';
+
+      row.innerHTML = `
+        <span class="text-[10px] text-slate-500 tabular shrink-0 w-10">${formatDate(tx.date)}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs text-slate-800 truncate" title="${escapeHtml(tx.description)}">${escapeHtml(tx.description)}</p>
+          ${accountHint}
+        </div>
+        <span class="text-xs font-semibold tabular ${isGood ? 'text-emerald-700' : 'text-slate-700'} shrink-0">${currency.format(txAbs)}</span>
+        <button type="button"
+          class="shrink-0 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
+          Vincular
+        </button>
+      `;
+
+      row.querySelector('button').addEventListener('click', async () => {
+        try {
+          await fetchJson(`/fixed-costs/${item.fixed_cost_id}/matches`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction_id: tx.id, year_month: selectedMonth }),
+          });
+          await loadMonthData();
+          showToast(`"${item.description}" vinculado ao pagamento.`, 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      listEl.appendChild(row);
+    }
+
+    if (scored.length > 20) {
+      const more = document.createElement('p');
+      more.className = 'text-[10px] text-slate-400 text-center pt-1';
+      more.textContent = `+${scored.length - 20} transações não exibidas. Refine buscando pelo valor esperado.`;
+      listEl.appendChild(more);
+    }
+  } catch (err) {
+    listEl.innerHTML = `<p class="text-xs text-red-500 py-3 text-center">${escapeHtml(err.message)}</p>`;
+  }
 }
 
 // ── Categories & costs (base section) ──────────────────────────────────────

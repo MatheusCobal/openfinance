@@ -71,7 +71,7 @@
           <button type="button" data-tab="custos" class="text-sm font-medium px-3 py-2 rounded-lg transition-colors">Custos fixos</button>
           <button type="button" data-tab="variaveis" class="text-sm font-medium px-3 py-2 rounded-lg transition-colors">Metas variáveis</button>
           <button type="button" data-tab="receita" class="text-sm font-medium px-3 py-2 rounded-lg transition-colors">Receita futura</button>
-          <button type="button" data-tab="transacao" class="text-sm font-medium px-3 py-2 rounded-lg transition-colors">Criar por transação</button>
+          <button type="button" data-tab="transacao" class="text-sm font-medium px-3 py-2 rounded-lg transition-colors">Criar custo recorrente</button>
         </div>
 
         <div id="overview-tab" class="space-y-6">
@@ -195,10 +195,10 @@
         <!-- ── Criar a partir de transação ─────────────────────────── -->
         <section class="bg-white rounded-2xl border border-slate-200 p-6">
           <div class="flex items-baseline justify-between mb-1">
-            <h2 class="text-base font-semibold text-slate-900">Criar a partir de transação</h2>
-            <span class="text-xs text-slate-500">movimentações recentes</span>
+            <h2 class="text-base font-semibold text-slate-900">Criar custo recorrente</h2>
+            <span class="text-xs text-slate-500">a partir de uma movimentação</span>
           </div>
-          <p class="text-xs text-slate-500 mb-4">Use uma transação recorrente como ponto de partida. O dia da transação vira o vencimento sugerido.</p>
+          <p class="text-xs text-slate-500 mb-4">Use uma transação recorrente como ponto de partida para criar um <strong>novo</strong> custo fixo. O dia da transação vira o vencimento sugerido. Para vincular um pagamento a um custo já existente, use o botão <strong>"Vincular pagamento"</strong> na aba Custos fixos.</p>
           <ul id="transaction-suggestions" class="divide-y divide-slate-100 text-sm"></ul>
         </section>
 
@@ -264,6 +264,6 @@
       </main>
     </div>
 
-    <script src="/static/custos_fixos.js?v=17"></script>
+    <script src="/static/custos_fixos.js?v=18"></script>
   </body>
 </html>

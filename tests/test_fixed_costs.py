@@ -481,6 +481,84 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(capacity["invoice_paid_gross_total"], 1200.0)
         self.assertEqual(capacity["invoice_paid_discretionary_total"], 460.0)
 
+    def test_link_unlink_fixed_cost_match_route(self):
+        """POST /fixed-costs/{id}/matches links a transaction; DELETE /fixed-costs/matches/{id} removes it."""
+        with Session(self.engine) as session:
+            session.add(Account(id="bank-1", item_id="item-1", name="Conta", type="BANK"))
+            # Amount and tokens deliberately differ from the fixed cost below so no auto-match fires.
+            # |620-500|=120 > max(620*0.15, 10)=93 → outside tolerance; tokens: {"para","pessoa"} vs {"despesa","mensal"}
+            session.add(
+                Transaction(
+                    id="tx-pix-out",
+                    account_id="bank-1",
+                    date=date(2026, 5, 8),
+                    amount=Decimal("-500.00"),
+                    description="PIX para pessoa",
+                    category="Transfer",
+                )
+            )
+            session.commit()
+
+        cat = self.client.post(
+            "/fixed-cost-categories", json={"name": "Familia", "color": "#8b5cf6"}
+        ).json()
+        cost = self.client.post(
+            "/fixed-costs",
+            json={"category_id": cat["id"], "description": "Despesa Mensal", "amount": 620, "due_day": 8},
+        ).json()
+
+        # Before linking: no manual match exists
+        breakdown = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-05"}).json()
+        entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
+        self.assertIsNone(entry["fixed_cost_transaction_match_id"])
+        self.assertIsNone(entry["matched_transaction"])
+
+        # Link: POST /fixed-costs/{id}/matches
+        match = self.client.post(
+            f"/fixed-costs/{cost['id']}/matches",
+            json={"transaction_id": "tx-pix-out", "year_month": "2026-05"},
+        ).json()
+        self.assertEqual(match["fixed_cost_id"], cost["id"])
+        self.assertEqual(match["transaction_id"], "tx-pix-out")
+        self.assertEqual(match["year_month"], "2026-05")
+
+        # After linking: status is paid, source is manual, match_id is set
+        breakdown = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-05"}).json()
+        entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
+        self.assertEqual(entry["status"], "paid")
+        self.assertEqual(entry["match_source"], "manual")
+        self.assertEqual(entry["fixed_cost_transaction_match_id"], match["id"])
+        self.assertIsNotNone(entry["matched_transaction"])
+        self.assertEqual(entry["matched_transaction"]["id"], "tx-pix-out")
+
+        # The transaction is now accounted as a fixed cost
+        capacity = self.client.get("/spending-capacity", params={"year_month": "2026-05"}).json()
+        self.assertGreater(capacity["fixed_cost_actual_total"], 0)
+        self.assertEqual(capacity["fixed_cost_actual_total"], 500.0)
+
+        # GET matches endpoint also shows it
+        matches_list = self.client.get("/fixed-costs/matches", params={"year_month": "2026-05"}).json()
+        self.assertEqual(len(matches_list), 1)
+        self.assertEqual(matches_list[0]["id"], match["id"])
+
+        # Unlink: DELETE /fixed-costs/matches/{match_id}
+        resp = self.client.delete(f"/fixed-costs/matches/{match['id']}")
+        self.assertEqual(resp.status_code, 204)
+
+        # After unlinking: no manual match, transaction is free again
+        breakdown = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-05"}).json()
+        entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
+        self.assertNotEqual(entry["status"], "paid")
+        self.assertIsNone(entry["fixed_cost_transaction_match_id"])
+
+        # Matches list is empty
+        matches_list = self.client.get("/fixed-costs/matches", params={"year_month": "2026-05"}).json()
+        self.assertEqual(len(matches_list), 0)
+
+        # Deleting the same match again returns 404
+        resp = self.client.delete(f"/fixed-costs/matches/{match['id']}")
+        self.assertEqual(resp.status_code, 404)
+
     def test_create_fixed_cost_from_transaction_uses_resolved_category(self):
         with Session(self.engine) as session:
             session.add(
