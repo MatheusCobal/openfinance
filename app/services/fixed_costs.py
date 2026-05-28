@@ -1160,8 +1160,15 @@ def spending_capacity_summary(
     # - fixed_cost_reserved_total   (planned for pending bills + actual for paid)
     # - variable_budget_consumed    (min(spent, target) across budgeted categories)
     # - variable_budget_overage     (overspend on budgeted categories)
-    # - unbudgeted_variable_spent   (spend in categories without a budget)
     # - reserve_reserved_total      (max(savings_target, applied_to_reserve))
+    #
+    # NOTE: unbudgeted_variable_spent is intentionally excluded from this
+    # formula. Unbudgeted transactions are spend that hasn't been planned
+    # yet — they appear in the response for auditability/review, but must
+    # not automatically reduce the planned available amount. The user should
+    # review these transactions and either assign budgets or link them to
+    # fixed costs. Until then they are informational only.
+    #
     # This is the single source of truth. The credit-card invoice is
     # cash-flow timing only — individual purchases already consumed the
     # category budgets above, so subtracting the invoice again would
@@ -1171,7 +1178,6 @@ def spending_capacity_summary(
         - fixed_cost_reserved_total
         - variable_budget_consumed
         - variable_budget_overage
-        - unbudgeted_variable_spent
         - reserve_reserved_total
     )
     # Keep the legacy aliases pointing at the same number so existing

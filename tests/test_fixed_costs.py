@@ -1653,6 +1653,83 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertIn("reserve_planning_source", row)
         self.assertEqual(row["reserve_planning_source"], "savings_target")
 
+    # ----- 11. Unbudgeted spend does NOT reduce disponível -----
+
+    def test_unbudgeted_variable_spent_excluded_from_budget_available(self):
+        """Transactions in categories with no budget create unbudgeted_variable_spent
+        but must NOT reduce budget_available_to_spend.
+
+        Verifies:
+        - unbudgeted_variable_spent is present in the response (auditability)
+        - budget_available_to_spend ignores it (not subtracted)
+        - variable_budget_overage still reduces availability
+        - fixed_cost_reserved_total still reduces availability
+        - reserve_reserved_total still reduces availability
+        """
+        from app.models import SavingsTarget
+
+        with Session(self.engine) as session:
+            # Category with no budget → any spend lands in unbudgeted
+            session.add(Category(id=90, name="Lazer", color="#a855f7", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Entertainment", category_id=90))
+            # Category with a budget → overage reduces availability
+            session.add(Category(id=91, name="Mercado", color="#22c55e", sort_order=2))
+            session.add(CategoryRule(pluggy_category="Food", category_id=91))
+            session.add(Budget(category_id=91, monthly_target=Decimal("500")))
+            # Savings target → reserve_reserved_total reduces availability
+            session.add(SavingsTarget(monthly_target=Decimal("1000")))
+            session.add(
+                Transaction(
+                    id="tx-lazer-1",
+                    account_id="bank-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("-400"),
+                    description="Cinema",
+                    category="Entertainment",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-food-over",
+                    account_id="bank-1",
+                    date=date(2026, 6, 12),
+                    amount=Decimal("-600"),
+                    description="Supermercado",
+                    category="Food",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-savings-1",
+                    account_id="bank-1",
+                    date=date(2026, 6, 15),
+                    amount=Decimal("-1000"),
+                    description="Aplicacao CDB",
+                    category="Fixed income",
+                )
+            )
+            session.commit()
+
+        cost = self._make_water_fixed_cost(amount=300)
+
+        capacity = self._capacity()
+
+        # Unbudgeted present but must not be subtracted
+        self.assertEqual(capacity["unbudgeted_variable_spent"], 400.0)
+
+        # variable_budget_overage (R$100) still reduces availability
+        self.assertEqual(capacity["variable_budget_overage"], 100.0)
+
+        # fixed_cost_reserved_total (R$300) still reduces availability
+        self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
+
+        # reserve_reserved_total (R$1000) still reduces availability
+        self.assertEqual(capacity["reserve_reserved_total"], 1000.0)
+
+        # Formula: 20300 - 300 (fixed) - 500 (var consumed) - 100 (overage) - 1000 (reserve)
+        # = 18400   (unbudgeted R$400 is NOT subtracted)
+        self.assertEqual(capacity["budget_available_to_spend"], 18400.0)
+
 
 if __name__ == "__main__":
     unittest.main()

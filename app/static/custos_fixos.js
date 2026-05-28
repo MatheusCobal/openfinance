@@ -190,13 +190,13 @@ function renderCapacityFlow(capacity) {
   const planStatus = PLAN_STATUS_CFG[capacity.plan_status] || PLAN_STATUS_CFG.unknown;
 
   // ── Progress bar ──
+  // unbudgeted is NOT part of the formula — it is informational only, shown separately.
   const fixedPct   = income > 0 ? Math.min(100, (fixedReserved / income) * 100) : 0;
   const varConsPct = income > 0 ? Math.min(100, (varConsumed   / income) * 100) : 0;
   const varOverPct = income > 0 ? Math.min(100, (varOverage    / income) * 100) : 0;
-  const unbudPct   = income > 0 ? Math.min(100, (unbudgeted    / income) * 100) : 0;
   const reservePct = income > 0 ? Math.min(100, (reserve       / income) * 100) : 0;
-  const freePct    = Math.max(0, 100 - fixedPct - varConsPct - varOverPct - unbudPct - reservePct);
-  const varTotalPct = varConsPct + varOverPct + unbudPct;
+  const freePct    = Math.max(0, 100 - fixedPct - varConsPct - varOverPct - reservePct);
+  const varTotalPct = varConsPct + varOverPct;
 
   // ── Credit card context ──
   const ccOfficial  = capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
@@ -224,7 +224,6 @@ function renderCapacityFlow(capacity) {
     { label: 'Variável consumido',         value: varConsumed,   op: '−', cls: 'text-slate-500' },
   ];
   if (varOverage > 0) bRows.push({ label: 'Estouro variável',          value: varOverage,    op: '−', cls: 'text-red-500'    });
-  if (unbudgeted > 0) bRows.push({ label: 'Sem orçamento (variável)',  value: unbudgeted,    op: '−', cls: 'text-amber-600'  });
   bRows.push({ label: 'Reserva planejada / aplicada', value: reserve, op: '−', cls: 'text-slate-500' });
   bRows.push({ label: 'Disponível para gastar',       value: sobra,   op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
 
@@ -278,7 +277,6 @@ function renderCapacityFlow(capacity) {
         <div class="h-full bg-slate-400"  style="width:${fixedPct.toFixed(1)}%"   title="Custos fixos reservados"></div>
         <div class="h-full bg-amber-400"  style="width:${varConsPct.toFixed(1)}%" title="Variável consumido"></div>
         <div class="h-full bg-orange-400" style="width:${varOverPct.toFixed(1)}%" title="Estouro variável"></div>
-        <div class="h-full bg-rose-300"   style="width:${unbudPct.toFixed(1)}%"   title="Sem orçamento"></div>
         <div class="h-full bg-indigo-300" style="width:${reservePct.toFixed(1)}%" title="Reserva planejada"></div>
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
       </div>
@@ -342,7 +340,7 @@ function renderCapacityFlow(capacity) {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mr-2 text-[11px]">
             <span class="text-slate-500">consumido <span class="text-slate-700 font-semibold tabular">${currency.format(varConsumed)}</span></span>
             ${varOverage > 0 ? `<span class="text-red-500">estouro <span class="font-semibold tabular">${currency.format(varOverage)}</span></span>` : ''}
-            ${unbudgeted > 0 ? `<span class="text-amber-600">sem orç. <span class="font-semibold tabular">${currency.format(unbudgeted)}</span></span>` : ''}
+            ${unbudgeted > 0 ? `<span class="text-amber-500">para revisar <span class="font-semibold tabular">${currency.format(unbudgeted)}</span></span>` : ''}
           </div>
           <span class="text-slate-300 text-xs shrink-0 transition-transform ${expandedOverviewPanel === 'variavel' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
         </button>
@@ -379,6 +377,19 @@ function renderCapacityFlow(capacity) {
       <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Como calculamos "disponível para gastar"</p>
       <div class="space-y-1">${breakdownHtml}</div>
     </div>
+
+    <!-- ── Unbudgeted audit card ── -->
+    ${unbudgeted > 0 ? `
+    <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
+      <div class="flex flex-wrap items-center gap-2 mb-1">
+        <p class="text-[11px] font-semibold text-amber-700 uppercase tracking-wider">Fora do planejamento · para revisar</p>
+      </div>
+      <p class="text-lg font-bold tabular text-amber-800">${currency.format(unbudgeted)}</p>
+      <p class="text-[11px] text-amber-700 leading-snug mt-1">
+        Gastos em categorias sem orçamento definido. Este valor <strong>não reduz o "Disponível para gastar"</strong> —
+        defina um orçamento para essas categorias para incluí-las no planejamento.
+      </p>
+    </div>` : ''}
 
     <!-- ── Audit note ── -->
     <p class="text-[11px] text-slate-400 leading-relaxed pt-2 border-t border-slate-100">
@@ -558,7 +569,6 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
       { label: 'Custos fixos reservados', value: capacity.fixed_cost_reserved_total || 0, op: '−', cls: 'text-slate-600' },
       { label: 'Variável consumido',      value: varConsumed,                             op: '−', cls: 'text-slate-600' },
       { label: 'Estouro variável',        value: varOverage,                              op: '−', cls: 'text-slate-600' },
-      { label: 'Sem orçamento',           value: unbudgeted,                              op: '−', cls: 'text-slate-600' },
       { label: 'Reserva planejada/aplic.',value: reserve,                                 op: '−', cls: 'text-slate-600' },
       { label: 'Pode gastar',             value: sobra,                                   op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
     ];
