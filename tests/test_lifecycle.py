@@ -384,5 +384,81 @@ class SyncHealthIncludesLifecycleFieldsTest(unittest.TestCase):
         self.assertIsNotNone(entry["deactivated_at"])
 
 
+class BankCashflowMonthlyExcludesInactiveTest(unittest.TestCase):
+    """Bank cashflow monthly endpoint excludes inactive Items/Accounts."""
+
+    def setUp(self):
+        self.engine = _make_engine()
+
+        def override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
+    def test_inactive_account_excluded_from_monthly_cashflow(self):
+        today = date.today()
+        with Session(self.engine) as session:
+            _seed_item(session, "item-itau", is_active=True)
+            _seed_item(session, "item-caixa", is_active=False)
+            _seed_account(session, "bank-itau", "item-itau", "BANK",
+                          is_active=True)
+            _seed_account(session, "bank-caixa", "item-caixa", "BANK",
+                          is_active=False)
+            session.add(Transaction(
+                id="tx-itau-in",
+                account_id="bank-itau",
+                date=today,
+                amount=Decimal("1000"),
+                description="Salario Itau",
+                category="Salary",
+            ))
+            session.add(Transaction(
+                id="tx-itau-out",
+                account_id="bank-itau",
+                date=today,
+                amount=Decimal("-100"),
+                description="Pix enviado",
+                category="Transfers",
+            ))
+            session.add(Transaction(
+                id="tx-caixa-in",
+                account_id="bank-caixa",
+                date=today,
+                amount=Decimal("3000"),
+                description="Salario Caixa",
+                category="Salary",
+            ))
+            session.add(Transaction(
+                id="tx-caixa-out",
+                account_id="bank-caixa",
+                date=today,
+                amount=Decimal("-500"),
+                description="Pix Caixa",
+                category="Transfers",
+            ))
+            session.commit()
+
+        resp = self.client.get("/bank-cashflow/monthly", params={"months": 1})
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+
+        self.assertEqual(payload["bank_account_count"], 1)
+
+        month = payload["months"][0]
+        self.assertAlmostEqual(month["income"], 1000.0)
+        self.assertAlmostEqual(month["outflow"], 100.0)
+
+        tx_ids = {tx["id"] for tx in month["transactions"]}
+        self.assertIn("tx-itau-in", tx_ids)
+        self.assertIn("tx-itau-out", tx_ids)
+        self.assertNotIn("tx-caixa-in", tx_ids)
+        self.assertNotIn("tx-caixa-out", tx_ids)
+
+
 if __name__ == "__main__":
     unittest.main()

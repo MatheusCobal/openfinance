@@ -20,6 +20,7 @@ from app.services.snapshots import (
 )
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
+    account_ids_by_type,
     bank_cashflow_exclusion_rules,
     bank_income_transactions,
     credit_card_payment_transactions,
@@ -258,10 +259,11 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
     start_date = date(int(first_year), int(first_month), 1)
+    active_bank_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, active_only=True))
     bank_accounts = {
         account.id: account
         for account in session.exec(select(Account)).all()
-        if account.type in BANK_ACCOUNT_TYPES
+        if account.id in active_bank_ids
     }
     exclusion_rules = bank_cashflow_exclusion_rules(session)
     classifier = TransactionClassifier.from_session(session)
