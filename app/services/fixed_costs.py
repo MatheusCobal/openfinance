@@ -1167,53 +1167,77 @@ def spending_capacity_summary(
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
     remaining_after_plan = expected_income_total - planned_expense_total
 
+    # ---- Planning mode ----
+    # Determines which formula branch to use downstream.
+    current_ym = today.strftime("%Y-%m")
+    if year_month == current_ym:
+        planning_mode = "current_month"
+    elif year_month > current_ym:
+        planning_mode = "future_month"
+    else:
+        planning_mode = "past_month"
+    is_future_month = planning_mode == "future_month"
+
     # ---- Variable budget commitment for the formula ----
-    # For the CURRENT or PAST month we use actual spending (consumed + overage):
-    #   consumed + overage = total amount actually spent in budgeted categories.
-    #
-    # For FUTURE months the month hasn't started yet, so consumed is only the
-    # small slice of already-scheduled transactions (e.g. installments) in
-    # budgeted categories — which massively understates the commitment.  We use
-    # the full planned target instead so the formula reflects a realistic plan.
-    is_future_month = first_day > today
+    # For current/past months we use actual spending (consumed + overage).
+    # For future months we use the full planned target — consumed is only a
+    # small slice of already-scheduled installments and would massively
+    # understate the commitment.  Overage from pre-scheduled transactions is
+    # intentionally NOT penalised here: the projection shows what was PLANNED,
+    # letting the user review anomalies separately.
     variable_budget_reserved = (
-        # Future month: commit at least the full planned target.  If future
-        # transactions already exceed the target (rare but possible), use the
-        # higher actual spending so we don't understate the obligation.
-        max(variable_budget_total, variable_budget_consumed + variable_budget_overage)
-        if is_future_month
-        # Current/past month: use what was actually spent in budgeted categories.
+        variable_budget_total
+        if planning_mode == "future_month"
         else variable_budget_consumed + variable_budget_overage
     )
 
+    # ---- Future card obligation ----
+    # For a future month the correct card obligation is the Pluggy CreditCardBill
+    # whose due_date falls in that month (a prior billing-cycle bill that must be
+    # paid from that month's income).  Those prior-cycle transactions are NOT in
+    # the future month's variable-budget window, so there is no double-counting.
+    # Account.balance is never used for future months (already guarded in
+    # credit_card_obligation_summary tier-2).  If no official bill exists for
+    # the future month we use 0 — unbudgeted installments are already covered by
+    # variable_budget_total (if categorised) or shown as "para revisar" otherwise.
+    if planning_mode == "future_month" and cc_obligation["source"] == "bill":
+        future_card_obligation_total = Decimal(str(cc_obligation["official_bill_total"]))
+    else:
+        future_card_obligation_total = Decimal("0")
+
     # ---- Headline: "Disponível para gastar no mês" ----
-    # Cash logic:
+    #
+    # FUTURE MONTH (projected plan):
     #   income
-    # - fixed_cost_reserved_total         (planned for pending bills + actual for paid)
-    # - variable_budget_reserved          (= target for future months; = consumed+overage
-    #                                      for current/past months)
-    # - reserve_reserved_total            (max(savings_target, applied_to_reserve))
-    # - card_invoice_remaining_to_reserve (official bill gap — see below)
+    # - fixed_cost_planned_total       (active fixed costs planned for the month)
+    # - variable_budget_total          (full planned variable-budget envelope)
+    # - future_card_obligation_total   (official bill due that month, or 0)
+    # - reserve_target_total           (planned savings target)
     #
-    # NOTE: unbudgeted_variable_spent is intentionally excluded from this formula.
-    # Unbudgeted transactions haven't been planned yet — they appear in the
-    # response for auditability/review, but must not automatically reduce the
-    # planned available amount.  The user should review these and either assign
-    # budgets or link them to fixed costs.
+    # CURRENT / PAST MONTH (real tracking):
+    #   income
+    # - fixed_cost_reserved_total         (planned pending + actual paid)
+    # - variable_budget_reserved          (consumed + overage)
+    # - reserve_reserved_total            (max(target, applied))
+    # - card_invoice_remaining_to_reserve (official bill gap not covered by individual txs)
     #
-    # card_invoice_remaining_to_reserve = max(official_bill - gross_transactions, 0)
-    # Individual card purchases already consumed variable/fixed buckets above.
-    # Subtracting the whole invoice would double-count those purchases.
-    # Only the GAP (official > our per-transaction reconstruction) is reserved here
-    # because that represents real cash obligations we have no individual records for
-    # (prior-month carry-over, fees, international charges, etc.).
-    budget_available_to_spend = (
-        expected_income_total
-        - fixed_cost_reserved_total
-        - variable_budget_reserved
-        - reserve_reserved_total
-        - card_invoice_remaining_to_reserve
-    )
+    # NOTE: unbudgeted_variable_spent is intentionally excluded from both formulas.
+    if planning_mode == "future_month":
+        budget_available_to_spend = (
+            expected_income_total
+            - fixed_cost_planned_total
+            - variable_budget_total
+            - future_card_obligation_total
+            - reserve_target_total
+        )
+    else:
+        budget_available_to_spend = (
+            expected_income_total
+            - fixed_cost_reserved_total
+            - variable_budget_reserved
+            - reserve_reserved_total
+            - card_invoice_remaining_to_reserve
+        )
     # Keep the legacy aliases pointing at the same number so existing
     # consumers (tests, frontend) keep working while the new field rolls out.
     available_to_spend = budget_available_to_spend
@@ -1275,6 +1299,8 @@ def spending_capacity_summary(
 
     return {
         "year_month": year_month,
+        "planning_mode": planning_mode,
+        "is_future_month": is_future_month,
         "expected_income_total": float(expected_income_total),
         "receita_esperada": float(expected_income_total),
         "received_income_total": float(received_income_total),
@@ -1322,7 +1348,6 @@ def spending_capacity_summary(
         "variable_budget_overage": float(variable_budget_overage),
         "variable_budget_free_impact": float(variable_budget_free_impact),
         "variable_budget_reserved": float(variable_budget_reserved),
-        "is_future_month": is_future_month,
         "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
         "discretionary_available": float(discretionary_available),
         "budget_available_to_spend": float(budget_available_to_spend),
@@ -1339,6 +1364,7 @@ def spending_capacity_summary(
         "card_invoice_fixed_cost_total": float(card_invoice_fixed_cost_total),
         "card_invoice_official_total": float(card_invoice_official_total),
         "card_invoice_remaining_to_reserve": float(card_invoice_remaining_to_reserve),
+        "future_card_obligation_total": float(future_card_obligation_total),
         "card_invoice_source": card_invoice_source,
         "card_open_balance_total": float(card_open_balance_total),
         "credit_card_due_dates": credit_card_due_dates,

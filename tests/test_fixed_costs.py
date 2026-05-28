@@ -1182,9 +1182,19 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     # ----- 3. Fixed cost paid higher than planned -----
 
     def test_overshoot_only_reduces_availability_by_variance(self):
-        """Planned R$ 300, paid R$ 370 → R$ 70 lower than the pending case."""
+        """Current-month: planned R$ 300, paid R$ 370 → R$ 70 lower than pending.
+
+        Uses today=2026-06-30 (current month) so the current-month formula branch
+        (fixed_cost_reserved_total = actual paid) is exercised.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
         cost = self._make_water_fixed_cost(amount=300)
-        pending_available = self._capacity()["budget_available_to_spend"]
+
+        with Session(self.engine) as session:
+            pending_available = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )["budget_available_to_spend"]
 
         with Session(self.engine) as session:
             session.add(
@@ -1204,7 +1214,12 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             json={"transaction_id": "tx-water-over", "year_month": "2026-06"},
         )
 
-        capacity = self._capacity()
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["fixed_cost_actual_total"], 370.0)
         self.assertEqual(capacity["fixed_cost_variance_total"], 70.0)
         self.assertEqual(capacity["fixed_cost_positive_variance_total"], 70.0)
@@ -1216,9 +1231,19 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     # ----- 4. Fixed cost paid lower than planned -----
 
     def test_undershoot_releases_difference_back(self):
-        """Planned R$ 300, paid R$ 270 → R$ 30 released back vs pending."""
+        """Current-month: planned R$ 300, paid R$ 270 → R$ 30 released back vs pending.
+
+        Uses today=2026-06-30 (current month) so the current-month formula branch
+        (fixed_cost_reserved_total = actual paid) is exercised.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
         cost = self._make_water_fixed_cost(amount=300)
-        pending_available = self._capacity()["budget_available_to_spend"]
+
+        with Session(self.engine) as session:
+            pending_available = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )["budget_available_to_spend"]
 
         with Session(self.engine) as session:
             session.add(
@@ -1238,7 +1263,12 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             json={"transaction_id": "tx-water-under", "year_month": "2026-06"},
         )
 
-        capacity = self._capacity()
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["fixed_cost_actual_total"], 270.0)
         self.assertEqual(capacity["fixed_cost_variance_total"], -30.0)
         self.assertEqual(capacity["fixed_cost_negative_variance_total"], 30.0)
@@ -1657,27 +1687,21 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     # ----- 11. Unbudgeted spend does NOT reduce disponível -----
 
     def test_unbudgeted_variable_spent_excluded_from_budget_available(self):
-        """Transactions in categories with no budget create unbudgeted_variable_spent
-        but must NOT reduce budget_available_to_spend.
+        """Current-month: unbudgeted spend is informational only, not in formula.
+        Overage from a budgeted category DOES reduce availability for current months.
 
-        Verifies:
-        - unbudgeted_variable_spent is present in the response (auditability)
-        - budget_available_to_spend ignores it (not subtracted)
-        - variable_budget_overage still reduces availability
-        - fixed_cost_reserved_total still reduces availability
-        - reserve_reserved_total still reduces availability
+        Uses today=2026-06-30 so that 2026-06 is the current month and the
+        current-month formula branch (consumed + overage) is exercised.
         """
         from app.models import SavingsTarget
+        from app.services.fixed_costs import spending_capacity_summary
 
         with Session(self.engine) as session:
-            # Category with no budget → any spend lands in unbudgeted
             session.add(Category(id=90, name="Lazer", color="#a855f7", sort_order=1))
             session.add(CategoryRule(pluggy_category="Entertainment", category_id=90))
-            # Category with a budget → overage reduces availability
             session.add(Category(id=91, name="Mercado", color="#22c55e", sort_order=2))
             session.add(CategoryRule(pluggy_category="Food", category_id=91))
             session.add(Budget(category_id=91, monthly_target=Decimal("500")))
-            # Savings target → reserve_reserved_total reduces availability
             session.add(SavingsTarget(monthly_target=Decimal("1000")))
             session.add(
                 Transaction(
@@ -1711,44 +1735,38 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
             session.commit()
 
-        cost = self._make_water_fixed_cost(amount=300)
+        self._make_water_fixed_cost(amount=300)
 
-        capacity = self._capacity()
+        # Pin today=2026-06-30 → 2026-06 is current month (current-month formula).
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
 
-        # Unbudgeted present but must not be subtracted
+        self.assertEqual(capacity["planning_mode"], "current_month")
+        # Unbudgeted NOT subtracted.
         self.assertEqual(capacity["unbudgeted_variable_spent"], 400.0)
-
-        # variable_budget_overage (R$100) still reduces availability
+        # Overage (100) and fixed (300) and reserve (1000) DO reduce availability.
         self.assertEqual(capacity["variable_budget_overage"], 100.0)
-
-        # fixed_cost_reserved_total (R$300) still reduces availability
         self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
-
-        # reserve_reserved_total (R$1000) still reduces availability
         self.assertEqual(capacity["reserve_reserved_total"], 1000.0)
-
-        # Formula: 20300 - 300 (fixed) - 500 (var consumed) - 100 (overage) - 1000 (reserve)
-        # = 18400   (unbudgeted R$400 is NOT subtracted)
+        # 20300 - 300 (fixed) - 500 (consumed) - 100 (overage) - 1000 (reserve) = 18400
         self.assertEqual(capacity["budget_available_to_spend"], 18400.0)
 
-    # ----- 12. card_invoice_remaining_to_reserve reduces disponível -----
+    # ----- 12. card_invoice_remaining_to_reserve (current month) -----
 
-    def test_card_invoice_gap_reduces_budget_available(self):
-        """When the official Pluggy bill exceeds reconstructed card transactions,
+    def test_card_invoice_gap_reduces_budget_available_current_month(self):
+        """Current-month: when official bill exceeds reconstructed card transactions,
         the gap is subtracted from budget_available_to_spend.
 
-        Verifies:
-        - card_invoice_remaining_to_reserve = max(official - gross, 0) in response
-        - that gap IS subtracted from budget_available_to_spend
-        - unbudgeted_variable_spent (card purchase with no budget) is NOT subtracted
-        - no double-counting: only the gap, not the full bill
+        Uses today=2026-06-30 (current month) so the current-month formula branch
+        (income - fixed - variable_reserved - reserve - gap) is exercised.
         """
+        from app.services.fixed_costs import spending_capacity_summary
+
         with Session(self.engine) as session:
-            # Category mapping so the card purchase resolves to a known category
-            # with no Budget → shows up as unbudgeted_variable_spent (not in formula)
             session.add(Category(id=95, name="Compras", color="#6366f1", sort_order=1))
             session.add(CategoryRule(pluggy_category="Shopping", category_id=95))
-            # A card purchase in a category with no budget → unbudgeted, not in formula
             session.add(
                 Transaction(
                     id="tx-card-gap-1",
@@ -1759,7 +1777,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                     category="Shopping",
                 )
             )
-            # Official Pluggy bill: R$ 5,000 — larger than the R$ 1,000 transaction
             session.add(
                 CreditCardBill(
                     id="bill-gap-1",
@@ -1770,21 +1787,27 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
             session.commit()
 
-        capacity = self._capacity()
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
 
+        self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["card_invoice_gross_total"], 1000.0)
         self.assertEqual(capacity["card_invoice_official_total"], 5000.0)
-        # Gap = 5000 - 1000 = 4000; this is the unaccounted obligation
+        # Gap = 5000 - 1000 = 4000
         self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 4000.0)
+        # future_card_obligation_total is 0 for current month
+        self.assertEqual(capacity["future_card_obligation_total"], 0.0)
         # Unbudgeted card purchase NOT in formula
         self.assertEqual(capacity["unbudgeted_variable_spent"], 1000.0)
-        # Formula: 20300 - 0 (fixed) - 0 (var consumed) - 0 (overage) - 0 (reserve) - 4000 (gap)
+        # 20300 - 0 (fixed) - 0 (variable, no budgets) - 0 (reserve) - 4000 (gap) = 16300
         self.assertEqual(capacity["budget_available_to_spend"], 16300.0)
 
-    def test_card_invoice_no_gap_when_official_not_larger(self):
-        """When the official bill is less than or equal to gross transactions,
-        card_invoice_remaining_to_reserve is 0 and budget_available_to_spend
-        is not affected by the invoice at all."""
+    def test_card_invoice_no_gap_when_official_not_larger_current_month(self):
+        """Current-month: when official bill ≤ gross transactions, gap is 0."""
+        from app.services.fixed_costs import spending_capacity_summary
+
         with Session(self.engine) as session:
             session.add(
                 Transaction(
@@ -1796,7 +1819,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                     category="Shopping",
                 )
             )
-            # Official bill smaller than reconstructed transactions → gap = 0
             session.add(
                 CreditCardBill(
                     id="bill-nogap-1",
@@ -1807,14 +1829,245 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
             session.commit()
 
-        capacity = self._capacity()
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
 
+        self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["card_invoice_gross_total"], 2000.0)
         self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
-        # No gap — max(1500 - 2000, 0) = 0
         self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
-        # Formula: 20300 - 0 - 0 - 0 - 0 - 0 = 20300
+        # 20300 - 0 - 0 - 0 - 0 = 20300
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+
+    # ----- 13. planning_mode field -----
+
+    def test_planning_mode_field_values(self):
+        """planning_mode is 'current_month', 'future_month', or 'past_month'."""
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            c_cur = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 15))
+            c_fut = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            c_pas = spending_capacity_summary(session, "2026-05", today=date(2026, 6, 15))
+
+        self.assertEqual(c_cur["planning_mode"], "current_month")
+        self.assertEqual(c_fut["planning_mode"], "future_month")
+        self.assertEqual(c_pas["planning_mode"], "past_month")
+        # is_future_month must be consistent with planning_mode
+        self.assertFalse(c_cur["is_future_month"])
+        self.assertTrue(c_fut["is_future_month"])
+        self.assertFalse(c_pas["is_future_month"])
+
+    # ----- 14. Future-month projected formula -----
+
+    def test_future_month_uses_variable_budget_total_not_consumed(self):
+        """Future month: formula uses variable_budget_total (full target), not
+        variable_budget_consumed, even when future installments exist in the DB.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+        from app.models import SavingsTarget
+
+        with Session(self.engine) as session:
+            session.add(Category(id=80, name="Lazer", color="#a855f7", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Entertainment", category_id=80))
+            session.add(Budget(category_id=80, monthly_target=Decimal("500")))
+            session.add(SavingsTarget(monthly_target=Decimal("1000")))
+            # Future installment already in DB — only partially uses the R$500 envelope.
+            session.add(
+                Transaction(
+                    id="tx-future-installment",
+                    account_id="credit-1",
+                    date=date(2026, 7, 10),
+                    amount=Decimal("200"),
+                    description="Parcela curso",
+                    category="Entertainment",
+                )
+            )
+            session.commit()
+
+        self._make_water_fixed_cost(amount=300)
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        # Installment (200) is visible but does NOT drive the formula.
+        self.assertEqual(capacity["variable_budget_consumed"], 200.0)
+        # variable_budget_reserved equals the full target for future months.
+        self.assertEqual(capacity["variable_budget_reserved"], 500.0)
+        # Reserve uses target, not max(target, applied) since nothing applied yet.
+        self.assertEqual(capacity["reserve_target_total"], 1000.0)
+        # Formula: 20300 - 300 (fixed_planned) - 500 (variable_budget_total)
+        #          - 0 (future_card_obligation) - 1000 (reserve_target) = 18500
+        self.assertEqual(capacity["budget_available_to_spend"], 18500.0)
+
+    def test_future_month_no_account_balance_used(self):
+        """Future month: Account.balance is never used as the card obligation."""
+        from app.services.fixed_costs import spending_capacity_summary
+        from sqlmodel import select
+
+        with Session(self.engine) as session:
+            # Give the credit account a large balance (current open invoice snapshot).
+            acct = session.exec(select(Account).where(Account.id == "credit-1")).one()
+            acct.balance = Decimal("8000")
+            session.add(acct)
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        # No official bill for 2026-07 → future_card_obligation_total must be 0.
+        self.assertEqual(capacity["future_card_obligation_total"], 0.0)
+        # Account.balance (8000) must NOT appear as the card obligation.
+        self.assertEqual(capacity["card_invoice_source"], "transaction_fallback")
+        # Full income available (no fixed costs, no budgets, no reserve).
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+
+    def test_future_month_official_bill_is_full_obligation(self):
+        """Future month: when a CreditCardBill with due_date in the future month
+        exists, future_card_obligation_total equals the full bill total (not just
+        the gap), and it is subtracted from budget_available_to_spend.
+
+        The bill covers a prior billing cycle — those purchases are NOT in the
+        future month's variable budget, so there is no double-counting.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            # Official bill due in July 2026 (prior billing cycle).
+            session.add(
+                CreditCardBill(
+                    id="bill-future-1",
+                    account_id="credit-1",
+                    due_date=date(2026, 7, 10),
+                    total_amount=Decimal("3000"),
+                )
+            )
+            # A July installment in a budget category — separate from the bill above.
+            session.add(Category(id=85, name="Lazer", color="#a855f7", sort_order=1))
+            session.add(Budget(category_id=85, monthly_target=Decimal("600")))
+            session.add(
+                Transaction(
+                    id="tx-july-parcela",
+                    account_id="credit-1",
+                    date=date(2026, 7, 15),
+                    amount=Decimal("200"),
+                    description="Parcela notebook",
+                    category="Electronics",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        self.assertEqual(capacity["card_invoice_source"], "bill")
+        # future_card_obligation_total = full bill (not gap).
+        self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
+        # card_invoice_remaining_to_reserve is still computed for info but not
+        # in the future-month formula.
+        self.assertGreaterEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+        # Formula: 20300 - 0 (fixed) - 600 (variable_budget_total) - 3000 (bill) - 0 (reserve)
+        self.assertEqual(capacity["budget_available_to_spend"], 16700.0)
+
+    def test_future_month_no_card_bill_zero_obligation(self):
+        """Future month without an official bill: future_card_obligation_total = 0.
+        An unbudgeted card installment is visible as unbudgeted_variable_spent but
+        NOT subtracted from budget_available_to_spend.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            # Category with NO budget → any spend lands in unbudgeted.
+            session.add(Category(id=77, name="Eletronicos", color="#6366f1", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Electronics", category_id=77))
+            # Future installment in unbudgeted category — no official bill for July.
+            session.add(
+                Transaction(
+                    id="tx-installment-no-budget",
+                    account_id="credit-1",
+                    date=date(2026, 7, 20),
+                    amount=Decimal("400"),
+                    description="Parcela TV",
+                    category="Electronics",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        # No official bill → obligation is 0.
+        self.assertEqual(capacity["future_card_obligation_total"], 0.0)
+        # Installment is visible as unbudgeted.
+        self.assertEqual(capacity["unbudgeted_variable_spent"], 400.0)
+        # Not subtracted from formula.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+
+    def test_current_month_not_broken_by_future_month_changes(self):
+        """Regression: current-month formula (consumed + overage, gap-based card)
+        must be unchanged after adding the future-month branch.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+        from app.models import SavingsTarget
+
+        with Session(self.engine) as session:
+            session.add(Category(id=70, name="Mercado", color="#22c55e", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Food", category_id=70))
+            session.add(Budget(category_id=70, monthly_target=Decimal("800")))
+            session.add(SavingsTarget(monthly_target=Decimal("500")))
+            # Card purchase within the budget.
+            session.add(
+                Transaction(
+                    id="tx-cur-card",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("600"),
+                    description="Compra mercado",
+                    category="Food",
+                )
+            )
+            # Official bill larger than the transaction → gap = 200.
+            session.add(
+                CreditCardBill(
+                    id="bill-cur-1",
+                    account_id="credit-1",
+                    due_date=date(2026, 6, 10),
+                    total_amount=Decimal("800"),
+                )
+            )
+            session.commit()
+
+        self._make_water_fixed_cost(amount=200)
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "current_month")
+        # Current-month card logic: gap = max(800 - 600, 0) = 200.
+        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 200.0)
+        # future_card_obligation_total is 0 for current month.
+        self.assertEqual(capacity["future_card_obligation_total"], 0.0)
+        # variable_budget_reserved = consumed (600), not target (800).
+        self.assertEqual(capacity["variable_budget_consumed"], 600.0)
+        self.assertEqual(capacity["variable_budget_reserved"], 600.0)
+        # 20300 - 200 (fixed) - 600 (var consumed) - 500 (reserve) - 200 (card gap) = 18800
+        self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
 
 
 if __name__ == "__main__":

@@ -167,20 +167,25 @@ function renderCapacityFlow(capacity) {
   const container = document.getElementById('capacity-summary');
 
   // ── Values ──
+  const planningMode  = capacity.planning_mode || (capacity.is_future_month ? 'future_month' : 'current_month');
+  const isFuture      = planningMode === 'future_month';
   const sobra         = capacity.budget_available_to_spend ?? capacity.discretionary_available ?? capacity.available_to_spend ?? 0;
   const sobraPositive = sobra >= 0;
   const income        = capacity.expected_income_total     || 0;
   const received      = capacity.received_income_total     || 0;
   const toReceive     = capacity.income_to_receive         || 0;
   const fixedReserved = capacity.fixed_cost_reserved_total || 0;
+  const fixedPlanned  = capacity.fixed_cost_planned_total  || 0;
   const varConsumed   = capacity.variable_budget_consumed  || 0;
   const varOverage    = capacity.variable_budget_overage   || 0;
   const unbudgeted    = capacity.unbudgeted_variable_spent        || 0;
-  const reserve       = capacity.reserve_reserved_total           || 0;
-  const ccRemaining   = capacity.card_invoice_remaining_to_reserve || 0;
+  const reserve       = isFuture
+    ? (capacity.reserve_target_total       || 0)
+    : (capacity.reserve_reserved_total     || 0);
+  const ccRemaining         = capacity.card_invoice_remaining_to_reserve || 0;
+  const futureCardObligation= capacity.future_card_obligation_total      || 0;
   const varBudgetTotal= capacity.variable_budget_total            || 0;
   const varReserved   = capacity.variable_budget_reserved         || 0;
-  const isFuture      = capacity.is_future_month                  || false;
   const daily         = capacity.daily_discretionary_remaining    || 0;
   const daysRemaining = capacity.days_remaining_in_month         || 0;
 
@@ -195,13 +200,16 @@ function renderCapacityFlow(capacity) {
 
   // ── Progress bar ──
   // unbudgeted is NOT part of the formula — informational only, shown separately.
-  // For future months varReserved = budget target; for current/past = consumed+overage.
-  const fixedPct     = income > 0 ? Math.min(100, (fixedReserved / income) * 100) : 0;
+  // For future months: fixedPlanned, varBudgetTotal, futureCardObligation, reserveTarget.
+  // For current/past: fixedReserved, consumed+overage, ccRemaining, reserveReserved.
+  const fixedBarAmt  = isFuture ? fixedPlanned  : fixedReserved;
+  const cardBarAmt   = isFuture ? futureCardObligation : ccRemaining;
+  const fixedPct     = income > 0 ? Math.min(100, (fixedBarAmt   / income) * 100) : 0;
   const varConsPct   = income > 0 ? Math.min(100, (varConsumed   / income) * 100) : 0;
   const varOverPct   = income > 0 ? Math.min(100, (varOverage    / income) * 100) : 0;
   const varResPct    = income > 0 ? Math.min(100, (varReserved   / income) * 100) : 0;
   const reservePct   = income > 0 ? Math.min(100, (reserve       / income) * 100) : 0;
-  const ccRemPct     = income > 0 ? Math.min(100, (ccRemaining   / income) * 100) : 0;
+  const ccRemPct     = income > 0 ? Math.min(100, (cardBarAmt    / income) * 100) : 0;
   const freePct      = Math.max(0, 100 - fixedPct - varResPct - reservePct - ccRemPct);
   const varTotalPct  = isFuture ? varResPct : varConsPct + varOverPct;
 
@@ -227,16 +235,24 @@ function renderCapacityFlow(capacity) {
 
   // ── Calculation breakdown rows ──
   const bRows = [
-    { label: 'Receita esperada',        value: income,        op: '',  cls: 'text-slate-700' },
-    { label: 'Custos fixos reservados', value: fixedReserved, op: '−', cls: 'text-slate-500' },
+    { label: 'Receita esperada', value: income, op: '', cls: 'text-slate-700' },
     isFuture
-      ? { label: 'Variável planejado (meta)', value: varBudgetTotal, op: '−', cls: 'text-slate-500' }
+      ? { label: 'Custos fixos planejados',   value: fixedPlanned,   op: '−', cls: 'text-slate-500' }
+      : { label: 'Custos fixos reservados',   value: fixedReserved,  op: '−', cls: 'text-slate-500' },
+    isFuture
+      ? { label: 'Orçamentos variáveis',      value: varBudgetTotal, op: '−', cls: 'text-slate-500' }
       : { label: 'Variável consumido',        value: varConsumed,    op: '−', cls: 'text-slate-500' },
   ];
-  if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável',             value: varOverage,  op: '−', cls: 'text-red-500'   });
-  bRows.push({ label: 'Reserva planejada / aplicada',    value: reserve,     op: '−', cls: 'text-slate-500' });
-  if (ccRemaining > 0)             bRows.push({ label: 'Fatura ainda não contemplada', value: ccRemaining, op: '−', cls: 'text-amber-600' });
-  bRows.push({ label: 'Disponível para gastar',          value: sobra,       op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
+  if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável', value: varOverage, op: '−', cls: 'text-red-500' });
+  if (isFuture && futureCardObligation > 0) bRows.push({ label: 'Parcelas/fatura prevista', value: futureCardObligation, op: '−', cls: 'text-amber-600' });
+  bRows.push({
+    label: isFuture ? 'Reserva planejada' : 'Reserva planejada / aplicada',
+    value: reserve,
+    op: '−',
+    cls: 'text-slate-500',
+  });
+  if (!isFuture && ccRemaining > 0) bRows.push({ label: 'Fatura ainda não contemplada', value: ccRemaining, op: '−', cls: 'text-amber-600' });
+  bRows.push({ label: 'Disponível para gastar', value: sobra, op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
 
   const breakdownHtml = bRows.map((r, i) => `
     <div class="flex items-baseline gap-2 ${i === bRows.length - 1 ? 'border-t border-slate-200 pt-2 mt-0.5' : ''}">
@@ -254,7 +270,27 @@ function renderCapacityFlow(capacity) {
     </div>` : '';
 
   // ── Credit card card HTML ──
-  const ccHtml = (ccOfficial > 0 || ccSource) ? `
+  let ccHtml = '';
+  if (isFuture) {
+    // Future month: show the official bill (prior billing cycle) reserved as a separate line.
+    // Never show Account.balance here.
+    if (futureCardObligation > 0) {
+      ccHtml = `
+    <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Fatura prevista</p>
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Fatura oficial (Pluggy)</span>
+      </div>
+      <p class="text-lg font-bold tabular text-slate-800 mb-1">${currency.format(futureCardObligation)}</p>
+      ${dueDates.length > 0 ? `<p class="text-[11px] text-slate-500 mb-1">Vencimento: ${dueDates.map((d) => escapeHtml(String(d))).join(' · ')}</p>` : ''}
+      <p class="text-[11px] text-slate-400 leading-snug border-t border-amber-100 pt-2 mt-2">
+        Fatura do ciclo anterior com vencimento neste mês. Já reservada na projeção acima como "Parcelas/fatura prevista".
+        As compras planejadas para este mês constam nos orçamentos variáveis — sem dupla contagem.
+      </p>
+    </div>`;
+    }
+  } else if (ccOfficial > 0 || ccSource) {
+    ccHtml = `
     <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
       <div class="flex flex-wrap items-center gap-2 mb-2">
         <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Fatura do cartão</p>
@@ -276,17 +312,20 @@ function renderCapacityFlow(capacity) {
         As compras individuais já constam nos orçamentos variáveis e custos fixos acima — a fatura inteira não é subtraída para evitar dupla contagem.
         ${ccRemaining > 0 ? 'O valor adicional acima representa a diferença entre a fatura oficial e as transações individuais registradas (carry-over, juros, cobranças não sincronizadas).' : 'A fatura está totalmente contemplada nas transações individuais registradas.'}
       </p>
-    </div>` : '';
+    </div>`;
+  }
 
   container.innerHTML = `
     <!-- ── Hero: Disponível para gastar ── -->
     <div class="rounded-xl border ${sobraPositive ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'} px-5 py-4 mb-4 flex flex-wrap items-start gap-4">
       <div class="flex-1 min-w-[160px]">
         <div class="flex items-center gap-2 mb-1">
-          <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Disponível para gastar</p>
+          <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">${isFuture ? 'Projeção: livre para gastar' : 'Disponível para gastar'}</p>
           <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${planStatus.cls}">${planStatus.label}</span>
+          ${isFuture ? '<span class="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Plano projetado</span>' : ''}
         </div>
         <p class="text-3xl font-bold tabular ${sobraPositive ? 'text-emerald-700' : 'text-red-600'}">${currency.format(sobra)}</p>
+        ${isFuture ? '<p class="text-[11px] text-slate-400 mt-1">Projeção antes do mês começar — baseada em metas planejadas.</p>' : ''}
       </div>
       ${dailyHtml}
     </div>
