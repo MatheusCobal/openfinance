@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -104,6 +105,28 @@ def sync_health(session: Session = Depends(get_session)):
             }
         )
     return health
+
+
+@router.post("/sync/items/{item_id}/deactivate")
+def deactivate_item(item_id: str, session: Session = Depends(get_session)):
+    item = session.get(Item, item_id)
+    if item is None:
+        raise HTTPException(404, f"Item {item_id!r} not found")
+    now = datetime.utcnow()
+    item.is_active = False
+    item.deactivated_at = now
+    session.add(item)
+    accounts = session.exec(select(Account).where(Account.item_id == item_id)).all()
+    for account in accounts:
+        account.is_active = False
+        account.deactivated_at = now
+        session.add(account)
+    session.commit()
+    return {
+        "item_id": item_id,
+        "deactivated_item": True,
+        "deactivated_accounts": len(accounts),
+    }
 
 
 @router.post("/sync/reconcile-items")
