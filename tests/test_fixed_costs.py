@@ -1274,8 +1274,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["variable_budget_consumed"], 430.0)
         self.assertEqual(capacity["variable_budget_remaining"], 1070.0)
         self.assertEqual(capacity["variable_budget_overage"], 0.0)
-        # 20300 - 0 (no fixed) - 430 (consumed) - 0 (overage) - 0 (savings) = 19870
-        self.assertEqual(capacity["budget_available_to_spend"], 19870.0)
+        # Future month: variable_budget_reserved = max(target=1500, consumed=430) = 1500; 20300 - 1500 = 18800
+        self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
 
     # ----- 6. Credit-card purchase not double-counted -----
 
@@ -1306,7 +1306,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["card_invoice_discretionary_total"], 430.0)
         # Availability already lost R$ 430 from the category budget — NOT
         # R$ 430 from category AND another R$ 430 from the invoice.
-        self.assertEqual(capacity["budget_available_to_spend"], 19870.0)
+        # Future month: variable_budget_reserved = max(target=1500, consumed=430) = 1500; 20300 - 1500 = 18800
+        self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
 
     # ----- 7. Fixed cost on the credit card -----
 
@@ -1361,8 +1362,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Variable budget skipped the matched tx
         self.assertEqual(capacity["variable_budget_consumed"], 0.0)
         self.assertEqual(capacity["variable_budget_remaining"], 1000.0)
-        # Availability: 20300 - 740 (fixed) - 0 (variable) - 0 (savings) = 19560
-        self.assertEqual(capacity["budget_available_to_spend"], 19560.0)
+        # Future month: max(target=1000, consumed=0) = 1000; 20300 - 740 (fixed) - 1000 (var target) = 18560
+        self.assertEqual(capacity["budget_available_to_spend"], 18560.0)
 
     # ----- 8. CDB / Fixed income flows through reserve -----
 
@@ -1563,9 +1564,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["variable_budget_spent"], 0.0)
         self.assertEqual(capacity["variable_budget_consumed"], 0.0)
         self.assertEqual(capacity["unbudgeted_variable_spent"], 0.0)
-        # Availability drops by R$ 300, not by R$ 600.
-        # 20300 - 300 (fixed) - 0 (variable) - 0 (savings) = 20000
-        self.assertEqual(capacity["budget_available_to_spend"], 20000.0)
+        # Future month: max(target=1000, consumed=0) = 1000; 20300 - 300 (fixed) - 1000 (var target) = 19000
+        self.assertEqual(capacity["budget_available_to_spend"], 19000.0)
 
     def test_auto_matched_card_fixed_cost_excluded_from_discretionary_invoice(self):
         """A card purchase auto-matched to a fixed cost should leave the

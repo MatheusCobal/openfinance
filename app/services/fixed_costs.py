@@ -1167,12 +1167,31 @@ def spending_capacity_summary(
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
     remaining_after_plan = expected_income_total - planned_expense_total
 
+    # ---- Variable budget commitment for the formula ----
+    # For the CURRENT or PAST month we use actual spending (consumed + overage):
+    #   consumed + overage = total amount actually spent in budgeted categories.
+    #
+    # For FUTURE months the month hasn't started yet, so consumed is only the
+    # small slice of already-scheduled transactions (e.g. installments) in
+    # budgeted categories — which massively understates the commitment.  We use
+    # the full planned target instead so the formula reflects a realistic plan.
+    is_future_month = first_day > today
+    variable_budget_reserved = (
+        # Future month: commit at least the full planned target.  If future
+        # transactions already exceed the target (rare but possible), use the
+        # higher actual spending so we don't understate the obligation.
+        max(variable_budget_total, variable_budget_consumed + variable_budget_overage)
+        if is_future_month
+        # Current/past month: use what was actually spent in budgeted categories.
+        else variable_budget_consumed + variable_budget_overage
+    )
+
     # ---- Headline: "Disponível para gastar no mês" ----
     # Cash logic:
     #   income
     # - fixed_cost_reserved_total         (planned for pending bills + actual for paid)
-    # - variable_budget_consumed          (min(spent, target) across budgeted categories)
-    # - variable_budget_overage           (overspend on budgeted categories)
+    # - variable_budget_reserved          (= target for future months; = consumed+overage
+    #                                      for current/past months)
     # - reserve_reserved_total            (max(savings_target, applied_to_reserve))
     # - card_invoice_remaining_to_reserve (official bill gap — see below)
     #
@@ -1191,8 +1210,7 @@ def spending_capacity_summary(
     budget_available_to_spend = (
         expected_income_total
         - fixed_cost_reserved_total
-        - variable_budget_consumed
-        - variable_budget_overage
+        - variable_budget_reserved
         - reserve_reserved_total
         - card_invoice_remaining_to_reserve
     )
@@ -1303,6 +1321,8 @@ def spending_capacity_summary(
         "variable_budget_remaining": float(variable_budget_remaining),
         "variable_budget_overage": float(variable_budget_overage),
         "variable_budget_free_impact": float(variable_budget_free_impact),
+        "variable_budget_reserved": float(variable_budget_reserved),
+        "is_future_month": is_future_month,
         "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
         "discretionary_available": float(discretionary_available),
         "budget_available_to_spend": float(budget_available_to_spend),

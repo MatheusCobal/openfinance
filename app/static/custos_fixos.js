@@ -178,6 +178,9 @@ function renderCapacityFlow(capacity) {
   const unbudgeted    = capacity.unbudgeted_variable_spent        || 0;
   const reserve       = capacity.reserve_reserved_total           || 0;
   const ccRemaining   = capacity.card_invoice_remaining_to_reserve || 0;
+  const varBudgetTotal= capacity.variable_budget_total            || 0;
+  const varReserved   = capacity.variable_budget_reserved         || 0;
+  const isFuture      = capacity.is_future_month                  || false;
   const daily         = capacity.daily_discretionary_remaining    || 0;
   const daysRemaining = capacity.days_remaining_in_month         || 0;
 
@@ -192,13 +195,15 @@ function renderCapacityFlow(capacity) {
 
   // ── Progress bar ──
   // unbudgeted is NOT part of the formula — informational only, shown separately.
+  // For future months varReserved = budget target; for current/past = consumed+overage.
   const fixedPct     = income > 0 ? Math.min(100, (fixedReserved / income) * 100) : 0;
   const varConsPct   = income > 0 ? Math.min(100, (varConsumed   / income) * 100) : 0;
   const varOverPct   = income > 0 ? Math.min(100, (varOverage    / income) * 100) : 0;
+  const varResPct    = income > 0 ? Math.min(100, (varReserved   / income) * 100) : 0;
   const reservePct   = income > 0 ? Math.min(100, (reserve       / income) * 100) : 0;
   const ccRemPct     = income > 0 ? Math.min(100, (ccRemaining   / income) * 100) : 0;
-  const freePct      = Math.max(0, 100 - fixedPct - varConsPct - varOverPct - reservePct - ccRemPct);
-  const varTotalPct  = varConsPct + varOverPct;
+  const freePct      = Math.max(0, 100 - fixedPct - varResPct - reservePct - ccRemPct);
+  const varTotalPct  = isFuture ? varResPct : varConsPct + varOverPct;
 
   // ── Credit card context ──
   const ccOfficial  = capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
@@ -222,14 +227,16 @@ function renderCapacityFlow(capacity) {
 
   // ── Calculation breakdown rows ──
   const bRows = [
-    { label: 'Receita esperada',           value: income,        op: '',  cls: 'text-slate-700' },
-    { label: 'Custos fixos reservados',    value: fixedReserved, op: '−', cls: 'text-slate-500' },
-    { label: 'Variável consumido',         value: varConsumed,   op: '−', cls: 'text-slate-500' },
+    { label: 'Receita esperada',        value: income,        op: '',  cls: 'text-slate-700' },
+    { label: 'Custos fixos reservados', value: fixedReserved, op: '−', cls: 'text-slate-500' },
+    isFuture
+      ? { label: 'Variável planejado (meta)', value: varBudgetTotal, op: '−', cls: 'text-slate-500' }
+      : { label: 'Variável consumido',        value: varConsumed,    op: '−', cls: 'text-slate-500' },
   ];
-  if (varOverage > 0)   bRows.push({ label: 'Estouro variável',              value: varOverage,   op: '−', cls: 'text-red-500'    });
-  bRows.push({ label: 'Reserva planejada / aplicada',     value: reserve,      op: '−', cls: 'text-slate-500' });
-  if (ccRemaining > 0)  bRows.push({ label: 'Fatura ainda não contemplada',  value: ccRemaining,  op: '−', cls: 'text-amber-600'  });
-  bRows.push({ label: 'Disponível para gastar',           value: sobra,        op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
+  if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável',             value: varOverage,  op: '−', cls: 'text-red-500'   });
+  bRows.push({ label: 'Reserva planejada / aplicada',    value: reserve,     op: '−', cls: 'text-slate-500' });
+  if (ccRemaining > 0)             bRows.push({ label: 'Fatura ainda não contemplada', value: ccRemaining, op: '−', cls: 'text-amber-600' });
+  bRows.push({ label: 'Disponível para gastar',          value: sobra,       op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
 
   const breakdownHtml = bRows.map((r, i) => `
     <div class="flex items-baseline gap-2 ${i === bRows.length - 1 ? 'border-t border-slate-200 pt-2 mt-0.5' : ''}">
@@ -288,8 +295,10 @@ function renderCapacityFlow(capacity) {
     ${income > 0 ? `
       <div class="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-100 mb-2">
         <div class="h-full bg-slate-400"  style="width:${fixedPct.toFixed(1)}%"   title="Custos fixos reservados"></div>
-        <div class="h-full bg-amber-400"  style="width:${varConsPct.toFixed(1)}%" title="Variável consumido"></div>
-        <div class="h-full bg-orange-400" style="width:${varOverPct.toFixed(1)}%" title="Estouro variável"></div>
+        ${isFuture
+          ? `<div class="h-full bg-amber-400" style="width:${varResPct.toFixed(1)}%" title="Variável planejado (meta)"></div>`
+          : `<div class="h-full bg-amber-400"  style="width:${varConsPct.toFixed(1)}%" title="Variável consumido"></div><div class="h-full bg-orange-400" style="width:${varOverPct.toFixed(1)}%" title="Estouro variável"></div>`
+        }
         <div class="h-full bg-indigo-300" style="width:${reservePct.toFixed(1)}%" title="Reserva planejada"></div>
         ${ccRemPct > 0 ? `<div class="h-full bg-yellow-500" style="width:${ccRemPct.toFixed(1)}%" title="Fatura ainda não contemplada"></div>` : ''}
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
@@ -355,8 +364,12 @@ function renderCapacityFlow(capacity) {
           <span class="text-sm leading-none shrink-0">🎯</span>
           <span class="flex-1 text-sm font-medium text-slate-700">Gastos variáveis</span>
           <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mr-2 text-[11px]">
-            <span class="text-slate-500">consumido <span class="text-slate-700 font-semibold tabular">${currency.format(varConsumed)}</span></span>
-            ${varOverage > 0 ? `<span class="text-red-500">estouro <span class="font-semibold tabular">${currency.format(varOverage)}</span></span>` : ''}
+            ${isFuture
+              ? `<span class="text-slate-500">planejado <span class="text-slate-700 font-semibold tabular">${currency.format(varBudgetTotal)}</span></span>
+                 ${varConsumed > 0 ? `<span class="text-slate-400">comprometido <span class="font-semibold tabular">${currency.format(varConsumed)}</span></span>` : ''}`
+              : `<span class="text-slate-500">consumido <span class="text-slate-700 font-semibold tabular">${currency.format(varConsumed)}</span></span>
+                 ${varOverage > 0 ? `<span class="text-red-500">estouro <span class="font-semibold tabular">${currency.format(varOverage)}</span></span>` : ''}`
+            }
             ${unbudgeted > 0 ? `<span class="text-amber-500">para revisar <span class="font-semibold tabular">${currency.format(unbudgeted)}</span></span>` : ''}
           </div>
           <span class="text-slate-300 text-xs shrink-0 transition-transform ${expandedOverviewPanel === 'variavel' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
@@ -577,18 +590,23 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
   }
 
   if (key === 'livre') {
-    const varConsumed  = capacity.variable_budget_consumed          || 0;
-    const varOverage   = capacity.variable_budget_overage           || 0;
-    const unbudgeted   = capacity.unbudgeted_variable_spent         || 0;
-    const reserve      = capacity.reserve_reserved_total            || 0;
-    const ccRem        = capacity.card_invoice_remaining_to_reserve || 0;
+    const lVarConsumed  = capacity.variable_budget_consumed          || 0;
+    const lVarOverage   = capacity.variable_budget_overage           || 0;
+    const lVarTotal     = capacity.variable_budget_total             || 0;
+    const lVarReserved  = capacity.variable_budget_reserved          || 0;
+    const lIsFuture     = capacity.is_future_month                   || false;
+    const lUnbudgeted   = capacity.unbudgeted_variable_spent         || 0;
+    const lReserve      = capacity.reserve_reserved_total            || 0;
+    const lCcRem        = capacity.card_invoice_remaining_to_reserve || 0;
     const eq = [
       { label: 'Receita esperada',           value: capacity.expected_income_total     || 0, op: '',  cls: 'text-slate-700' },
       { label: 'Custos fixos reservados',    value: capacity.fixed_cost_reserved_total || 0, op: '−', cls: 'text-slate-600' },
-      { label: 'Variável consumido',         value: varConsumed,                             op: '−', cls: 'text-slate-600' },
-      { label: 'Estouro variável',           value: varOverage,                              op: '−', cls: 'text-slate-600' },
-      { label: 'Reserva planejada/aplic.',   value: reserve,                                 op: '−', cls: 'text-slate-600' },
-      ...(ccRem > 0 ? [{ label: 'Fatura ainda não contemplada', value: ccRem,               op: '−', cls: 'text-amber-600' }] : []),
+      lIsFuture
+        ? { label: 'Variável planejado (meta)', value: lVarTotal,    op: '−', cls: 'text-slate-600' }
+        : { label: 'Variável consumido',        value: lVarConsumed, op: '−', cls: 'text-slate-600' },
+      ...(!lIsFuture && lVarOverage > 0 ? [{ label: 'Estouro variável', value: lVarOverage, op: '−', cls: 'text-slate-600' }] : []),
+      { label: 'Reserva planejada/aplic.',   value: lReserve,                                op: '−', cls: 'text-slate-600' },
+      ...(lCcRem > 0 ? [{ label: 'Fatura ainda não contemplada', value: lCcRem,             op: '−', cls: 'text-amber-600' }] : []),
       { label: 'Pode gastar',                value: sobra,                                   op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
     ];
     return `
