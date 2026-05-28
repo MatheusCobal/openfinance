@@ -19,6 +19,8 @@ from app.services.fixed_cost_defaults import (
     FIXED_COST_TEMPLATES,
 )
 from app.services.pluggy_snapshot import credit_card_obligation_summary
+from app.services.reserve import reserve_applied_in_month
+from app.services.savings import effective_target as savings_effective_target
 from app.services.transaction_reports import invoice_summary
 from app.services.transactions import (
     bank_income_transactions,
@@ -1107,6 +1109,18 @@ def spending_capacity_summary(
     )
     reserva_net_total = reserva_application_total - reserva_rescue_total
 
+    # ---- Reserve envelope (savings target vs. actual application) ----
+    # reserve_reserved_total = max(target, applied)
+    # This is the amount the plan treats as "spoken for" by the emergency
+    # reserve this month. When the user hasn't applied anything but set a
+    # target the full target is still reserved (it's still expected to leave).
+    # When the user over-applies, the higher applied amount is used.
+    reserve_applied_total = reserve_applied_in_month(
+        session, first_day, min(last_day, today), today
+    )
+    reserve_target = savings_effective_target(session, year_month)
+    reserve_reserved_total = max(reserve_target, reserve_applied_total)
+
     income_to_receive = max(
         expected_income_total - received_income_total,
         Decimal("0"),
@@ -1140,6 +1154,7 @@ def spending_capacity_summary(
     # - variable_budget_consumed    (min(spent, target) across budgeted categories)
     # - variable_budget_overage     (overspend on budgeted categories)
     # - unbudgeted_variable_spent   (spend in categories without a budget)
+    # - reserve_reserved_total      (max(savings_target, applied_to_reserve))
     # This is the single source of truth. The credit-card invoice is
     # cash-flow timing only — individual purchases already consumed the
     # category budgets above, so subtracting the invoice again would
@@ -1150,6 +1165,7 @@ def spending_capacity_summary(
         - variable_budget_consumed
         - variable_budget_overage
         - unbudgeted_variable_spent
+        - reserve_reserved_total
     )
     # Keep the legacy aliases pointing at the same number so existing
     # consumers (tests, frontend) keep working while the new field rolls out.
@@ -1223,6 +1239,9 @@ def spending_capacity_summary(
         "reserva_net_total": float(reserva_net_total),
         "reserva_application_count": len(reserva_application_txs),
         "reserva_rescue_count": len(reserva_rescue_txs),
+        "reserve_applied_total": float(reserve_applied_total),
+        "reserve_target": float(reserve_target),
+        "reserve_reserved_total": float(reserve_reserved_total),
         "income_to_receive": float(income_to_receive),
         "receita_a_receber": float(income_to_receive),
         "income_over_expected": float(income_over_expected),

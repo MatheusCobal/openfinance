@@ -236,6 +236,48 @@ def _transactions_monthly_summary(
     }
 
 
+def reserve_applied_in_month(
+    session: Session,
+    first_day: date,
+    last_day: date,
+    today: date,
+) -> Decimal:
+    """Gross reserve application total for [first_day, last_day] ∩ [−∞, today].
+
+    Source priority (mirrors emergency_reserve_monthly_summary):
+      1. InvestmentTransaction BUY rows for reserve investments (Pluggy path).
+      2. Bank "Fixed income" application transactions (legacy fallback).
+
+    Only the gross inflow into the reserve is counted — rescues are a separate
+    decision and do not reduce this value.
+    """
+    if first_day > today:
+        return Decimal("0")
+    window_end = min(last_day, today)
+
+    if has_any_investments(session):
+        reserve_invs = reserve_investments(session)
+        reserve_ids = {inv.id for inv in reserve_invs}
+        if not reserve_ids:
+            return Decimal("0")
+        inv_txs = session.exec(
+            select(InvestmentTransaction).where(
+                InvestmentTransaction.investment_id.in_(reserve_ids),
+                InvestmentTransaction.date >= first_day,
+                InvestmentTransaction.date <= window_end,
+                InvestmentTransaction.type == "BUY",
+            )
+        ).all()
+        return sum(
+            (abs(tx.amount) for tx in inv_txs if tx.amount is not None),
+            Decimal("0"),
+        )
+
+    # Fallback: bank "Fixed income" category outflows
+    applications = investment_application_transactions(session, first_day, window_end)
+    return sum((abs(tx.amount) for tx in applications), Decimal("0"))
+
+
 def emergency_reserve_monthly_summary(
     session: Session,
     months: int = 6,

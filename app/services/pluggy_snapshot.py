@@ -154,6 +154,7 @@ def sync_credit_card_bills(
         logger.exception("list_bills failed for account %s", account_id)
         return outcome
 
+    bill_ids: list[str] = []
     for raw in bills:
         bill_id = raw.get("id")
         if not bill_id:
@@ -185,6 +186,8 @@ def sync_credit_card_bills(
                 setattr(existing, field_name, value)
             session.add(existing)
         outcome.upserted += 1
+        bill_ids.append(bill_id)
+    outcome.extras["bill_ids"] = bill_ids
     return outcome
 
 

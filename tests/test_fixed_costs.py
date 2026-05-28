@@ -1330,13 +1330,97 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Raw movement totals still reported for transparency
         self.assertEqual(capacity["reserva_application_total"], 1000.0)
         self.assertEqual(capacity["reserva_rescue_total"], 200.0)
-        # Reserve no longer subtracted from availability → stays at full income
-        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
-        # The savings-target-derived reserve fields are gone entirely.
-        self.assertNotIn("reserve_reserved_total", capacity)
-        self.assertNotIn("savings_target_total", capacity)
+        # reserve_applied_total = 1000 (gross application; rescue not subtracted)
+        self.assertEqual(capacity["reserve_applied_total"], 1000.0)
+        # No savings target set → target=0, reserved=max(0,1000)=1000
+        self.assertEqual(capacity["reserve_target"], 0.0)
+        self.assertEqual(capacity["reserve_reserved_total"], 1000.0)
+        # reserve subtracts from availability: 20300 - 1000 = 19300
+        self.assertEqual(capacity["budget_available_to_spend"], 19300.0)
 
-    # ----- 9. Auto-matched fixed cost must not double-count -----
+    # ----- 9. Reserve envelope: target vs. applied -----
+
+    def test_reserve_target_no_application_reserves_full_target(self):
+        """Savings target=3000, no CDB applied → reserve_reserved=3000,
+        budget reduced by full target."""
+        from app.models import SavingsTarget
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(SavingsTarget(monthly_target=Decimal("3000")))
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+        self.assertEqual(capacity["reserve_target"], 3000.0)
+        self.assertEqual(capacity["reserve_applied_total"], 0.0)
+        self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
+        # 20300 - 3000 = 17300
+        self.assertEqual(capacity["budget_available_to_spend"], 17300.0)
+
+    def test_reserve_target_partial_application_target_wins(self):
+        """Savings target=3000, applied=1500 → max(3000,1500)=3000 reserved."""
+        from app.models import SavingsTarget
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(SavingsTarget(monthly_target=Decimal("3000")))
+            session.add(
+                Transaction(
+                    id="tx-cdb-partial",
+                    account_id="bank-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("-1500"),
+                    description="Aplicacao CDB",
+                    category="Fixed income",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+        self.assertEqual(capacity["reserve_target"], 3000.0)
+        self.assertEqual(capacity["reserve_applied_total"], 1500.0)
+        # target wins: max(3000, 1500) = 3000
+        self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
+        # 20300 - 3000 = 17300
+        self.assertEqual(capacity["budget_available_to_spend"], 17300.0)
+
+    def test_reserve_applied_exceeds_target_applied_wins(self):
+        """Applied=3500 > target=3000 → max(3000,3500)=3500 reserved."""
+        from app.models import SavingsTarget
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(SavingsTarget(monthly_target=Decimal("3000")))
+            session.add(
+                Transaction(
+                    id="tx-cdb-over",
+                    account_id="bank-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("-3500"),
+                    description="Aplicacao CDB",
+                    category="Fixed income",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+        self.assertEqual(capacity["reserve_target"], 3000.0)
+        self.assertEqual(capacity["reserve_applied_total"], 3500.0)
+        # applied wins: max(3000, 3500) = 3500
+        self.assertEqual(capacity["reserve_reserved_total"], 3500.0)
+        # 20300 - 3500 = 16800
+        self.assertEqual(capacity["budget_available_to_spend"], 16800.0)
+
+    # ----- 10. Auto-matched fixed cost must not double-count -----
 
     def test_auto_matched_fixed_cost_excluded_from_variable_budget(self):
         """A bank PIX that monthly_breakdown auto-matches to a fixed cost must

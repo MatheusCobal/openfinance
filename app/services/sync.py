@@ -278,6 +278,9 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
     synced_accounts_by_type: Dict[str, int] = {}
     failed_accounts: List[Dict[str, str]] = []
     bills_upserted = 0
+    bill_transactions_fetched = 0
+    bill_transactions_new = 0
+    bill_transactions_updated = 0
     snapshot_notes: List[Dict[str, Any]] = []
     for raw_account in accounts_to_sync:
         account_id = raw_account["id"]
@@ -327,6 +330,33 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
                         }
                     )
 
+                # ---- Fetch transactions for each synced bill by billId ----
+                # Best-effort: a per-bill failure must not roll back bill rows.
+                for bill_id in bill_outcome.extras.get("bill_ids", []):
+                    try:
+                        for raw_tx in pluggy.list_transactions(
+                            account_id, bill_id=bill_id
+                        ):
+                            bill_transactions_fetched += 1
+                            is_new, is_updated, _ = upsert_transaction(
+                                raw_tx, account_id, session
+                            )
+                            if is_new:
+                                bill_transactions_new += 1
+                            if is_updated:
+                                bill_transactions_updated += 1
+                        session.commit()
+                    except Exception as exc:  # noqa: BLE001
+                        session.rollback()
+                        snapshot_notes.append(
+                            {
+                                "scope": "bill_transactions",
+                                "account_id": account_id,
+                                "bill_id": bill_id,
+                                "error": _truncate_error(exc),
+                            }
+                        )
+
     # ---- Pluggy snapshot: investments (per item, not per account) ----
     investments_upserted = 0
     investment_transactions_upserted = 0
@@ -363,6 +393,9 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         "new_transactions": new_transactions,
         "updated_transactions": updated_transactions,
         "bills_upserted": bills_upserted,
+        "bill_transactions_fetched": bill_transactions_fetched,
+        "bill_transactions_new": bill_transactions_new,
+        "bill_transactions_updated": bill_transactions_updated,
         "investments_upserted": investments_upserted,
         "investment_transactions_upserted": investment_transactions_upserted,
         "refreshed_invoice_months": refreshed_invoice_months,

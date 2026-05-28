@@ -223,11 +223,15 @@ function renderInvoiceCard(data, month) {
   const section = document.getElementById('invoice-card');
   if (!section) return;
   const official = data.card_invoice_official_total ?? data.card_invoice_gross_total ?? 0;
-  const fromBill = data.card_invoice_source === 'bill';
-  const sourceLabel = fromBill ? 'Fatura oficial (Pluggy)' : 'Reconstruída por transações';
-  const sourceCls = fromBill
-    ? 'bg-emerald-50 text-emerald-700'
-    : 'bg-slate-100 text-slate-600';
+  const src = data.card_invoice_source;
+  const sourceLabel =
+    src === 'bill'             ? 'Fatura oficial (Pluggy)'          :
+    src === 'account_balance'  ? 'Fatura aberta / saldo do cartão'  :
+                                 'Reconstruída por transações';
+  const sourceCls =
+    src === 'bill'             ? 'bg-emerald-50 text-emerald-700'   :
+    src === 'account_balance'  ? 'bg-indigo-50 text-indigo-700'     :
+                                 'bg-slate-100 text-slate-600';
   const monthLabel = new Date(`${month}-01T00:00:00`).toLocaleDateString('pt-BR', {
     month: 'long',
     year: 'numeric',

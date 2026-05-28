@@ -14,6 +14,7 @@ from app.routes import (
     pages,
     reserve,
     rules,
+    savings,
     sync,
     transactions,
 )
@@ -38,9 +39,6 @@ app.include_router(budgets.router)
 app.include_router(history.router)
 app.include_router(expected_income.router)
 app.include_router(fixed_costs.router)
-# /savings-target endpoints intentionally unregistered: the manual savings
-# target was removed from Planejamento. The reserve now lives in Histórico,
-# sourced from real Pluggy investments. routes/savings.py + the service stay
-# on disk so this can be reverted without rewriting code.
+app.include_router(savings.router)
 app.include_router(reserve.router)
 app.include_router(dashboard.router)

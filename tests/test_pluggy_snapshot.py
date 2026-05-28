@@ -36,6 +36,8 @@ class FakePluggy:
         self.today = today
         self.bills_supported = True
         self.investments_supported = True
+        # Map bill_id → list of raw transaction dicts for bill-scoped fetches.
+        self.bill_transactions: dict = {}
         self.accounts = [
             {
                 "id": "credit-1",
@@ -90,7 +92,10 @@ class FakePluggy:
     def list_accounts(self, item_id: str):
         return self.accounts
 
-    def list_transactions(self, account_id: str, from_date=None):
+    def list_transactions(self, account_id: str, from_date=None, bill_id=None):
+        # Bill-scoped transactions (keyed by bill_id)
+        if bill_id is not None:
+            return self.bill_transactions.get(bill_id, [])
         if account_id == "credit-1":
             return [
                 {
@@ -591,6 +596,84 @@ class TransactionBillInstallmentTest(unittest.TestCase):
             self.assertIsNone(tx.bill_id)
             self.assertIsNone(tx.installment_number)
             self.assertIsNone(tx.total_amount)
+
+
+class BillTransactionSyncTest(_SyncTestBase):
+    """Bill-scoped transaction sync: after bill rows are committed,
+    transactions are fetched per bill_id and persisted with bill metadata."""
+
+    def test_bill_transactions_are_fetched_and_persisted(self):
+        """Transactions returned for a bill_id are upserted and carry
+        the bill_id field so they can be correlated to their bill."""
+        # FakePluggy.list_bills returns a bill with id "bill-1" for credit-1.
+        self.fake_pluggy.bill_transactions["bill-1"] = [
+            {
+                "id": "tx-bill-1",
+                "date": "2026-05-10",
+                "amount": -250.0,
+                "description": "Supermercado",
+                "category": "Supermarket",
+                "currencyCode": "BRL",
+                "status": "POSTED",
+                "billId": "bill-1",
+            },
+            {
+                "id": "tx-bill-2",
+                "date": "2026-05-15",
+                "amount": -80.0,
+                "description": "Farmacia",
+                "category": "Health",
+                "currencyCode": "BRL",
+                "status": "POSTED",
+                "billId": "bill-1",
+            },
+        ]
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            result = sync_service.sync_item("item-1", session)
+
+        # Counters must reflect the two bill transactions
+        self.assertEqual(result["bills_upserted"], 1)  # bill-1
+        self.assertEqual(result["bill_transactions_fetched"], 2)
+        self.assertEqual(result["bill_transactions_new"], 2)
+
+        # Transactions are in the DB with correct bill_id
+        with Session(self.engine) as session:
+            tx1 = session.get(Transaction, "tx-bill-1")
+            tx2 = session.get(Transaction, "tx-bill-2")
+        self.assertIsNotNone(tx1)
+        self.assertEqual(tx1.bill_id, "bill-1")
+        self.assertEqual(tx1.status, "POSTED")
+        self.assertIsNotNone(tx2)
+        self.assertEqual(tx2.bill_id, "bill-1")
+
+    def test_bill_transaction_failure_does_not_break_sync(self):
+        """A crash while fetching transactions for one bill must leave
+        the result intact — the bill row itself was already committed."""
+        # Make list_transactions raise for a specific bill_id
+        original = self.fake_pluggy.list_transactions
+
+        def flaky(account_id, from_date=None, bill_id=None):
+            # "bill-1" is the id returned by FakePluggy.list_bills for credit-1
+            if bill_id == "bill-1":
+                raise RuntimeError("network blip")
+            return original(account_id, from_date=from_date, bill_id=bill_id)
+
+        self.fake_pluggy.list_transactions = flaky
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            result = sync_service.sync_item("item-1", session)
+
+        # Bills still committed successfully
+        self.assertGreaterEqual(result["bills_upserted"], 1)
+        # The error surfaced as a note, not a crash
+        bill_tx_notes = [
+            n for n in result["snapshot_notes"] if n.get("scope") == "bill_transactions"
+        ]
+        self.assertTrue(len(bill_tx_notes) >= 1)
+        self.assertIn("bill-1", bill_tx_notes[0].get("bill_id", ""))
 
 
 if __name__ == "__main__":
