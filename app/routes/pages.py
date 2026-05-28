@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 STATIC_DIR = Path(__file__).parents[1] / "static"
 
@@ -35,7 +35,7 @@ def regras():
 
 @router.get("/receita-futura", include_in_schema=False)
 def receita_futura():
-    return FileResponse(STATIC_DIR / "receita_futura.html")
+    return RedirectResponse(url="/custos-fixos?tab=receita", status_code=307)
 
 
 @router.get("/custos-fixos", include_in_schema=False)

@@ -322,8 +322,9 @@ def invoice_summary(
     payment, up to ``effective_to``) so the caller can pick the right one
     without worrying about silent mode-switches mid-month.
 
-    ``invoice_total``/``invoice_mode`` are kept for backwards compatibility:
-    ``paid`` is preferred when there is at least one payment in the period.
+    ``invoice_total``/``invoice_mode`` are kept for backwards compatibility and
+    point to the discretionary view. When no ``exclude_transaction_ids`` are
+    passed, gross and discretionary values are identical.
 
     ``exclude_transaction_ids`` is used by the spending-capacity card to
     drop transactions that already count somewhere else (notably fixed
@@ -339,17 +340,6 @@ def invoice_summary(
     ).all()
 
     payments = [tx for tx in all_up_to if classifier.is_invoice_payment(tx)]
-    payments_in_period = [
-        tx
-        for tx in payments
-        if (from_date is None or tx.date >= from_date) and tx.id not in skip_ids
-    ]
-
-    paid_total = sum(
-        (abs(tx.amount) for tx in payments_in_period), Decimal("0")
-    )
-    paid_count = len(payments_in_period)
-    paid_dates = sorted(tx.date.isoformat() for tx in payments_in_period)
 
     last_payment_date = max((tx.date for tx in payments), default=None)
     lower = last_payment_date if last_payment_date is not None else date.min
@@ -358,39 +348,103 @@ def invoice_summary(
     credit_account_ids = set(
         account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
     )
-    open_txs = [
-        tx
-        for tx in all_up_to
-        if tx.account_id in credit_account_ids
-        and tx.date > lower
-        and tx.id not in skip_ids
-    ]
-    open_total = sum((abs(tx.amount) for tx in open_txs), Decimal("0"))
-    open_count = len(open_txs)
-    open_since = last_payment_date.isoformat() if last_payment_date else None
 
-    if payments_in_period:
-        invoice_mode = "paid"
-        invoice_total = paid_total
-        invoice_count = paid_count
-        invoice_since: Optional[str] = None
-    else:
-        invoice_mode = "open"
-        invoice_total = open_total
-        invoice_count = open_count
-        invoice_since = open_since
+    def calculate(skip: set[str]) -> Dict[str, Any]:
+        skipped_purchase_total = sum(
+            (
+                abs(tx.amount)
+                for tx in all_up_to
+                if tx.id in skip
+                and tx.account_id in credit_account_ids
+                and (from_date is None or tx.date >= from_date)
+                and not classifier.is_invoice_payment(tx)
+            ),
+            Decimal("0"),
+        )
+        payments_in_period = [
+            tx
+            for tx in payments
+            if (from_date is None or tx.date >= from_date) and tx.id not in skip
+        ]
+        paid_total = sum(
+            (abs(tx.amount) for tx in payments_in_period),
+            Decimal("0"),
+        )
+        paid_total = max(paid_total - skipped_purchase_total, Decimal("0"))
+        paid_count = len(payments_in_period)
+        paid_dates = sorted(tx.date.isoformat() for tx in payments_in_period)
+
+        open_txs = [
+            tx
+            for tx in all_up_to
+            if tx.account_id in credit_account_ids
+            and tx.date > lower
+            and tx.id not in skip
+        ]
+        open_total = sum((abs(tx.amount) for tx in open_txs), Decimal("0"))
+        open_count = len(open_txs)
+        open_since = last_payment_date.isoformat() if last_payment_date else None
+
+        if payments_in_period:
+            invoice_mode = "paid"
+            invoice_total = paid_total
+            invoice_count = paid_count
+            invoice_since: Optional[str] = None
+        else:
+            invoice_mode = "open"
+            invoice_total = open_total
+            invoice_count = open_count
+            invoice_since = open_since
+
+        return {
+            "mode": invoice_mode,
+            "total": invoice_total,
+            "count": invoice_count,
+            "since": invoice_since,
+            "paid_dates": paid_dates,
+            "paid_total": paid_total,
+            "paid_count": paid_count,
+            "open_total": open_total,
+            "open_count": open_count,
+            "open_since": open_since,
+        }
+
+    gross = calculate(set())
+    discretionary = calculate(skip_ids)
 
     return {
-        "invoice_mode": invoice_mode,
-        "invoice_total": float(invoice_total),
-        "invoice_count": invoice_count,
-        "invoice_since": invoice_since,
-        "invoice_paid_dates": paid_dates,
-        "invoice_paid_total": float(paid_total),
-        "invoice_paid_count": paid_count,
-        "invoice_open_total": float(open_total),
-        "invoice_open_count": open_count,
-        "invoice_open_since": open_since,
+        "invoice_mode": discretionary["mode"],
+        "invoice_total": float(discretionary["total"]),
+        "invoice_count": discretionary["count"],
+        "invoice_since": discretionary["since"],
+        "invoice_paid_dates": discretionary["paid_dates"],
+        "invoice_paid_total": float(discretionary["paid_total"]),
+        "invoice_paid_count": discretionary["paid_count"],
+        "invoice_open_total": float(discretionary["open_total"]),
+        "invoice_open_count": discretionary["open_count"],
+        "invoice_open_since": discretionary["open_since"],
+        "invoice_gross_mode": gross["mode"],
+        "invoice_gross_total": float(gross["total"]),
+        "invoice_gross_count": gross["count"],
+        "invoice_gross_since": gross["since"],
+        "invoice_gross_paid_dates": gross["paid_dates"],
+        "invoice_paid_gross_total": float(gross["paid_total"]),
+        "invoice_paid_gross_count": gross["paid_count"],
+        "invoice_open_gross_total": float(gross["open_total"]),
+        "invoice_open_gross_count": gross["open_count"],
+        "invoice_open_gross_since": gross["open_since"],
+        "invoice_discretionary_mode": discretionary["mode"],
+        "invoice_discretionary_total": float(discretionary["total"]),
+        "invoice_discretionary_count": discretionary["count"],
+        "invoice_discretionary_since": discretionary["since"],
+        "invoice_discretionary_paid_dates": discretionary["paid_dates"],
+        "invoice_paid_discretionary_total": float(discretionary["paid_total"]),
+        "invoice_paid_discretionary_count": discretionary["paid_count"],
+        "invoice_open_discretionary_total": float(discretionary["open_total"]),
+        "invoice_open_discretionary_count": discretionary["open_count"],
+        "invoice_open_discretionary_since": discretionary["open_since"],
+        "invoice_excluded_total": float(gross["total"] - discretionary["total"]),
+        "invoice_excluded_count": gross["count"] - discretionary["count"],
     }
 
 
@@ -491,4 +545,16 @@ def stats_summary(
         "invoice_open_total": invoice["invoice_open_total"],
         "invoice_open_count": invoice["invoice_open_count"],
         "invoice_open_since": invoice["invoice_open_since"],
+        "invoice_gross_total": invoice["invoice_gross_total"],
+        "invoice_gross_count": invoice["invoice_gross_count"],
+        "invoice_discretionary_total": invoice["invoice_discretionary_total"],
+        "invoice_discretionary_count": invoice["invoice_discretionary_count"],
+        "invoice_paid_gross_total": invoice["invoice_paid_gross_total"],
+        "invoice_open_gross_total": invoice["invoice_open_gross_total"],
+        "invoice_paid_discretionary_total": invoice[
+            "invoice_paid_discretionary_total"
+        ],
+        "invoice_open_discretionary_total": invoice[
+            "invoice_open_discretionary_total"
+        ],
     }

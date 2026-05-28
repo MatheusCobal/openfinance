@@ -62,6 +62,91 @@ class PluggyClient:
         response = self._request("GET", "/accounts", params={"itemId": item_id})
         return response.json()["results"]
 
+    def get_account(self, account_id: str) -> Dict[str, Any]:
+        """Single-account fetch — same payload shape as a row of list_accounts."""
+        return self._request("GET", f"/accounts/{account_id}").json()
+
+    def get_account_balance(self, account_id: str) -> Dict[str, Any]:
+        """Real-time balance snapshot for connectors that support it.
+
+        Returns the raw payload (typically ``{"balance": ..., "updatedAt": ...}``).
+        Not all connectors expose this endpoint — sync should call it inside a
+        try/except and fall back to the value already inside the account row.
+        """
+        return self._request("GET", f"/accounts/{account_id}/balance").json()
+
+    def list_bills(self, account_id: str) -> List[Dict[str, Any]]:
+        """Credit card bills for the given CREDIT account.
+
+        Pluggy paginates this endpoint the same way as transactions. Caller is
+        expected to handle ``HTTPStatusError`` (Pluggy returns 404 for
+        connectors that don't expose bills, or for non-CREDIT accounts).
+        """
+        MAX_PAGES = 24  # 2 years of monthly bills — safety net
+        results: List[Dict[str, Any]] = []
+        page = 1
+        while page <= MAX_PAGES:
+            response = self._request(
+                "GET",
+                "/bills",
+                params={"accountId": account_id, "pageSize": 100, "page": page},
+            )
+            body = response.json()
+            page_results = body.get("results", []) or []
+            results.extend(page_results)
+            total_pages = body.get("totalPages", 1)
+            if not page_results or page >= total_pages:
+                break
+            page += 1
+        return results
+
+    def list_investments(self, item_id: str) -> List[Dict[str, Any]]:
+        """All investment positions for the item across providers."""
+        MAX_PAGES = 20
+        results: List[Dict[str, Any]] = []
+        page = 1
+        while page <= MAX_PAGES:
+            response = self._request(
+                "GET",
+                "/investments",
+                params={"itemId": item_id, "pageSize": 100, "page": page},
+            )
+            body = response.json()
+            page_results = body.get("results", []) or []
+            results.extend(page_results)
+            total_pages = body.get("totalPages", 1)
+            if not page_results or page >= total_pages:
+                break
+            page += 1
+        return results
+
+    def list_investment_transactions(
+        self,
+        investment_id: str,
+        from_date: Optional[date] = None,
+    ) -> List[Dict[str, Any]]:
+        """Movements (BUY/SELL/TAX/TRANSFER) for the given investment."""
+        MAX_PAGES = 50
+        results: List[Dict[str, Any]] = []
+        page = 1
+        while page <= MAX_PAGES:
+            params: Dict[str, Any] = {
+                "investmentId": investment_id,
+                "pageSize": 500,
+                "page": page,
+            }
+            if from_date is not None:
+                params["from"] = from_date.isoformat()
+            response = self._request("GET", "/investments/transactions", params=params)
+            body = response.json()
+            page_results = body.get("results", []) or []
+            results.extend(page_results)
+            total_pages = body.get("totalPages", 1)
+            if not page_results or page >= total_pages:
+                break
+            page += 1
+        return results
+
     def list_transactions(
         self, account_id: str, from_date: Optional[date] = None
     ) -> List[Dict[str, Any]]:

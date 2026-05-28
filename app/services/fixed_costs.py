@@ -22,6 +22,7 @@ from app.services.fixed_cost_defaults import (
     DEFAULT_FIXED_COST_CATEGORIES,
     FIXED_COST_TEMPLATES,
 )
+from app.services.pluggy_snapshot import official_bills_total_for_month
 from app.services.transaction_reports import invoice_summary
 from app.services.transactions import (
     bank_income_transactions,
@@ -1031,6 +1032,18 @@ def spending_capacity_summary(
         card_invoice_gross_total - card_invoice_discretionary_total,
         Decimal("0"),
     )
+    # ---- Official credit-card bill (Pluggy) preferred over reconstruction ----
+    # When Pluggy hands us an official bill due this month, that is the real
+    # cash obligation. The transaction-reconstructed invoice above stays as
+    # an audit/fallback value. ``card_invoice_source`` tells the UI which one
+    # the headline numbers reflect.
+    official_bill = official_bills_total_for_month(session, year_month)
+    if official_bill is not None:
+        card_invoice_official_total = Decimal(str(official_bill["total_amount"]))
+        card_invoice_source = "bill"
+    else:
+        card_invoice_official_total = card_invoice_gross_total
+        card_invoice_source = "transactions"
     variable_budget_total = Decimal(str(variable_budgets["summary"]["target"]))
     variable_budget_spent = Decimal(
         str(variable_budgets["summary"]["projected_spent"])
@@ -1295,6 +1308,8 @@ def spending_capacity_summary(
             card_invoice_discretionary_total
         ),
         "card_invoice_fixed_cost_total": float(card_invoice_fixed_cost_total),
+        "card_invoice_official_total": float(card_invoice_official_total),
+        "card_invoice_source": card_invoice_source,
         "invoice_paid_total": float(invoice_paid_total),
         "invoice_open_total": float(invoice_open_total),
         "invoice_paid_gross_total": float(invoice_paid_gross_total),

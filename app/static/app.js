@@ -47,6 +47,7 @@ const dayFormatter = new Intl.DateTimeFormat('pt-BR', {
 let monthChart = null;
 let availableCategories = [];
 let transactionsById = new Map();
+let activeFixedCostTransaction = null;
 
 function formatMonthLabel(yyyymm) {
   const [year, month] = yyyymm.split('-').map(Number);
@@ -56,6 +57,10 @@ function formatMonthLabel(yyyymm) {
 function formatDayLabel(isoDate) {
   const [year, month, day] = isoDate.split('-').map(Number);
   return dayFormatter.format(new Date(year, month - 1, day));
+}
+
+function yearMonthFromIso(isoDate) {
+  return String(isoDate || '').slice(0, 7);
 }
 
 function groupTransactionsByCategoryId(transactions) {
@@ -159,9 +164,14 @@ function flowCard({ label, help, icon, value, prev, countLabel, tint, higherIsBe
     ? (value >= 0 ? '+' : '−') + currency.format(Math.abs(value))
     : currency.format(value);
   const delta = flowDelta(value, prev, higherIsBetter);
+  const detail = countLabel
+    ? `<span class="text-slate-500">${escapeHtml(countLabel)}</span>`
+    : help
+      ? `<span class="text-slate-500">${escapeHtml(help)}</span>`
+      : '<span></span>';
   const footer = isNet
     ? (help ? `<span class="text-slate-500">${escapeHtml(help)}</span>` : '<span></span>')
-    : `${countLabel ? `<span class="text-slate-500">${escapeHtml(countLabel)}</span>` : '<span></span>'}${delta ? ` <span class="ml-auto">${delta}</span>` : ''}`;
+    : `${detail}${delta ? ` <span class="ml-auto">${delta}</span>` : ''}`;
   return `
     <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
       <div class="flex items-center justify-between gap-2 mb-3">
@@ -186,6 +196,16 @@ function pluralSaidas(n) {
 
 function pluralCompras(n) {
   return n === 1 ? '1 compra' : `${n.toLocaleString('pt-BR')} compras`;
+}
+
+function planStatusLabel(status) {
+  const labels = {
+    healthy: 'saudável',
+    tight: 'apertado',
+    over: 'estourado',
+    unknown: 'sem receita',
+  };
+  return labels[status] || 'sem status';
 }
 
 function monthKeyForDate(date) {
@@ -362,25 +382,31 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
   const previous = findMonth(cashflowData.months, previousKey);
   const balanceCurrent = findMonth(balanceData.months, selectedMonth) || {};
   const balancePrevious = findMonth(balanceData.months, previousKey);
+  const invoiceGross = capacityData.card_invoice_gross_total ?? balanceCurrent.card_spend ?? 0;
+  const invoiceDiscretionary = capacityData.card_invoice_discretionary_total ?? capacityData.card_invoice_total ?? invoiceGross;
+  const invoiceFixedCost = capacityData.card_invoice_fixed_cost_total ?? Math.max(invoiceGross - invoiceDiscretionary, 0);
+  const discretionaryAvailable = capacityData.discretionary_available ?? capacityData.available_to_spend ?? capacityData.remaining_after_plan ?? 0;
+  const dailyAvailable = capacityData.daily_discretionary_remaining ?? null;
+  const variableBudgetTotal = capacityData.variable_budget_total ?? capacityData.planned_variable_total ?? 0;
+  const variableSpent = capacityData.variable_budget_spent ?? 0;
+  const expectedIncome = capacityData.expected_income_total ?? capacityData.receita_esperada ?? 0;
+  const receivedIncome = capacityData.received_income_total ?? capacityData.valor_recebido ?? current.income ?? 0;
+  const receivedHelp = expectedIncome > 0
+    ? `de ${currency.format(expectedIncome)} esperados`
+    : pluralRecebimentos(current.income_count || capacityData.received_income_count || 0);
+  const dailyHelp = dailyAvailable === null
+    ? planStatusLabel(capacityData.plan_status)
+    : `${planStatusLabel(capacityData.plan_status)} · ${currency.format(dailyAvailable)}/dia`;
 
   periodLabel.textContent = formatMonthLabel(selectedMonth);
 
   container.innerHTML = [
     flowCard({
-      label: 'Fatura cartão',
-      icon: '💳',
-      value: balanceCurrent.card_spend || 0,
-      prev: balancePrevious ? balancePrevious.card_spend : null,
-      countLabel: pluralCompras(balanceCurrent.card_spend_count || 0),
-      tint: 'orange',
-      higherIsBetter: false,
-    }),
-    flowCard({
-      label: 'Entradas',
+      label: 'Recebido',
       icon: '💰',
-      value: current.income || 0,
+      value: receivedIncome,
       prev: previous ? previous.income : null,
-      countLabel: pluralRecebimentos(current.income_count || 0),
+      countLabel: receivedHelp,
       tint: 'emerald',
       higherIsBetter: true,
     }),
@@ -394,11 +420,56 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
       higherIsBetter: false,
     }),
     flowCard({
+      label: 'Fatura real',
+      icon: '💳',
+      value: invoiceGross,
+      prev: balancePrevious ? balancePrevious.card_spend : null,
+      countLabel: pluralCompras(capacityData.invoice_gross_count || balanceCurrent.card_spend_count || 0),
+      tint: 'orange',
+      higherIsBetter: false,
+    }),
+    flowCard({
+      label: 'Fatura planejamento',
+      icon: '📋',
+      value: invoiceDiscretionary,
+      countLabel: invoiceFixedCost > 0
+        ? `${currency.format(invoiceFixedCost)} já está em fixos`
+        : pluralCompras(capacityData.invoice_discretionary_count || 0),
+      tint: 'slate',
+      higherIsBetter: false,
+    }),
+    flowCard({
+      label: 'Custos fixos',
+      icon: '📌',
+      value: capacityData.fixed_cost_total || 0,
+      countLabel: `${capacityData.fixed_costs?.entries?.length || 0} itens`,
+      tint: 'red',
+      higherIsBetter: false,
+    }),
+    flowCard({
+      label: 'Variável usado',
+      icon: '🧾',
+      value: variableSpent,
+      countLabel: variableBudgetTotal > 0
+        ? `meta ${currency.format(variableBudgetTotal)}`
+        : 'sem meta configurada',
+      tint: 'orange',
+      higherIsBetter: false,
+    }),
+    flowCard({
+      label: 'Reserva',
+      icon: '🏦',
+      value: capacityData.savings_target_total || 0,
+      countLabel: capacityData.savings_target?.scope === 'month' ? 'ajuste do mês' : 'meta padrão',
+      tint: 'slate',
+      higherIsBetter: true,
+    }),
+    flowCard({
       label: 'Pode gastar',
       icon: '📌',
-      value: capacityData.remaining_after_invoice || 0,
-      help: 'receita esperada - custos fixos - fatura',
-      tint: (capacityData.remaining_after_invoice || 0) >= 0 ? 'emerald' : 'red',
+      value: discretionaryAvailable,
+      help: dailyHelp,
+      tint: discretionaryAvailable >= 0 ? 'emerald' : 'red',
       higherIsBetter: true,
       isNet: true,
     }),
@@ -441,28 +512,30 @@ function renderSummary(stats) {
     invoice_mode = 'open',
     invoice_total = 0,
     invoice_count = 0,
+    invoice_gross_total = invoice_total,
+    invoice_gross_count = invoice_count,
     invoice_since = null,
     invoice_paid_dates = [],
   } = stats;
   const top = categories[0];
 
-  document.getElementById('stat-total').textContent = currency.format(invoice_total);
+  document.getElementById('stat-total').textContent = currency.format(invoice_gross_total);
 
   let label, supporting;
   if (invoice_mode === 'paid') {
-    label = invoice_count === 1 ? 'Fatura paga no período' : 'Faturas pagas no período';
+    label = invoice_gross_count === 1 ? 'Fatura paga no período' : 'Faturas pagas no período';
     const datesLabel = invoice_paid_dates.map(formatShortDate).join(', ');
-    supporting = invoice_count === 1
+    supporting = invoice_gross_count === 1
       ? `paga em ${datesLabel}`
-      : `${invoice_count} pagamentos (${datesLabel})`;
+      : `${invoice_gross_count} pagamentos (${datesLabel})`;
   } else {
-    label = 'Fatura em formação';
+    label = 'Fatura real em formação';
     const sinceLabel = invoice_since
       ? `desde ${formatShortDate(invoice_since)}`
       : 'desde sempre (sem pagamento registrado)';
-    supporting = invoice_count === 0
+    supporting = invoice_gross_count === 0
       ? `nenhuma compra ${sinceLabel}`
-      : `${invoice_count.toLocaleString('pt-BR')} compra${invoice_count === 1 ? '' : 's'} ${sinceLabel}`;
+      : `${invoice_gross_count.toLocaleString('pt-BR')} compra${invoice_gross_count === 1 ? '' : 's'} ${sinceLabel}`;
   }
   document.getElementById('stat-label').textContent = label;
   document.getElementById('stat-payment-count').textContent = supporting;
@@ -579,6 +652,18 @@ function renderCategories(transactions) {
           ${transactionAmountHtml(tx)}
           <button
             type="button"
+            class="match-fixed-cost size-8 inline-flex items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+            data-tx-id="${escapeHtml(tx.id)}"
+            title="Vincular a custo fixo"
+            aria-label="Vincular a custo fixo"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L7.5 16.5 3.75 12.75" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 4.5l-3 3" />
+            </svg>
+          </button>
+          <button
+            type="button"
             class="categorize-tx size-8 inline-flex items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900"
             data-tx-id="${escapeHtml(tx.id)}"
             title="Alterar categoria"
@@ -663,6 +748,13 @@ function renderCategories(transactions) {
       if (tx) openCategoryModal(tx);
     });
   });
+
+  container.querySelectorAll('button.match-fixed-cost').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tx = transactionsById.get(btn.dataset.txId);
+      if (tx) openFixedCostMatchModal(tx);
+    });
+  });
 }
 
 function categoryOptionsHtml(selectedId) {
@@ -728,6 +820,99 @@ async function saveCategoryRule(event) {
   } catch (err) {
     console.error(err);
     showToast(err.message || 'Erro ao salvar regra.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function fetchJsonStrict(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || `HTTP ${response.status}`);
+  }
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+function fixedCostOptionsHtml(costs, txAmount) {
+  const sorted = [...costs].sort((a, b) => {
+    const deltaA = Math.abs((Number(a.amount) || 0) - txAmount);
+    const deltaB = Math.abs((Number(b.amount) || 0) - txAmount);
+    return deltaA - deltaB || String(a.description).localeCompare(String(b.description));
+  });
+  return sorted
+    .map((cost) => {
+      const amount = Number(cost.amount) || 0;
+      return `
+        <option value="${cost.id}">
+          ${escapeHtml(cost.description)} · ${escapeHtml(cost.category_name || 'Sem categoria')} · ${currency.format(amount)}
+        </option>
+      `;
+    })
+    .join('');
+}
+
+async function openFixedCostMatchModal(tx) {
+  activeFixedCostTransaction = tx;
+  const modal = document.getElementById('fixed-cost-match-modal');
+  const select = document.getElementById('fixed-cost-match-cost');
+  const amount = Math.abs(Number(tx.amount) || 0);
+
+  document.getElementById('fixed-cost-match-description').textContent = tx.description;
+  document.getElementById('fixed-cost-match-amount').textContent = currency.format(amount);
+  document.getElementById('fixed-cost-match-date').textContent =
+    `${formatDayLabel(tx.date)} · ${yearMonthFromIso(tx.date)}`;
+  select.innerHTML = '<option>Carregando…</option>';
+  modal.classList.remove('hidden');
+
+  try {
+    const costs = await fetchJsonStrict('/fixed-costs');
+    if (!Array.isArray(costs) || costs.length === 0) {
+      select.innerHTML = '<option value="">Nenhum custo fixo ativo</option>';
+      showToast('Cadastre um custo fixo antes de vincular.', 'error');
+      return;
+    }
+    select.innerHTML = fixedCostOptionsHtml(costs, amount);
+    select.focus();
+  } catch (err) {
+    console.error(err);
+    select.innerHTML = '<option value="">Erro ao carregar custos</option>';
+    showToast('Erro ao carregar custos fixos.', 'error');
+  }
+}
+
+function closeFixedCostMatchModal() {
+  document.getElementById('fixed-cost-match-modal').classList.add('hidden');
+  activeFixedCostTransaction = null;
+}
+
+async function saveFixedCostMatch(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const fixedCostId = Number(document.getElementById('fixed-cost-match-cost').value);
+  if (!activeFixedCostTransaction || !fixedCostId) {
+    showToast('Selecione um custo fixo.', 'error');
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    await fetchJsonStrict(`/fixed-costs/${fixedCostId}/matches`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        transaction_id: activeFixedCostTransaction.id,
+        year_month: yearMonthFromIso(activeFixedCostTransaction.date),
+      }),
+    });
+    closeFixedCostMatchModal();
+    await loadData();
+    showToast('Transação vinculada ao custo fixo.', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Erro ao vincular custo fixo.', 'error');
   } finally {
     button.disabled = false;
   }
@@ -858,6 +1043,88 @@ async function loadData() {
   // doesn't block the dashboard's primary stats from rendering.
   loadMonthlyFlow(myVersion);
   loadSyncHealth(myVersion);
+  loadSnapshot(myVersion);
+}
+
+async function loadSnapshot(expectedVersion) {
+  const section = document.getElementById('snapshot-section');
+  if (!section) return;
+  try {
+    const response = await fetch('/dashboard/snapshot');
+    if (expectedVersion !== loadVersion) return;
+    if (!response.ok) {
+      section.classList.add('hidden');
+      return;
+    }
+    const data = await response.json();
+    if (expectedVersion !== loadVersion) return;
+    renderSnapshot(section, data);
+  } catch (err) {
+    console.error('snapshot load failed', err);
+    section.classList.add('hidden');
+  }
+}
+
+function renderSnapshot(section, data) {
+  const bank = data.bank || {};
+  const credit = data.credit || {};
+  const investments = data.investments || {};
+
+  // Nothing synced yet → keep the strip hidden rather than showing zeros.
+  const anything =
+    bank.has_balance || credit.has_balance || investments.has_investments;
+  if (!anything) {
+    section.classList.add('hidden');
+    section.innerHTML = '';
+    return;
+  }
+
+  const card = (label, value, sub, valueClass = 'text-slate-900') => `
+    <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+      <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">${label}</p>
+      <p class="mt-2 text-2xl font-bold tabular ${valueClass}">${value}</p>
+      <p class="text-xs text-slate-500 mt-1">${sub}</p>
+    </div>`;
+
+  const cards = [];
+  cards.push(
+    card(
+      'Saldo em conta',
+      bank.has_balance ? currency.format(bank.total) : '—',
+      `${bank.account_count || 0} conta${(bank.account_count || 0) === 1 ? '' : 's'}`,
+      'text-emerald-700',
+    ),
+  );
+  const creditSub = credit.limit
+    ? `limite ${currency.format(credit.limit)} · livre ${currency.format(credit.available)}`
+    : `${credit.account_count || 0} cartã${(credit.account_count || 0) === 1 ? 'o' : 'os'}`;
+  cards.push(
+    card(
+      'Cartão em uso',
+      credit.has_balance ? currency.format(credit.used) : '—',
+      creditSub,
+      'text-slate-900',
+    ),
+  );
+  cards.push(
+    card(
+      'Investimentos',
+      investments.has_investments ? currency.format(investments.total) : '—',
+      `${investments.investment_count || 0} posiç${(investments.investment_count || 0) === 1 ? 'ão' : 'ões'}`,
+      'text-indigo-700',
+    ),
+  );
+  cards.push(
+    card(
+      'Reserva',
+      investments.has_investments ? currency.format(investments.reserve_total) : '—',
+      `${investments.reserve_investment_count || 0} elegíve${(investments.reserve_investment_count || 0) === 1 ? 'l' : 'is'}`,
+      'text-indigo-700',
+    ),
+  );
+
+  document.getElementById('snapshot-cards').innerHTML = cards.join('');
+  section.classList.remove('hidden');
 }
 
 async function loadSyncHealth(expectedVersion) {
@@ -1018,8 +1285,17 @@ document.getElementById('category-modal-cancel').addEventListener('click', close
 document.getElementById('category-modal').addEventListener('click', (event) => {
   if (event.target.id === 'category-modal') closeCategoryModal();
 });
+document.getElementById('fixed-cost-match-form').addEventListener('submit', saveFixedCostMatch);
+document.getElementById('fixed-cost-match-close').addEventListener('click', closeFixedCostMatchModal);
+document.getElementById('fixed-cost-match-cancel').addEventListener('click', closeFixedCostMatchModal);
+document.getElementById('fixed-cost-match-modal').addEventListener('click', (event) => {
+  if (event.target.id === 'fixed-cost-match-modal') closeFixedCostMatchModal();
+});
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') closeCategoryModal();
+  if (event.key === 'Escape') {
+    closeCategoryModal();
+    closeFixedCostMatchModal();
+  }
 });
 
 renderPeriodFilter();

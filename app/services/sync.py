@@ -8,6 +8,11 @@ from sqlmodel import Session, select
 
 from app.models import Account, AccountSync, Item, Transaction
 from app.pluggy_client import pluggy
+from app.services.pluggy_snapshot import (
+    account_snapshot_values,
+    sync_credit_card_bills,
+    sync_investments,
+)
 from app.services.snapshots import refresh_monthly_balance_snapshots
 from app.services.transactions import TRACKED_ACCOUNT_TYPES
 
@@ -61,6 +66,10 @@ def upsert_account(raw_account: Dict[str, Any], item_id: str, session: Session) 
         "marketing_name": raw_account.get("marketingName"),
         "number": raw_account.get("number"),
     }
+    # Pluggy snapshot fields (balance, bankData.*, creditData.*). Only keys
+    # with non-null values are returned, so a connector that omits a field
+    # never wipes a previously-synced value.
+    values.update(account_snapshot_values(raw_account))
     if account is None:
         session.add(Account(id=raw_account["id"], **values))
         return
@@ -262,6 +271,8 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
     fetched_transactions = 0
     synced_accounts_by_type: Dict[str, int] = {}
     failed_accounts: List[Dict[str, str]] = []
+    bills_upserted = 0
+    snapshot_notes: List[Dict[str, Any]] = []
     for raw_account in accounts_to_sync:
         account_id = raw_account["id"]
         account_type = raw_account["type"]
@@ -282,6 +293,57 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         new_transactions += account_result.new_transactions
         updated_transactions += account_result.updated_transactions
 
+        # ---- Pluggy snapshot: credit-card bills (CREDIT accounts only) ----
+        # Best-effort: a connector that doesn't expose /bills must not fail
+        # the account's transaction sync, which already committed above.
+        if account_type == "CREDIT":
+            try:
+                bill_outcome = sync_credit_card_bills(session, account_id)
+                session.commit()
+            except Exception as exc:  # noqa: BLE001 — keep the item sync alive
+                session.rollback()
+                snapshot_notes.append(
+                    {
+                        "scope": "bills",
+                        "account_id": account_id,
+                        "error": _truncate_error(exc),
+                    }
+                )
+            else:
+                bills_upserted += bill_outcome.upserted
+                if bill_outcome.skipped_reason or bill_outcome.error:
+                    snapshot_notes.append(
+                        {
+                            "scope": "bills",
+                            "account_id": account_id,
+                            "skipped": bill_outcome.skipped_reason,
+                            "error": bill_outcome.error,
+                        }
+                    )
+
+    # ---- Pluggy snapshot: investments (per item, not per account) ----
+    investments_upserted = 0
+    investment_transactions_upserted = 0
+    try:
+        inv_outcome = sync_investments(session, item_id)
+        session.commit()
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        snapshot_notes.append({"scope": "investments", "error": _truncate_error(exc)})
+    else:
+        investments_upserted = inv_outcome.upserted
+        investment_transactions_upserted = inv_outcome.extras.get(
+            "transactions_upserted", 0
+        )
+        if inv_outcome.skipped_reason or inv_outcome.error:
+            snapshot_notes.append(
+                {
+                    "scope": "investments",
+                    "skipped": inv_outcome.skipped_reason,
+                    "error": inv_outcome.error,
+                }
+            )
+
     # Snapshots aggregate from the DB, so partial failures still produce
     # meaningful numbers — just for the accounts that succeeded.
     refreshed_income_months, refreshed_invoice_months, refreshed_balance_months = (
@@ -294,8 +356,12 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         "fetched_transactions": fetched_transactions,
         "new_transactions": new_transactions,
         "updated_transactions": updated_transactions,
+        "bills_upserted": bills_upserted,
+        "investments_upserted": investments_upserted,
+        "investment_transactions_upserted": investment_transactions_upserted,
         "refreshed_invoice_months": refreshed_invoice_months,
         "refreshed_income_months": refreshed_income_months,
         "refreshed_balance_months": refreshed_balance_months,
         "failed_accounts": failed_accounts,
+        "snapshot_notes": snapshot_notes,
     }

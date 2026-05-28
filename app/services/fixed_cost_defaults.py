@@ -39,6 +39,11 @@ DEFAULT_FIXED_COST_CATEGORIES = [
         "color": "#0d9488",
         "sort_order": 80,
     },
+    {
+        "name": "Academia",
+        "color": "#ea580c",
+        "sort_order": 90,
+    },
 ]
 
 
@@ -90,5 +95,11 @@ FIXED_COST_TEMPLATES = [
         "description": "Pet",
         "category_name": "Pet",
         "due_day": 15,
+    },
+    {
+        "label": "Academia",
+        "description": "Academia",
+        "category_name": "Academia",
+        "due_day": 10,
     },
 ]

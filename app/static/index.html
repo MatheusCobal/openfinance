@@ -49,13 +49,9 @@
           Próximos
         </a>
 
-        <a href="/receita-futura" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">💰</span>
-          Receita futura
-        </a>
         <a href="/custos-fixos" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
           <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📌</span>
-          Custos fixos
+          Planejamento
         </a>
         <a href="/regras" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
           <span class="size-5 inline-flex items-center justify-center text-lg leading-none">⚙️</span>
@@ -124,6 +120,15 @@
               </span>
             </div>
           </div>
+        </section>
+
+        <!-- ── Pluggy snapshot (real balances/limits/investments) ── -->
+        <section id="snapshot-section" class="hidden mb-6">
+          <div class="flex items-baseline justify-between mb-3">
+            <h2 class="font-semibold text-slate-900">Saldos &amp; investimentos</h2>
+            <p class="text-xs text-slate-500">Dados diretos do banco (Pluggy)</p>
+          </div>
+          <div id="snapshot-cards" class="grid grid-cols-1 md:grid-cols-4 gap-3"></div>
         </section>
 
         <!-- ── Sync health (only shown when something is wrong / running) ── -->
@@ -213,6 +218,44 @@
       </div>
     </div>
 
-    <script src="/static/app.js?v=15"></script>
+    <!-- ── Fixed cost match modal ──────────────────────────────── -->
+    <div id="fixed-cost-match-modal" class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="w-full max-w-md rounded-2xl bg-white border border-slate-200 shadow-2xl">
+        <div class="flex items-start justify-between gap-4 px-6 py-5 border-b border-slate-100">
+          <div class="min-w-0">
+            <h2 class="text-base font-semibold text-slate-900">Vincular custo fixo</h2>
+            <p id="fixed-cost-match-description" class="text-sm text-slate-500 truncate mt-0.5"></p>
+          </div>
+          <button id="fixed-cost-match-close" type="button"
+            class="size-8 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <form id="fixed-cost-match-form" class="px-6 py-5 space-y-4">
+          <label class="block">
+            <span class="text-sm font-medium text-slate-700">Custo fixo</span>
+            <select id="fixed-cost-match-cost"
+              class="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" required></select>
+          </label>
+          <div class="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-xs font-medium uppercase tracking-wider text-slate-500">Transação</span>
+              <span id="fixed-cost-match-amount" class="text-sm font-semibold tabular text-slate-900">—</span>
+            </div>
+            <p id="fixed-cost-match-date" class="text-xs text-slate-500 mt-1">—</p>
+          </div>
+          <div class="flex items-center justify-end gap-3 pt-1">
+            <button id="fixed-cost-match-cancel" type="button"
+              class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2">Cancelar</button>
+            <button type="submit"
+              class="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-4 py-2 shadow-sm disabled:opacity-50">Vincular</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="/static/app.js?v=17"></script>
   </body>
 </html>

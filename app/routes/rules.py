@@ -12,6 +12,7 @@ from app.services.rules import (
     delete_bank_income_exclusion_rule as delete_bank_income_exclusion_rule_service,
     delete_description_category_rule as delete_description_category_rule_service,
     delete_ignored_description_rule as delete_ignored_description_rule_service,
+    description_category_rule_suggestions as description_category_rule_suggestions_service,
     list_bank_cashflow_exclusion_rules as list_bank_cashflow_exclusion_rules_service,
     list_bank_income_exclusion_rules as list_bank_income_exclusion_rules_service,
     list_description_category_rules as list_description_category_rules_service,
@@ -115,6 +116,24 @@ def delete_bank_cashflow_exclusion_rule(
 @router.get("/category-rules/description")
 def list_description_category_rules(session: Session = Depends(get_session)):
     return list_description_category_rules_service(session)
+
+
+@router.get("/category-rules/description/suggestions")
+def description_category_rule_suggestions(
+    months: int = 12,
+    min_count: int = 2,
+    limit: int = 10,
+    session: Session = Depends(get_session),
+):
+    try:
+        return description_category_rule_suggestions_service(
+            session,
+            months=months,
+            min_count=min_count,
+            limit=limit,
+        )
+    except (RuleValidationError, RuleCategoryNotFoundError) as exc:
+        _handle_rule_error(exc)
 
 
 @router.post("/category-rules/description")
