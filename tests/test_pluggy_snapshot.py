@@ -528,6 +528,92 @@ class CreditCardObligationSummaryTest(_SyncTestBase):
                 capacity_with_bill["budget_available_to_spend"] - capacity_with_bill["card_invoice_official_total"],
             )
 
+    # ----- account_balance tier is current-month-only -----
+
+    def test_future_month_without_bill_uses_transaction_fallback(self):
+        """For a future month with no CreditCardBill, Account.balance must NOT
+        be used — it represents today's open invoice, not a future obligation.
+        The source should be transaction_fallback."""
+        from app.services.pluggy_snapshot import credit_card_obligation_summary
+
+        self.fake_pluggy.bills_supported = False
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+            # Confirm the account got a balance from sync
+            acc = session.get(Account, "credit-1")
+            self.assertIsNotNone(acc.balance)
+
+            # Ask for the NEXT month (future relative to today=2026-05-28)
+            summary = credit_card_obligation_summary(session, "2026-06", today=self.today)
+
+        self.assertEqual(summary["source"], "transaction_fallback")
+        self.assertIsNone(summary["official_bill_total"])
+        # No future transactions exist → reconstruction total is zero
+        self.assertEqual(summary["current_open_total"], 0.0)
+
+    def test_past_month_without_bill_uses_transaction_fallback(self):
+        """For a past month with no CreditCardBill, Account.balance must NOT
+        be used — it represents today's snapshot, not the past obligation."""
+        from app.services.pluggy_snapshot import credit_card_obligation_summary
+
+        self.fake_pluggy.bills_supported = False
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+
+            # Ask for a PAST month (before today=2026-05-28)
+            summary = credit_card_obligation_summary(session, "2026-04", today=self.today)
+
+        self.assertEqual(summary["source"], "transaction_fallback")
+        self.assertIsNone(summary["official_bill_total"])
+
+    def test_future_month_with_bill_uses_bill(self):
+        """A CreditCardBill with due_date in a future month must be used
+        regardless — Tier 1 (official bill) always wins."""
+        from app.services.pluggy_snapshot import credit_card_obligation_summary
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+            # Add an official bill due in next month
+            session.add(CreditCardBill(
+                id="bill-future-1",
+                account_id="credit-1",
+                due_date=date(2026, 6, 10),
+                total_amount=Decimal("2500"),
+            ))
+            session.commit()
+
+            summary = credit_card_obligation_summary(session, "2026-06", today=self.today)
+
+        self.assertEqual(summary["source"], "bill")
+        self.assertEqual(summary["official_bill_total"], 2500.0)
+        self.assertIn("2026-06-10", summary["due_dates"])
+
+    def test_spending_capacity_future_month_not_contaminated_by_account_balance(self):
+        """spending_capacity_summary for a future month must not carry the
+        current Account.balance into card_invoice_official_total / remaining."""
+        from app.services.fixed_costs import spending_capacity_summary
+
+        self.fake_pluggy.bills_supported = False
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+            acc = session.get(Account, "credit-1")
+            balance = float(acc.balance)
+
+            capacity = spending_capacity_summary(session, "2026-06", today=self.today)
+
+        # Source must be transaction_fallback, not account_balance
+        self.assertEqual(capacity["card_invoice_source"], "transaction_fallback")
+        # The official total must NOT equal Account.balance
+        self.assertNotEqual(capacity["card_invoice_official_total"], balance)
+        # No future card transactions exist → gross = 0, official = 0, gap = 0
+        self.assertEqual(capacity["card_invoice_gross_total"], 0.0)
+        self.assertEqual(capacity["card_invoice_official_total"], 0.0)
+        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+
 
 class TransactionBillInstallmentTest(unittest.TestCase):
     """Tests that bill/installment fields are persisted through upsert_transaction."""

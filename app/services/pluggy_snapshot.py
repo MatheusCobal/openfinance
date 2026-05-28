@@ -532,15 +532,21 @@ def official_bills_total_for_month(
 def credit_card_obligation_summary(
     session: Session,
     year_month: str,
+    today: Optional[datetime.date] = None,
 ) -> Dict[str, Any]:
     """3-tier credit-card obligation summary for a given month.
 
     Priority:
-    1. ``bill``             — official CreditCardBill rows due this month.
-    2. ``account_balance``  — sum of CREDIT Account.balance (open invoice).
-    3. ``transaction_fallback`` — reconstructed via invoice_summary().
+    1. ``bill``             — official CreditCardBill rows due this month (any month).
+    2. ``account_balance``  — sum of CREDIT Account.balance (CURRENT MONTH ONLY).
+                              Account.balance reflects the current open invoice, so
+                              it is meaningless as a proxy for a past or future month.
+    3. ``transaction_fallback`` — reconstructed via invoice_summary() for any month.
     """
     from app.services.transaction_reports import invoice_summary  # avoid circular at import time
+
+    today = today if today is not None else datetime.date.today()
+    current_year_month = today.strftime("%Y-%m")
 
     active_ids = _active_item_ids(session)
     all_credit = [
@@ -601,38 +607,42 @@ def credit_card_obligation_summary(
             ],
         }
 
-    # ---- Tier 2: CREDIT Account.balance ----
-    credit_with_balance = [a for a in credit_accounts if a.balance is not None]
-    if credit_with_balance:
-        open_total = sum((a.balance for a in credit_with_balance), Decimal("0"))
-        min_total = sum(
-            (a.credit_minimum_payment for a in credit_with_balance if a.credit_minimum_payment is not None),
-            Decimal("0"),
-        )
-        due_dates = sorted({
-            a.credit_balance_due_date.isoformat()
-            for a in credit_with_balance
-            if a.credit_balance_due_date is not None
-        })
-        return {
-            "year_month": year_month,
-            "source": "account_balance",
-            "official_bill_total": None,
-            "current_open_total": float(open_total),
-            "minimum_payment_total": float(min_total),
-            "payments_total": None,
-            "finance_charges_total": None,
-            "due_dates": due_dates,
-            "cards": [
-                {
-                    "account_id": a.id,
-                    "due_date": a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None,
-                    "total_amount": float(a.balance or 0),
-                    "minimum_payment_amount": float(a.credit_minimum_payment or 0),
-                }
+    # ---- Tier 2: CREDIT Account.balance — current month only ----
+    # Account.balance is the current open invoice snapshot. It is only a valid
+    # proxy for the current month's obligation. For past or future months it
+    # would inject today's balance into the wrong month, distorting the plan.
+    if year_month == current_year_month:
+        credit_with_balance = [a for a in credit_accounts if a.balance is not None]
+        if credit_with_balance:
+            open_total = sum((a.balance for a in credit_with_balance), Decimal("0"))
+            min_total = sum(
+                (a.credit_minimum_payment for a in credit_with_balance if a.credit_minimum_payment is not None),
+                Decimal("0"),
+            )
+            due_dates = sorted({
+                a.credit_balance_due_date.isoformat()
                 for a in credit_with_balance
-            ],
-        }
+                if a.credit_balance_due_date is not None
+            })
+            return {
+                "year_month": year_month,
+                "source": "account_balance",
+                "official_bill_total": None,
+                "current_open_total": float(open_total),
+                "minimum_payment_total": float(min_total),
+                "payments_total": None,
+                "finance_charges_total": None,
+                "due_dates": due_dates,
+                "cards": [
+                    {
+                        "account_id": a.id,
+                        "due_date": a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None,
+                        "total_amount": float(a.balance or 0),
+                        "minimum_payment_amount": float(a.credit_minimum_payment or 0),
+                    }
+                    for a in credit_with_balance
+                ],
+            }
 
     # ---- Tier 3: transaction fallback ----
     year, month = int(year_month[:4]), int(year_month[5:])
