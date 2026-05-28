@@ -151,67 +151,129 @@ function renderMonthStrip() {
 
 function renderCapacityFlow(capacity) {
   const container = document.getElementById('capacity-summary');
-  const sobra = capacity.budget_available_to_spend ?? capacity.discretionary_available ?? capacity.available_to_spend ?? 0;
+
+  // ── Values ──
+  const sobra         = capacity.budget_available_to_spend ?? capacity.discretionary_available ?? capacity.available_to_spend ?? 0;
   const sobraPositive = sobra >= 0;
   const income        = capacity.expected_income_total     || 0;
+  const received      = capacity.received_income_total     || 0;
+  const toReceive     = capacity.income_to_receive         || 0;
   const fixedReserved = capacity.fixed_cost_reserved_total || 0;
   const varConsumed   = capacity.variable_budget_consumed  || 0;
   const varOverage    = capacity.variable_budget_overage   || 0;
   const unbudgeted    = capacity.unbudgeted_variable_spent || 0;
-  const varTotal      = varConsumed + varOverage + unbudgeted;
   const reserve       = capacity.reserve_reserved_total    || 0;
+  const daily         = capacity.daily_discretionary_remaining || 0;
+  const daysRemaining = capacity.days_remaining_in_month   || 0;
 
-  const fixedPct    = income > 0 ? Math.min(100, (fixedReserved / income) * 100) : 0;
-  const variablePct = income > 0 ? Math.min(100, (varTotal       / income) * 100) : 0;
-  const reservePct  = income > 0 ? Math.min(100, (reserve        / income) * 100) : 0;
-  const freePct     = Math.max(0, 100 - fixedPct - variablePct - reservePct);
+  // ── Plan status badge ──
+  const PLAN_STATUS_CFG = {
+    healthy: { label: 'Saudável',   cls: 'bg-emerald-100 text-emerald-700' },
+    tight:   { label: 'Apertado',   cls: 'bg-amber-100   text-amber-700'   },
+    over:    { label: 'Estourado',  cls: 'bg-rose-100    text-rose-700'    },
+    unknown: { label: 'Sem receita',cls: 'bg-slate-100   text-slate-600'   },
+  };
+  const planStatus = PLAN_STATUS_CFG[capacity.plan_status] || PLAN_STATUS_CFG.unknown;
 
-  const cards = [
-    { icon: '💰', label: 'Receita esperada',         value: income,        accent: false },
-    { icon: '🏠', label: 'Custos fixos reservados',  value: fixedReserved, accent: false },
-    { icon: '🎯', label: 'Variável + sem orçamento', value: varTotal,      accent: false },
-    { icon: '✨', label: 'Pode gastar',               value: sobra,         accent: true  },
+  // ── Progress bar ──
+  const fixedPct   = income > 0 ? Math.min(100, (fixedReserved / income) * 100) : 0;
+  const varConsPct = income > 0 ? Math.min(100, (varConsumed   / income) * 100) : 0;
+  const varOverPct = income > 0 ? Math.min(100, (varOverage    / income) * 100) : 0;
+  const unbudPct   = income > 0 ? Math.min(100, (unbudgeted    / income) * 100) : 0;
+  const reservePct = income > 0 ? Math.min(100, (reserve       / income) * 100) : 0;
+  const freePct    = Math.max(0, 100 - fixedPct - varConsPct - varOverPct - unbudPct - reservePct);
+  const varTotalPct = varConsPct + varOverPct + unbudPct;
+
+  // ── Credit card context ──
+  const ccOfficial  = capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
+  const ccSource    = capacity.card_invoice_source;
+  const ccSourceLabel =
+    ccSource === 'bill'            ? 'Fatura oficial (Pluggy)' :
+    ccSource === 'account_balance' ? 'Saldo da conta cartão'   :
+                                     'Reconstruída por transações';
+  const ccSourceCls =
+    ccSource === 'bill'            ? 'bg-emerald-100 text-emerald-700' :
+    ccSource === 'account_balance' ? 'bg-indigo-100  text-indigo-700'  :
+                                     'bg-slate-100   text-slate-600';
+  const dueDates = capacity.credit_card_due_dates || [];
+
+  // ── Pre-build accordion panel content (avoids nested template-literal issues) ──
+  const rReceita  = expandedOverviewPanel === 'receita'  ? buildOverviewPanelContent('receita',  capacity, sobra, sobraPositive) : '';
+  const rCustos   = expandedOverviewPanel === 'custos'   ? buildOverviewPanelContent('custos',   capacity, sobra, sobraPositive) : '';
+  const rVariavel = expandedOverviewPanel === 'variavel' ? buildOverviewPanelContent('variavel', capacity, sobra, sobraPositive) : '';
+  const rReserva  = expandedOverviewPanel === 'reserva'  ? buildOverviewPanelContent('reserva',  capacity, sobra, sobraPositive) : '';
+
+  // ── Calculation breakdown rows ──
+  const bRows = [
+    { label: 'Receita esperada',           value: income,        op: '',  cls: 'text-slate-700' },
+    { label: 'Custos fixos reservados',    value: fixedReserved, op: '−', cls: 'text-slate-500' },
+    { label: 'Variável consumido',         value: varConsumed,   op: '−', cls: 'text-slate-500' },
   ];
+  if (varOverage > 0) bRows.push({ label: 'Estouro variável',          value: varOverage,    op: '−', cls: 'text-red-500'    });
+  if (unbudgeted > 0) bRows.push({ label: 'Sem orçamento (variável)',  value: unbudgeted,    op: '−', cls: 'text-amber-600'  });
+  bRows.push({ label: 'Reserva planejada / aplicada', value: reserve, op: '−', cls: 'text-slate-500' });
+  bRows.push({ label: 'Disponível para gastar',       value: sobra,   op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
 
-  const rows = [
-    { key: 'receita',  icon: '💰', label: 'Receita esperada',         value: income        },
-    { key: 'custos',   icon: '🏠', label: 'Custos fixos reservados',  value: fixedReserved },
-    { key: 'variavel', icon: '🎯', label: 'Variável + sem orçamento', value: varTotal      },
-    { key: 'reserva',  icon: '🐷', label: 'Reserva planejada',        value: reserve       },
-    { key: 'livre',    icon: '✨', label: 'Pode gastar',               value: sobra         },
-  ];
+  const breakdownHtml = bRows.map((r, i) => `
+    <div class="flex items-baseline gap-2 ${i === bRows.length - 1 ? 'border-t border-slate-200 pt-2 mt-0.5' : ''}">
+      <span class="w-4 text-center text-xs text-slate-400 shrink-0">${r.op}</span>
+      <span class="flex-1 text-xs text-slate-600">${r.label}</span>
+      <span class="text-xs tabular ${r.cls}">${currency.format(r.value)}</span>
+    </div>
+  `).join('');
+
+  // ── Daily verba line ──
+  const dailyHtml = (daysRemaining > 0 && daily > 0) ? `
+    <div class="text-right shrink-0">
+      <p class="text-[11px] text-slate-500 mb-0.5">${currency.format(daily)}/dia disponível</p>
+      <p class="text-[11px] text-slate-400">${daysRemaining} dia${daysRemaining === 1 ? '' : 's'} restante${daysRemaining === 1 ? '' : 's'}</p>
+    </div>` : '';
+
+  // ── Credit card card HTML ──
+  const ccHtml = (ccOfficial > 0 || ccSource) ? `
+    <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Fatura do cartão</p>
+        <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">cash-flow · contexto</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${ccSourceCls}">${escapeHtml(ccSourceLabel)}</span>
+      </div>
+      <p class="text-lg font-bold tabular text-slate-800 mb-1">${currency.format(ccOfficial)}</p>
+      ${dueDates.length > 0 ? `<p class="text-[11px] text-slate-500 mb-1">Vencimento: ${dueDates.map((d) => escapeHtml(String(d))).join(' · ')}</p>` : ''}
+      <p class="text-[11px] text-slate-500 leading-snug">
+        Esta fatura <strong>não é subtraída</strong> do disponível para gastar — as compras individuais já consomem os orçamentos variáveis acima.
+        Use-a para acompanhar o impacto no fluxo de caixa.
+      </p>
+    </div>` : '';
 
   container.innerHTML = `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-      ${cards.map((c) => {
-        const border   = c.accent ? (sobraPositive ? 'border-emerald-200' : 'border-red-200') : 'border-slate-200';
-        const bg       = c.accent ? (sobraPositive ? 'bg-emerald-50'      : 'bg-red-50')      : 'bg-white';
-        const amtColor = c.accent ? (sobraPositive ? 'text-emerald-700'   : 'text-red-600')   : 'text-slate-800';
-        return `
-          <div class="rounded-xl border ${border} ${bg} px-4 py-3">
-            <div class="flex items-center gap-1.5 mb-2">
-              <span class="text-sm leading-none">${c.icon}</span>
-              <p class="text-[11px] font-medium text-slate-500 leading-tight truncate">${c.label}</p>
-            </div>
-            <p class="text-base font-bold tabular leading-tight ${amtColor}">${currency.format(c.value || 0)}</p>
-          </div>
-        `;
-      }).join('')}
+    <!-- ── Hero: Disponível para gastar ── -->
+    <div class="rounded-xl border ${sobraPositive ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'} px-5 py-4 mb-4 flex flex-wrap items-start gap-4">
+      <div class="flex-1 min-w-[160px]">
+        <div class="flex items-center gap-2 mb-1">
+          <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Disponível para gastar</p>
+          <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${planStatus.cls}">${planStatus.label}</span>
+        </div>
+        <p class="text-3xl font-bold tabular ${sobraPositive ? 'text-emerald-700' : 'text-red-600'}">${currency.format(sobra)}</p>
+      </div>
+      ${dailyHtml}
     </div>
 
+    <!-- ── Progress bar ── -->
     ${income > 0 ? `
       <div class="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-100 mb-2">
-        <div class="h-full bg-slate-400"   style="width:${fixedPct.toFixed(1)}%"    title="Custos fixos reservados"></div>
-        <div class="h-full bg-amber-400"   style="width:${variablePct.toFixed(1)}%" title="Variável + sem orçamento"></div>
-        <div class="h-full bg-indigo-300"  style="width:${reservePct.toFixed(1)}%"  title="Reserva planejada"></div>
+        <div class="h-full bg-slate-400"  style="width:${fixedPct.toFixed(1)}%"   title="Custos fixos reservados"></div>
+        <div class="h-full bg-amber-400"  style="width:${varConsPct.toFixed(1)}%" title="Variável consumido"></div>
+        <div class="h-full bg-orange-400" style="width:${varOverPct.toFixed(1)}%" title="Estouro variável"></div>
+        <div class="h-full bg-rose-300"   style="width:${unbudPct.toFixed(1)}%"   title="Sem orçamento"></div>
+        <div class="h-full bg-indigo-300" style="width:${reservePct.toFixed(1)}%" title="Reserva planejada"></div>
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
       </div>
-      <div class="flex flex-wrap gap-x-4 gap-y-0.5 mb-5">
+      <div class="flex flex-wrap gap-x-4 gap-y-0.5 mb-4">
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full bg-slate-400 shrink-0"></span>Fixos ${fixedPct.toFixed(0)}%
         </span>
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Variável ${variablePct.toFixed(0)}%
+          <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Variável ${varTotalPct.toFixed(0)}%
         </span>
         ${reservePct > 0 ? `<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full bg-indigo-300 shrink-0"></span>Reserva ${reservePct.toFixed(0)}%
@@ -222,25 +284,93 @@ function renderCapacityFlow(capacity) {
       </div>
     ` : ''}
 
-    <div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden" id="ov-accordion">
-      ${rows.map((r) => {
-        const open = expandedOverviewPanel === r.key;
-        return `
-          <div>
-            <button type="button" data-panel="${r.key}"
-              class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
-              <span class="text-sm leading-none shrink-0">${r.icon}</span>
-              <span class="flex-1 text-sm font-medium text-slate-700">${r.label}</span>
-              <span class="text-sm font-semibold tabular text-slate-600 shrink-0">${currency.format(r.value || 0)}</span>
-              <span class="text-slate-300 text-xs ml-1 shrink-0 transition-transform ${open ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
-            </button>
-            <div class="${open ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
-              ${open ? buildOverviewPanelContent(r.key, capacity, sobra, sobraPositive) : ''}
-            </div>
+    <!-- ── Accordion ── -->
+    <div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden mb-4" id="ov-accordion">
+
+      <!-- Receita row: shows received / expected / to-receive -->
+      <div>
+        <button type="button" data-panel="receita"
+          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
+          <span class="text-sm leading-none shrink-0">💰</span>
+          <span class="flex-1 text-sm font-medium text-slate-700">Receita</span>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mr-2 text-[11px]">
+            <span class="text-slate-500">esperada <span class="text-slate-700 font-semibold tabular">${currency.format(income)}</span></span>
+            ${received > 0 ? `<span class="text-emerald-600">recebido <span class="font-semibold tabular">${currency.format(received)}</span></span>` : ''}
+            ${toReceive > 0 ? `<span class="text-amber-600">a receber <span class="font-semibold tabular">${currency.format(toReceive)}</span></span>` : ''}
           </div>
-        `;
-      }).join('')}
+          <span class="text-slate-300 text-xs shrink-0 transition-transform ${expandedOverviewPanel === 'receita' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
+        </button>
+        <div class="${expandedOverviewPanel === 'receita' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
+          ${rReceita}
+        </div>
+      </div>
+
+      <!-- Custos fixos row -->
+      <div>
+        <button type="button" data-panel="custos"
+          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
+          <span class="text-sm leading-none shrink-0">🏠</span>
+          <span class="flex-1 text-sm font-medium text-slate-700">Custos fixos reservados</span>
+          <span class="text-sm font-semibold tabular text-slate-600 shrink-0">${currency.format(fixedReserved)}</span>
+          <span class="text-slate-300 text-xs ml-1 shrink-0 transition-transform ${expandedOverviewPanel === 'custos' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
+        </button>
+        <div class="${expandedOverviewPanel === 'custos' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
+          ${rCustos}
+        </div>
+      </div>
+
+      <!-- Variável row: shows consumed / overage / unbudgeted separately -->
+      <div>
+        <button type="button" data-panel="variavel"
+          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
+          <span class="text-sm leading-none shrink-0">🎯</span>
+          <span class="flex-1 text-sm font-medium text-slate-700">Gastos variáveis</span>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mr-2 text-[11px]">
+            <span class="text-slate-500">consumido <span class="text-slate-700 font-semibold tabular">${currency.format(varConsumed)}</span></span>
+            ${varOverage > 0 ? `<span class="text-red-500">estouro <span class="font-semibold tabular">${currency.format(varOverage)}</span></span>` : ''}
+            ${unbudgeted > 0 ? `<span class="text-amber-600">sem orç. <span class="font-semibold tabular">${currency.format(unbudgeted)}</span></span>` : ''}
+          </div>
+          <span class="text-slate-300 text-xs shrink-0 transition-transform ${expandedOverviewPanel === 'variavel' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
+        </button>
+        <div class="${expandedOverviewPanel === 'variavel' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
+          ${rVariavel}
+          ${expandedOverviewPanel === 'variavel' ? `
+            <p class="text-[11px] text-slate-400 pt-2 mt-2 border-t border-slate-100 leading-snug">
+              As compras individuais do cartão já consomem estas metas. Transações conciliadas como custo fixo são excluídas dos gastos variáveis para evitar dupla contagem.
+            </p>` : ''}
+        </div>
+      </div>
+
+      <!-- Reserva row -->
+      <div>
+        <button type="button" data-panel="reserva"
+          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
+          <span class="text-sm leading-none shrink-0">🐷</span>
+          <span class="flex-1 text-sm font-medium text-slate-700">Reserva planejada</span>
+          <span class="text-sm font-semibold tabular text-slate-600 shrink-0">${currency.format(reserve)}</span>
+          <span class="text-slate-300 text-xs ml-1 shrink-0 transition-transform ${expandedOverviewPanel === 'reserva' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
+        </button>
+        <div class="${expandedOverviewPanel === 'reserva' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
+          ${rReserva}
+        </div>
+      </div>
+
     </div>
+
+    <!-- ── Credit card context card ── -->
+    ${ccHtml}
+
+    <!-- ── Calculation breakdown ── -->
+    <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 mb-4">
+      <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Como calculamos "disponível para gastar"</p>
+      <div class="space-y-1">${breakdownHtml}</div>
+    </div>
+
+    <!-- ── Audit note ── -->
+    <p class="text-[11px] text-slate-400 leading-relaxed pt-2 border-t border-slate-100">
+      Apenas contas ativas são consideradas nestes cálculos. Contas desativadas (ex: CAIXA, C6) estão excluídas.
+      Transações conciliadas como custo fixo são excluídas dos gastos variáveis para evitar dupla contagem.
+    </p>
   `;
 
   // Wire accordion click handlers
