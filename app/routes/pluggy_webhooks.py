@@ -52,11 +52,16 @@ async def pluggy_webhook(
     )
 
     if event in SYNC_EVENTS:
-        if item_id:
+        if not item_id:
+            action = "missing_item_id"
+        elif session.get(Item, item_id) is None:
+            action = "item_not_found"
+            logger.info(
+                "pluggy webhook item_not_found event=%s item_id=%s", event, item_id
+            )
+        else:
             background_tasks.add_task(_do_sync_item, item_id)
             action = "sync_scheduled"
-        else:
-            action = "missing_item_id"
     elif event in ERROR_EVENTS:
         action = _record_item_status(event, item_id, payload, session)
     else:

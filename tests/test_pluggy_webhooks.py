@@ -34,9 +34,10 @@ class PluggyWebhooksTest(unittest.TestCase):
             session.add(Item(id=item_id, connector_id=200, status=status))
             session.commit()
 
-    # --- 1. item/updated with itemId → sync_scheduled ---
+    # --- 1. item/updated with existing itemId → sync_scheduled ---
 
     def test_item_updated_schedules_sync(self):
+        self._seed_item("item-1")
         with patch("app.routes.pluggy_webhooks._do_sync_item") as mock_sync:
             resp = self.client.post(
                 "/webhooks/pluggy",
@@ -54,9 +55,22 @@ class PluggyWebhooksTest(unittest.TestCase):
         self.assertEqual(data["item_id"], "item-1")
         mock_sync.assert_called_once_with("item-1")
 
-    # --- 2. transactions/created with itemId → sync_scheduled ---
+    # --- 2. item/updated with unknown itemId → item_not_found ---
+
+    def test_item_updated_unknown_item_id(self):
+        with patch("app.routes.pluggy_webhooks._do_sync_item") as mock_sync:
+            resp = self.client.post(
+                "/webhooks/pluggy",
+                json={"event": "item/updated", "itemId": "nonexistent-id"},
+            )
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.json()["action"], "item_not_found")
+        mock_sync.assert_not_called()
+
+    # --- 3. transactions/created with existing itemId → sync_scheduled ---
 
     def test_transactions_created_schedules_sync(self):
+        self._seed_item("item-2")
         with patch("app.routes.pluggy_webhooks._do_sync_item") as mock_sync:
             resp = self.client.post(
                 "/webhooks/pluggy",
@@ -66,7 +80,7 @@ class PluggyWebhooksTest(unittest.TestCase):
         self.assertEqual(resp.json()["action"], "sync_scheduled")
         mock_sync.assert_called_once_with("item-2")
 
-    # --- 3. item/error with existing Item → status_recorded ---
+    # --- 4. item/error with existing Item → status_recorded ---
 
     def test_item_error_records_status(self):
         self._seed_item("item-3")
@@ -89,7 +103,7 @@ class PluggyWebhooksTest(unittest.TestCase):
         self.assertIn("item/error", item.last_sync_error)
         self.assertIn("credential_error", item.last_sync_error)
 
-    # --- 4. unknown event → ignored ---
+    # --- 5. unknown event → ignored ---
 
     def test_unknown_event_is_ignored(self):
         resp = self.client.post(
@@ -99,7 +113,7 @@ class PluggyWebhooksTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.json()["action"], "ignored")
 
-    # --- 5. sync event without itemId → missing_item_id, no sync call ---
+    # --- 6. sync event without itemId → missing_item_id, no sync call ---
 
     def test_sync_event_without_item_id(self):
         with patch("app.routes.pluggy_webhooks._do_sync_item") as mock_sync:
@@ -124,6 +138,7 @@ class PluggyWebhooksTest(unittest.TestCase):
     # --- extra: all SYNC_EVENTS are handled ---
 
     def test_all_sync_events_schedule_sync(self):
+        self._seed_item("item-x")
         sync_events = [
             "item/created",
             "item/updated",
