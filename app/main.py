@@ -12,6 +12,7 @@ from app.routes import (
     fixed_costs,
     history,
     pages,
+    pluggy_webhooks,
     reserve,
     rules,
     savings,
@@ -32,6 +33,7 @@ app = FastAPI(title="OpenFinance Collector", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(pages.router)
+app.include_router(pluggy_webhooks.router)
 app.include_router(sync.router)
 app.include_router(transactions.router)
 app.include_router(rules.router)

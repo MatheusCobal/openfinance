@@ -1,12 +1,12 @@
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.database import engine, get_session
+from app.database import get_session
 from app.models import Account, AccountSync, Item
 from app.pluggy_client import pluggy
 from app.services.sync import (
@@ -60,30 +60,6 @@ def sync_item(item_id: str, session: Session = Depends(get_session)):
     except SyncAlreadyRunning:
         raise HTTPException(409, "sync already running for this item")
 
-
-@router.post("/webhooks/pluggy")
-async def pluggy_webhook(request: Request, background_tasks: BackgroundTasks):
-    payload: Dict[str, object] = await request.json()
-    event = payload.get("event")
-    item_id = payload.get("itemId")
-    logger.info("pluggy webhook event=%s item=%s", event, item_id)
-
-    if event in {"item/created", "item/updated"} and isinstance(item_id, str):
-        background_tasks.add_task(_handle_item_event, item_id)
-
-    return {"received": True}
-
-
-def _handle_item_event(item_id: str) -> None:
-    try:
-        with Session(engine) as session:
-            upsert_item(item_id, session)
-            result = run_sync_item(item_id, session)
-        logger.info("synced item=%s result=%s", item_id, result)
-    except SyncAlreadyRunning:
-        logger.info("skipping webhook sync, already running item=%s", item_id)
-    except Exception:
-        logger.exception("failed to process item event item=%s", item_id)
 
 
 @router.get("/items")
