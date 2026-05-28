@@ -106,6 +106,7 @@ def upsert_transaction(
 ) -> tuple[bool, bool, date]:
     tx_date = date.fromisoformat(raw_tx["date"][:10])
     amount = Decimal(str(raw_tx["amount"]))
+    raw_total = raw_tx.get("totalAmount")
     values = {
         "account_id": account_id,
         "date": tx_date,
@@ -113,6 +114,11 @@ def upsert_transaction(
         "description": raw_tx.get("description") or "",
         "category": raw_tx.get("category"),
         "currency_code": raw_tx.get("currencyCode") or "BRL",
+        "status": raw_tx.get("status"),
+        "bill_id": raw_tx.get("billId"),
+        "installment_number": raw_tx.get("installmentNumber"),
+        "total_installments": raw_tx.get("totalInstallments"),
+        "total_amount": Decimal(str(raw_total)) if raw_total is not None else None,
     }
     existing = session.get(Transaction, raw_tx["id"])
     if existing is None:

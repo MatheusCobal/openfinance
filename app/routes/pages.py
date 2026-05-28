@@ -23,9 +23,17 @@ def proximos():
     return FileResponse(STATIC_DIR / "proximos.html")
 
 
+@router.get("/transacoes", include_in_schema=False)
+def transacoes():
+    return FileResponse(STATIC_DIR / "transacoes.html")
+
+
 @router.get("/orcamento", include_in_schema=False)
 def orcamento():
-    return FileResponse(STATIC_DIR / "orcamento.html")
+    # /orcamento was an early budgets screen that now overlaps entirely with
+    # Planejamento (/custos-fixos). Redirect instead of serving the old page.
+    # orcamento.html/js stay on disk until we confirm nothing links to them.
+    return RedirectResponse(url="/custos-fixos", status_code=307)
 
 
 @router.get("/regras", include_in_schema=False)

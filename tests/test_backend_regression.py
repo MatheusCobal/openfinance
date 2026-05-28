@@ -1,5 +1,3 @@
-import csv
-import io
 import unittest
 from datetime import date, timedelta
 from decimal import Decimal
@@ -205,25 +203,6 @@ class BackendRegressionTest(unittest.TestCase):
                 "tx-bank-outflow",
             },
             ids,
-        )
-
-    def test_transaction_export_respects_account_type_filter(self):
-        response = self.client.get("/export/transactions.csv")
-
-        self.assertEqual(response.status_code, 200)
-        rows = list(csv.DictReader(io.StringIO(response.text)))
-        self.assertEqual({"tx-shopping", "tx-pet"}, {row["transaction_id"] for row in rows})
-
-        response = self.client.get(
-            "/export/transactions.csv",
-            params={"account_type": "BANK", "include_ignored": "true"},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        rows = list(csv.DictReader(io.StringIO(response.text)))
-        self.assertEqual(
-            {"tx-salary", "tx-interest", "tx-bank-outflow"},
-            {row["transaction_id"] for row in rows},
         )
 
     def test_stats_use_credit_spend_only_and_track_future_count(self):
@@ -657,14 +636,6 @@ class BackendRegressionTest(unittest.TestCase):
     def test_http_validation_rejects_invalid_transaction_account_type(self):
         response = self.client.get(
             "/transactions",
-            params={"account_type": "INVESTMENT"},
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "account_type must be CREDIT, BANK or ALL")
-
-        response = self.client.get(
-            "/export/transactions.csv",
             params={"account_type": "INVESTMENT"},
         )
 

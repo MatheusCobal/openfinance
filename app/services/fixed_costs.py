@@ -14,15 +14,11 @@ from app.models import (
 )
 from app.services.budgets import budget_progress_summary
 from app.services.expected_income import monthly_breakdown as expected_income_breakdown
-from app.services.savings import (
-    effective_target as savings_effective_target,
-    monthly_breakdown as savings_monthly_breakdown,
-)
 from app.services.fixed_cost_defaults import (
     DEFAULT_FIXED_COST_CATEGORIES,
     FIXED_COST_TEMPLATES,
 )
-from app.services.pluggy_snapshot import official_bills_total_for_month
+from app.services.pluggy_snapshot import credit_card_obligation_summary
 from app.services.transaction_reports import invoice_summary
 from app.services.transactions import (
     bank_income_transactions,
@@ -1032,18 +1028,23 @@ def spending_capacity_summary(
         card_invoice_gross_total - card_invoice_discretionary_total,
         Decimal("0"),
     )
-    # ---- Official credit-card bill (Pluggy) preferred over reconstruction ----
-    # When Pluggy hands us an official bill due this month, that is the real
-    # cash obligation. The transaction-reconstructed invoice above stays as
-    # an audit/fallback value. ``card_invoice_source`` tells the UI which one
-    # the headline numbers reflect.
-    official_bill = official_bills_total_for_month(session, year_month)
-    if official_bill is not None:
-        card_invoice_official_total = Decimal(str(official_bill["total_amount"]))
-        card_invoice_source = "bill"
+    # ---- Credit-card obligation (3-tier source hierarchy) ----
+    # 1. Pluggy CreditCardBill due this month (most authoritative).
+    # 2. CREDIT Account.balance (current open invoice from snapshot).
+    # 3. Transaction-reconstructed invoice (legacy fallback).
+    # The invoice/bill total is cash-flow/timing context only — it does NOT
+    # feed into budget_available_to_spend (individual purchases already did).
+    cc_obligation = credit_card_obligation_summary(session, year_month)
+    card_invoice_source = cc_obligation["source"]
+    if cc_obligation["source"] == "bill":
+        card_invoice_official_total = Decimal(str(cc_obligation["official_bill_total"]))
+    elif cc_obligation["source"] == "account_balance":
+        card_invoice_official_total = Decimal(str(cc_obligation["current_open_total"]))
     else:
         card_invoice_official_total = card_invoice_gross_total
-        card_invoice_source = "transactions"
+    card_open_balance_total = Decimal(str(cc_obligation["current_open_total"])) \
+        if cc_obligation["current_open_total"] is not None else Decimal("0")
+    credit_card_due_dates = cc_obligation.get("due_dates", [])
     variable_budget_total = Decimal(str(variable_budgets["summary"]["target"]))
     variable_budget_spent = Decimal(
         str(variable_budgets["summary"]["projected_spent"])
@@ -1120,34 +1121,15 @@ def spending_capacity_summary(
         else None
     )
 
-    savings_target_total = savings_effective_target(session, year_month)
-    savings_breakdown = savings_monthly_breakdown(session, year_month)
+    # Reserva is no longer a planning input here. The emergency reserve now
+    # lives in Histórico, sourced from real Pluggy investments
+    # (Investment.balance), not from a manual savings target. The raw CDB
+    # movement totals (reserva_application_total / rescue / net) are still
+    # exposed below as informational, but they do NOT reduce
+    # "Disponível para gastar": moving money to an investment isn't spending,
+    # it's still your money.
 
-    # ---- Reserva (CDB / Fixed income) plan vs actual ----
-    # planned_target  = SavingsTarget for the month (the "savings target").
-    # applied         = sum of CDB applications classified as
-    #                   INVESTMENT_NOISE (see investment_application_transactions).
-    # pending         = how much of the plan we still owe ourselves.
-    # over_application = applied above the plan, also a real cash outflow.
-    # reserved_total  = max(target, applied) → the amount that reduces
-    #                   "Disponível para gastar" so the cash that actually
-    #                   left the account is honored AND the unfulfilled
-    #                   reservation stays reserved.
-    reserve_target_total = savings_target_total
-    reserve_application_total = reserva_application_total
-    reserve_rescue_total = reserva_rescue_total
-    reserve_net_total = reserva_net_total
-    reserve_pending_total = max(
-        reserve_target_total - reserve_application_total, Decimal("0")
-    )
-    reserve_over_application_total = max(
-        reserve_application_total - reserve_target_total, Decimal("0")
-    )
-    reserve_reserved_total = max(reserve_target_total, reserve_application_total)
-
-    planned_expense_total = (
-        fixed_cost_total + variable_budget_total + savings_target_total
-    )
+    planned_expense_total = fixed_cost_total + variable_budget_total
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
     remaining_after_plan = expected_income_total - planned_expense_total
 
@@ -1158,8 +1140,6 @@ def spending_capacity_summary(
     # - variable_budget_consumed    (min(spent, target) across budgeted categories)
     # - variable_budget_overage     (overspend on budgeted categories)
     # - unbudgeted_variable_spent   (spend in categories without a budget)
-    # - reserve_reserved_total      (max(target, applied) — honor the plan AND
-    #                               the real cash that moved to CDB)
     # This is the single source of truth. The credit-card invoice is
     # cash-flow timing only — individual purchases already consumed the
     # category budgets above, so subtracting the invoice again would
@@ -1170,7 +1150,6 @@ def spending_capacity_summary(
         - variable_budget_consumed
         - variable_budget_overage
         - unbudgeted_variable_spent
-        - reserve_reserved_total
     )
     # Keep the legacy aliases pointing at the same number so existing
     # consumers (tests, frontend) keep working while the new field rolls out.
@@ -1230,20 +1209,6 @@ def spending_capacity_summary(
     else:
         plan_status = "healthy"
 
-    # ---- Reserva summary block (mirrors fixed/expected/budget shapes) ----
-    reserve_block = {
-        "year_month": year_month,
-        "target_total": float(reserve_target_total),
-        "application_total": float(reserve_application_total),
-        "rescue_total": float(reserve_rescue_total),
-        "net_total": float(reserve_net_total),
-        "pending_total": float(reserve_pending_total),
-        "over_application_total": float(reserve_over_application_total),
-        "reserved_total": float(reserve_reserved_total),
-        "application_count": len(reserva_application_txs),
-        "rescue_count": len(reserva_rescue_txs),
-    }
-
     return {
         "year_month": year_month,
         "expected_income_total": float(expected_income_total),
@@ -1286,15 +1251,6 @@ def spending_capacity_summary(
         "variable_budget_overage": float(variable_budget_overage),
         "variable_budget_free_impact": float(variable_budget_free_impact),
         "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
-        "savings_target_total": float(savings_target_total),
-        "savings_target": savings_breakdown,
-        "reserve_target_total": float(reserve_target_total),
-        "reserve_application_total": float(reserve_application_total),
-        "reserve_rescue_total": float(reserve_rescue_total),
-        "reserve_net_total": float(reserve_net_total),
-        "reserve_pending_total": float(reserve_pending_total),
-        "reserve_over_application_total": float(reserve_over_application_total),
-        "reserve_reserved_total": float(reserve_reserved_total),
         "discretionary_available": float(discretionary_available),
         "budget_available_to_spend": float(budget_available_to_spend),
         "projected_cash_available": projected_cash_available,
@@ -1310,6 +1266,8 @@ def spending_capacity_summary(
         "card_invoice_fixed_cost_total": float(card_invoice_fixed_cost_total),
         "card_invoice_official_total": float(card_invoice_official_total),
         "card_invoice_source": card_invoice_source,
+        "card_open_balance_total": float(card_open_balance_total),
+        "credit_card_due_dates": credit_card_due_dates,
         "invoice_paid_total": float(invoice_paid_total),
         "invoice_open_total": float(invoice_open_total),
         "invoice_paid_gross_total": float(invoice_paid_gross_total),
@@ -1337,7 +1295,6 @@ def spending_capacity_summary(
         "fixed_costs": fixed,
         "expected_income": income,
         "variable_budgets": variable_budgets,
-        "reserve": reserve_block,
     }
 
 
@@ -1362,10 +1319,6 @@ def spending_capacity_monthly_summary(
         "reserva_application_total": Decimal("0"),
         "reserva_rescue_total": Decimal("0"),
         "reserva_net_total": Decimal("0"),
-        "reserve_target_total": Decimal("0"),
-        "reserve_application_total": Decimal("0"),
-        "reserve_pending_total": Decimal("0"),
-        "reserve_reserved_total": Decimal("0"),
         "fixed_cost_total": Decimal("0"),
         "fixed_cost_planned_total": Decimal("0"),
         "fixed_cost_actual_total": Decimal("0"),
@@ -1377,7 +1330,6 @@ def spending_capacity_monthly_summary(
         "variable_budget_consumed": Decimal("0"),
         "variable_budget_remaining": Decimal("0"),
         "variable_budget_overage": Decimal("0"),
-        "savings_target_total": Decimal("0"),
         "card_invoice_gross_total": Decimal("0"),
         "card_invoice_discretionary_total": Decimal("0"),
         "card_invoice_fixed_cost_total": Decimal("0"),
@@ -1398,10 +1350,6 @@ def spending_capacity_monthly_summary(
             "reserva_application_total": capacity["reserva_application_total"],
             "reserva_rescue_total": capacity["reserva_rescue_total"],
             "reserva_net_total": capacity["reserva_net_total"],
-            "reserve_target_total": capacity["reserve_target_total"],
-            "reserve_application_total": capacity["reserve_application_total"],
-            "reserve_pending_total": capacity["reserve_pending_total"],
-            "reserve_reserved_total": capacity["reserve_reserved_total"],
             "fixed_cost_total": capacity["fixed_cost_total"],
             "fixed_cost_planned_total": capacity["fixed_cost_planned_total"],
             "fixed_cost_actual_total": capacity["fixed_cost_actual_total"],
@@ -1413,7 +1361,6 @@ def spending_capacity_monthly_summary(
             "variable_budget_consumed": capacity["variable_budget_consumed"],
             "variable_budget_remaining": capacity["variable_budget_remaining"],
             "variable_budget_overage": capacity["variable_budget_overage"],
-            "savings_target_total": capacity["savings_target_total"],
             "card_invoice_gross_total": capacity["card_invoice_gross_total"],
             "card_invoice_discretionary_total": capacity[
                 "card_invoice_discretionary_total"

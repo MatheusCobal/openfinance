@@ -245,7 +245,6 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(capacity["remaining_after_plan"], 6000.0)
         self.assertEqual(capacity["available_to_spend"], 6100.0)
         self.assertEqual(capacity["discretionary_available"], 6100.0)
-        self.assertEqual(capacity["savings_target_total"], 0.0)
         self.assertEqual(capacity["received_based_available_to_spend"], 2100.0)
         self.assertEqual(capacity["remaining_after_invoice"], 6100.0)
         self.assertEqual(capacity["remaining_after_plan_and_invoice"], 4100.0)
@@ -586,7 +585,7 @@ class FixedCostsTest(unittest.TestCase):
         )
 
 
-class SavingsTargetTest(unittest.TestCase):
+class SpendingCapacityMonthlyShapeTest(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine(
             "sqlite://",
@@ -623,124 +622,6 @@ class SavingsTargetTest(unittest.TestCase):
 
     def tearDown(self):
         app.dependency_overrides.clear()
-
-    def test_default_target_crud(self):
-        # Empty by default
-        self.assertEqual(
-            self.client.get("/savings-target").json(),
-            {"monthly_target": 0.0},
-        )
-
-        # Set + read
-        self.client.put("/savings-target", json={"monthly_target": 1500})
-        self.assertEqual(
-            self.client.get("/savings-target").json(),
-            {"monthly_target": 1500.0},
-        )
-
-        # Update + read
-        self.client.put("/savings-target", json={"monthly_target": 2200})
-        self.assertEqual(
-            self.client.get("/savings-target").json(),
-            {"monthly_target": 2200.0},
-        )
-
-        # Clear
-        self.assertEqual(self.client.delete("/savings-target").status_code, 204)
-        self.assertEqual(
-            self.client.get("/savings-target").json(),
-            {"monthly_target": 0.0},
-        )
-
-    def test_monthly_override_wins_and_returns_breakdown(self):
-        self.client.put("/savings-target", json={"monthly_target": 1000})
-        month = self.client.get("/savings-target/months/2026-05").json()
-        self.assertEqual(month["default_target"], 1000.0)
-        self.assertEqual(month["monthly_target"], 1000.0)
-        self.assertEqual(month["scope"], "default")
-        self.assertFalse(month["is_override"])
-
-        self.client.put(
-            "/savings-target/months/2026-05", json={"monthly_target": 1800}
-        )
-        month = self.client.get("/savings-target/months/2026-05").json()
-        self.assertEqual(month["default_target"], 1000.0)
-        self.assertEqual(month["monthly_target"], 1800.0)
-        self.assertEqual(month["scope"], "month")
-        self.assertTrue(month["is_override"])
-
-        # Different month falls back to default
-        other = self.client.get("/savings-target/months/2026-06").json()
-        self.assertEqual(other["monthly_target"], 1000.0)
-        self.assertFalse(other["is_override"])
-
-        # Delete override → back to default
-        self.assertEqual(
-            self.client.delete("/savings-target/months/2026-05").status_code, 204
-        )
-        month = self.client.get("/savings-target/months/2026-05").json()
-        self.assertEqual(month["monthly_target"], 1000.0)
-        self.assertFalse(month["is_override"])
-
-    def test_rejects_invalid_inputs(self):
-        self.assertEqual(
-            self.client.put(
-                "/savings-target", json={"monthly_target": -5}
-            ).status_code,
-            400,
-        )
-        self.assertEqual(
-            self.client.put(
-                "/savings-target/months/2026-13", json={"monthly_target": 100}
-            ).status_code,
-            400,
-        )
-        # Deleting a non-existent override returns 404
-        self.assertEqual(
-            self.client.delete(
-                "/savings-target/months/2026-05"
-            ).status_code,
-            404,
-        )
-
-    def test_spending_capacity_subtracts_savings_target(self):
-        # No savings target yet → discretionary == available
-        capacity = self.client.get(
-            "/spending-capacity", params={"year_month": "2026-05"}
-        ).json()
-        baseline_available = capacity["available_to_spend"]
-        self.assertEqual(capacity["savings_target_total"], 0.0)
-        self.assertEqual(capacity["discretionary_available"], baseline_available)
-        self.assertEqual(baseline_available, 10000.0)  # no fixed/variable yet
-
-        # With a default target of 2000, discretionary drops by 2000
-        self.client.put("/savings-target", json={"monthly_target": 2000})
-        capacity = self.client.get(
-            "/spending-capacity", params={"year_month": "2026-05"}
-        ).json()
-        self.assertEqual(capacity["savings_target_total"], 2000.0)
-        self.assertEqual(capacity["discretionary_available"], 8000.0)
-        self.assertEqual(capacity["planned_expense_total"], 2000.0)
-        self.assertEqual(capacity["savings_target"]["scope"], "default")
-
-        # Override the month with a higher target
-        self.client.put(
-            "/savings-target/months/2026-05", json={"monthly_target": 3500}
-        )
-        capacity = self.client.get(
-            "/spending-capacity", params={"year_month": "2026-05"}
-        ).json()
-        self.assertEqual(capacity["savings_target_total"], 3500.0)
-        self.assertEqual(capacity["discretionary_available"], 6500.0)
-        self.assertEqual(capacity["savings_target"]["scope"], "month")
-        self.assertTrue(capacity["savings_target"]["is_override"])
-
-        # A different month still uses the default (2000), proving overrides
-        # are month-scoped.
-        june = self.client.get(
-            "/spending-capacity", params={"year_month": "2026-06"}
-        ).json()
-        self.assertEqual(june["savings_target_total"], 2000.0)
 
     def test_spending_capacity_monthly_history_shape(self):
         response = self.client.get(
@@ -848,8 +729,20 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
             )
 
         # When discretionary goes negative, daily verba is clamped at 0
-        # (you can't spend negative money per day).
-        self.client.put("/savings-target", json={"monthly_target": 15000})
+        # (you can't spend negative money per day). A fixed cost larger than
+        # income pushes availability below zero.
+        cat = self.client.post(
+            "/fixed-cost-categories", json={"name": "Casa"}
+        ).json()
+        self.client.post(
+            "/fixed-costs",
+            json={
+                "category_id": cat["id"],
+                "description": "Aluguel caro",
+                "amount": 15000,
+                "due_day": 10,
+            },
+        )
         from app.services.fixed_costs import spending_capacity_summary as cap
 
         with Session(self.engine) as session:
@@ -868,16 +761,27 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
             )
             self.assertEqual(capacity["plan_status"], "healthy")
 
-        # Tight: savings target eats >90% of income (margin under 10%)
-        self.client.put("/savings-target", json={"monthly_target": 9500})
+        # Tight: a fixed cost eats >90% of income (margin under 10%)
+        cat = self.client.post(
+            "/fixed-cost-categories", json={"name": "Casa"}
+        ).json()
+        cost = self.client.post(
+            "/fixed-costs",
+            json={
+                "category_id": cat["id"],
+                "description": "Aluguel",
+                "amount": 9500,
+                "due_day": 10,
+            },
+        ).json()
         with Session(self.engine) as session:
             capacity = spending_capacity_summary(
                 session, "2026-05", today=date(2026, 5, 11)
             )
             self.assertEqual(capacity["plan_status"], "tight")
 
-        # Over: target exceeds income, discretionary goes negative
-        self.client.put("/savings-target", json={"monthly_target": 12000})
+        # Over: fixed cost exceeds income, discretionary goes negative
+        self.client.patch(f"/fixed-costs/{cost['id']}", json={"amount": 12000})
         with Session(self.engine) as session:
             capacity = spending_capacity_summary(
                 session, "2026-05", today=date(2026, 5, 11)
@@ -1383,15 +1287,15 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     # ----- 8. CDB / Fixed income flows through reserve -----
 
-    def test_fixed_income_cdb_flows_through_reserve_not_normal_outflow(self):
-        """Pluggy category "Fixed income" must:
-        - NOT appear in bank_outflows_total
-        - Show up in reserve_application_total
-        - Reduce availability via reserve_reserved_total
+    def test_fixed_income_cdb_not_in_bank_flows_nor_available(self):
+        """Pluggy "Fixed income" (CDB) movements:
+        - do NOT appear in bank_outflows_total / bank_inflows_total
+        - are still reported as raw reserva_* movements (informational)
+        - do NOT reduce budget_available_to_spend — investing isn't spending,
+          and the reserve now lives in Histórico (real Investment.balance),
+          not in the available-to-spend calculation.
         """
         from app.services.fixed_costs import spending_capacity_summary
-
-        self.client.put("/savings-target", json={"monthly_target": 3000})
 
         with Session(self.engine) as session:
             session.add_all(
@@ -1416,52 +1320,21 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
             session.commit()
 
-        # Pin today inside the month so the reserve window captures the txs.
+        # Pin today inside the month so the window captures the txs.
         with Session(self.engine) as session:
             capacity = spending_capacity_summary(
                 session, "2026-06", today=date(2026, 6, 30)
             )
-        # Not in normal flows
+        # Not in normal cash flows
         self.assertEqual(capacity["bank_outflows_total"], 0.0)
-        # Reserve picks it up
-        self.assertEqual(capacity["reserve_target_total"], 3000.0)
-        self.assertEqual(capacity["reserve_application_total"], 1000.0)
-        self.assertEqual(capacity["reserve_rescue_total"], 200.0)
-        self.assertEqual(capacity["reserve_pending_total"], 2000.0)
-        self.assertEqual(capacity["reserve_over_application_total"], 0.0)
-        self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
-        # Availability: 20300 - 0 (no fixed) - 0 (no variable) - 3000 (reserve) = 17300
-        self.assertEqual(capacity["budget_available_to_spend"], 17300.0)
-
-    def test_fixed_income_over_application_subtracts_actual(self):
-        """If applied > target, reserve_reserved follows the cash, not the plan."""
-        from app.services.fixed_costs import spending_capacity_summary
-
-        self.client.put("/savings-target", json={"monthly_target": 1000})
-        with Session(self.engine) as session:
-            session.add(
-                Transaction(
-                    id="tx-cdb-over",
-                    account_id="bank-1",
-                    date=date(2026, 6, 5),
-                    amount=Decimal("-2500"),
-                    description="Aplicacao CDB",
-                    category="Fixed income",
-                )
-            )
-            session.commit()
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
-        self.assertEqual(capacity["reserve_target_total"], 1000.0)
-        self.assertEqual(capacity["reserve_application_total"], 2500.0)
-        self.assertEqual(capacity["reserve_pending_total"], 0.0)
-        self.assertEqual(capacity["reserve_over_application_total"], 1500.0)
-        self.assertEqual(capacity["reserve_reserved_total"], 2500.0)
-        # Availability subtracts the actual 2500, not just the planned 1000
-        self.assertEqual(capacity["budget_available_to_spend"], 17800.0)
+        # Raw movement totals still reported for transparency
+        self.assertEqual(capacity["reserva_application_total"], 1000.0)
+        self.assertEqual(capacity["reserva_rescue_total"], 200.0)
+        # Reserve no longer subtracted from availability → stays at full income
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+        # The savings-target-derived reserve fields are gone entirely.
+        self.assertNotIn("reserve_reserved_total", capacity)
+        self.assertNotIn("savings_target_total", capacity)
 
     # ----- 9. Auto-matched fixed cost must not double-count -----
 
@@ -1573,7 +1446,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertIn("budget_available_to_spend", row)
         self.assertIn("projected_cash_available", row)
         self.assertIn("fixed_cost_reserved_total", row)
-        self.assertIn("reserve_reserved_total", row)
         self.assertIn("variable_budget_consumed", row)
         self.assertIn("budget_available_to_spend", payload["summary"])
         # Sanity: the new headline matches the legacy alias for backward compat

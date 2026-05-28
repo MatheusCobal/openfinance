@@ -341,7 +341,7 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             # Transaction-reconstructed invoice still exposed as audit value
             self.assertIn("card_invoice_gross_total", capacity)
 
-    def test_falls_back_to_reconstructed_invoice_without_bill(self):
+    def test_falls_back_to_account_balance_without_bill(self):
         from app.services.fixed_costs import spending_capacity_summary
 
         self.fake_pluggy.bills_supported = False
@@ -349,10 +349,12 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
 
+            # No bills, but CREDIT account has balance=1500 → tier 2
             capacity = spending_capacity_summary(
                 session, "2026-05", today=self.today
             )
-            self.assertEqual(capacity["card_invoice_source"], "transactions")
+            self.assertEqual(capacity["card_invoice_source"], "account_balance")
+            self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
 
 
 class ReserveSourceTest(_SyncTestBase):
@@ -438,6 +440,157 @@ class GracefulDegradationTest(_SyncTestBase):
                 session, months=6, today=self.today
             )
             self.assertEqual(summary["source"], "transactions")
+
+
+class CreditCardObligationSummaryTest(_SyncTestBase):
+    """Tests for the 3-tier source hierarchy in credit_card_obligation_summary."""
+
+    def test_source_bill_when_bill_exists(self):
+        from app.services.pluggy_snapshot import credit_card_obligation_summary
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+
+            summary = credit_card_obligation_summary(session, "2026-05")
+            self.assertEqual(summary["source"], "bill")
+            self.assertEqual(summary["official_bill_total"], 1500.0)
+            self.assertIn("2026-05-17", summary["due_dates"])
+            self.assertEqual(len(summary["cards"]), 1)
+            self.assertEqual(summary["cards"][0]["account_id"], "credit-1")
+
+    def test_source_account_balance_when_no_bill(self):
+        from app.services.pluggy_snapshot import credit_card_obligation_summary
+
+        self.fake_pluggy.bills_supported = False
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+
+            summary = credit_card_obligation_summary(session, "2026-05")
+            self.assertEqual(summary["source"], "account_balance")
+            self.assertEqual(summary["current_open_total"], 1500.0)
+            self.assertIsNone(summary["official_bill_total"])
+
+    def test_source_transaction_fallback_when_no_bill_no_balance(self):
+        from app.services.pluggy_snapshot import credit_card_obligation_summary
+
+        with Session(self.engine) as session:
+            session.add(
+                Item(id="item-1", connector_id=200, connector_name="Test", status="UPDATED")
+            )
+            session.add(
+                Account(id="credit-no-balance", item_id="item-1", name="No Balance Card", type="CREDIT")
+            )
+            session.commit()
+
+            summary = credit_card_obligation_summary(session, "2026-05")
+            self.assertEqual(summary["source"], "transaction_fallback")
+            self.assertIsNone(summary["official_bill_total"])
+            self.assertEqual(summary["due_dates"], [])
+
+    def test_spending_capacity_has_card_context_fields(self):
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+
+            capacity = spending_capacity_summary(session, "2026-05", today=self.today)
+            self.assertIn("card_open_balance_total", capacity)
+            self.assertIn("credit_card_due_dates", capacity)
+            self.assertEqual(capacity["card_invoice_source"], "bill")
+            # current_open_total for tier-1 is sum of CREDIT account balances
+            self.assertEqual(capacity["card_open_balance_total"], 1500.0)
+            self.assertIn("2026-05-17", capacity["credit_card_due_dates"])
+
+    def test_budget_available_unchanged_by_bill_context(self):
+        """Adding bill context must not double-count against budget_available_to_spend."""
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+
+            capacity_with_bill = spending_capacity_summary(
+                session, "2026-05", today=self.today
+            )
+            # source is "bill" but budget_available_to_spend must not be reduced
+            # by the bill total (purchases already consumed their category budgets)
+            self.assertIn("budget_available_to_spend", capacity_with_bill)
+            self.assertNotEqual(
+                capacity_with_bill["budget_available_to_spend"],
+                capacity_with_bill["budget_available_to_spend"] - capacity_with_bill["card_invoice_official_total"],
+            )
+
+
+class TransactionBillInstallmentTest(unittest.TestCase):
+    """Tests that bill/installment fields are persisted through upsert_transaction."""
+
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+        with Session(self.engine) as session:
+            session.add(
+                Item(id="item-1", connector_id=1, connector_name="Test", status="UPDATED")
+            )
+            session.add(
+                Account(id="credit-1", item_id="item-1", name="Card", type="CREDIT")
+            )
+            session.commit()
+
+    def test_upsert_transaction_persists_bill_installment_fields(self):
+        from decimal import Decimal
+        from app.services.sync import upsert_transaction
+
+        raw = {
+            "id": "tx-installment",
+            "date": "2026-05-15",
+            "amount": -300.0,
+            "description": "Notebook 3/12",
+            "category": "Electronics",
+            "currencyCode": "BRL",
+            "status": "POSTED",
+            "billId": "bill-1",
+            "installmentNumber": 3,
+            "totalInstallments": 12,
+            "totalAmount": -3600.0,
+        }
+        with Session(self.engine) as session:
+            is_new, _, _ = upsert_transaction(raw, "credit-1", session)
+            session.commit()
+
+            tx = session.get(Transaction, "tx-installment")
+            self.assertTrue(is_new)
+            self.assertEqual(tx.status, "POSTED")
+            self.assertEqual(tx.bill_id, "bill-1")
+            self.assertEqual(tx.installment_number, 3)
+            self.assertEqual(tx.total_installments, 12)
+            self.assertEqual(tx.total_amount, Decimal("-3600.0000000000"))
+
+    def test_upsert_transaction_null_fields_when_absent(self):
+        from app.services.sync import upsert_transaction
+
+        raw = {
+            "id": "tx-plain",
+            "date": "2026-05-20",
+            "amount": -50.0,
+            "description": "Coffee",
+            "currencyCode": "BRL",
+        }
+        with Session(self.engine) as session:
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+
+            tx = session.get(Transaction, "tx-plain")
+            self.assertIsNone(tx.status)
+            self.assertIsNone(tx.bill_id)
+            self.assertIsNone(tx.installment_number)
+            self.assertIsNone(tx.total_amount)
 
 
 if __name__ == "__main__":

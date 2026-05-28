@@ -21,7 +21,6 @@ let fixedCosts = [];
 let incomeSelectedMonth = null;
 let incomeMonthStrip = [];
 let expandedOverviewPanel = null;
-let savingsTargetState = null;
 
 const STATUS_CFG = {
   paid:        { label: 'Pago',           icon: '✓', bg: 'bg-emerald-100', text: 'text-emerald-700' },
@@ -64,19 +63,18 @@ async function fetchJson(url, options) {
 function selectedPlanningTabFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const tab = params.get('tab');
-  if (['custos', 'variaveis', 'receita', 'reserva', 'transacao'].includes(tab)) return tab;
+  if (['custos', 'variaveis', 'receita', 'transacao'].includes(tab)) return tab;
   return 'overview';
 }
 
 function setPlanningTab(tabName, updateUrl = true) {
-  const allowedTabs = ['overview', 'custos', 'variaveis', 'receita', 'reserva', 'transacao'];
+  const allowedTabs = ['overview', 'custos', 'variaveis', 'receita', 'transacao'];
   const activeTab = allowedTabs.includes(tabName) ? tabName : 'overview';
   const panels = {
     overview: 'overview-tab',
     custos: 'fixed-costs-tab',
     variaveis: 'variable-goals-tab',
     receita: 'income-planning-tab',
-    reserva: 'savings-target-tab',
     transacao: 'transaction-cost-tab',
   };
   Object.entries(panels).forEach(([tab, panelId]) => {
@@ -93,7 +91,6 @@ function setPlanningTab(tabName, updateUrl = true) {
     custos: 'Cadastre e edite compromissos recorrentes.',
     variaveis: 'Defina metas para gastos variáveis do mês.',
     receita: 'Cadastre o que você espera receber em cada mês.',
-    reserva: 'Defina quanto quer separar antes de gastar.',
     transacao: 'Transforme uma movimentação recorrente em custo fixo.',
   };
   document.getElementById('subtitle').textContent = subtitles[activeTab];
@@ -159,17 +156,14 @@ function renderCapacityFlow(capacity) {
   const income   = capacity.expected_income_total || 0;
   const fixed    = capacity.fixed_cost_total       || 0;
   const variable = capacity.variable_budget_total  || 0;
-  const savings  = capacity.savings_target_total   || 0;
   const fixedPct    = income > 0 ? Math.min(100, (fixed    / income) * 100) : 0;
   const variablePct = income > 0 ? Math.min(100, (variable / income) * 100) : 0;
-  const savingsPct  = income > 0 ? Math.min(100, (savings  / income) * 100) : 0;
-  const freePct     = Math.max(0, 100 - fixedPct - variablePct - savingsPct);
+  const freePct     = Math.max(0, 100 - fixedPct - variablePct);
 
   const cards = [
     { icon: '💰', label: 'Receita esperada', value: income,   accent: false },
     { icon: '🏠', label: 'Custos fixos',     value: fixed,    accent: false },
     { icon: '🎯', label: 'Metas variáveis',  value: variable, accent: false },
-    { icon: '◆',  label: 'Reserva',          value: savings,  accent: false },
     { icon: '✨', label: 'Pode gastar',       value: sobra,    accent: true  },
   ];
 
@@ -177,12 +171,11 @@ function renderCapacityFlow(capacity) {
     { key: 'receita', icon: '💰', label: 'Receita esperada', value: income   },
     { key: 'custos',  icon: '🏠', label: 'Custos fixos',     value: fixed    },
     { key: 'metas',   icon: '🎯', label: 'Metas variáveis',  value: variable },
-    { key: 'reserva', icon: '◆',  label: 'Reserva',          value: savings  },
     { key: 'livre',   icon: '✨', label: 'Pode gastar',       value: sobra    },
   ];
 
   container.innerHTML = `
-    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
       ${cards.map((c) => {
         const border   = c.accent ? (sobraPositive ? 'border-emerald-200' : 'border-red-200') : 'border-slate-200';
         const bg       = c.accent ? (sobraPositive ? 'bg-emerald-50'      : 'bg-red-50')      : 'bg-white';
@@ -203,7 +196,6 @@ function renderCapacityFlow(capacity) {
       <div class="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-100 mb-2">
         <div class="h-full bg-slate-400"   style="width:${fixedPct.toFixed(1)}%" title="Custos fixos"></div>
         <div class="h-full bg-amber-400"   style="width:${variablePct.toFixed(1)}%" title="Metas variáveis"></div>
-        <div class="h-full bg-indigo-400"  style="width:${savingsPct.toFixed(1)}%" title="Reserva"></div>
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
       </div>
       <div class="flex flex-wrap gap-x-4 gap-y-0.5 mb-5">
@@ -212,9 +204,6 @@ function renderCapacityFlow(capacity) {
         </span>
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Metas ${variablePct.toFixed(0)}%
-        </span>
-        <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span class="size-2 rounded-full bg-indigo-400 shrink-0"></span>Reserva ${savingsPct.toFixed(0)}%
         </span>
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'} shrink-0"></span>Livre ${freePct.toFixed(0)}%
@@ -328,30 +317,11 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
     `;
   }
 
-  if (key === 'reserva') {
-    const target = capacity.savings_target || {};
-    const scopeLabel = target.scope === 'month' ? 'ajuste mensal' : 'meta padrão';
-    const hint = target.is_override
-      ? `Este mês usa um ajuste próprio. A meta padrão é ${currency.format(target.default_target || 0)}.`
-      : 'Este mês segue a meta padrão.';
-    return `
-      <div class="space-y-2 pt-1">
-        <div class="flex items-baseline gap-3">
-          <span class="w-4 text-center text-xs text-indigo-400 shrink-0">◆</span>
-          <span class="flex-1 text-sm text-slate-600">${scopeLabel}</span>
-          <span class="text-sm tabular font-semibold text-slate-700">${currency.format(target.monthly_target || 0)}</span>
-        </div>
-        <p class="text-xs text-slate-500 pl-7">${escapeHtml(hint)}</p>
-      </div>
-    `;
-  }
-
   if (key === 'livre') {
     const eq = [
       { label: 'Receita esperada', value: capacity.expected_income_total || 0, op: '',  cls: 'text-slate-700' },
       { label: 'Custos fixos',     value: capacity.fixed_cost_total       || 0, op: '−', cls: 'text-slate-600' },
       { label: 'Metas variáveis',  value: capacity.variable_budget_total  || 0, op: '−', cls: 'text-slate-600' },
-      { label: 'Reserva',          value: capacity.savings_target_total    || 0, op: '−', cls: 'text-slate-600' },
       { label: 'Pode gastar',      value: sobra,                                op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
     ];
     return `
@@ -432,7 +402,6 @@ async function loadMonthData() {
     document.getElementById('fixed-month-total').textContent = currency.format(fixed.total);
     document.getElementById('capacity-total').textContent = currency.format(free);
     renderCapacityFlow(capacity);
-    renderSavingsTarget(capacity.savings_target || {});
     renderCategoryBar(fixed);
     renderMonthBreakdown(fixed);
   } catch (err) {
@@ -1079,94 +1048,6 @@ async function _deleteBudget(item) {
   // Otherwise delete the global default
   await fetchJson(`/budgets/${item.category_id}`, { method: 'DELETE' });
 }
-
-// ── Savings target (reserva) ───────────────────────────────────────────────
-
-function renderSavingsTarget(target) {
-  savingsTargetState = target || {};
-  const monthLabel = document.getElementById('savings-month-label');
-  if (monthLabel) monthLabel.textContent = formatMonthShort(selectedMonth);
-
-  const defaultInput = document.getElementById('savings-default-target');
-  const monthInput = document.getElementById('savings-month-target');
-  if (defaultInput) defaultInput.value = Number(savingsTargetState.default_target || 0).toFixed(2);
-  if (monthInput) {
-    monthInput.value = savingsTargetState.is_override
-      ? Number(savingsTargetState.monthly_target || 0).toFixed(2)
-      : '';
-    monthInput.placeholder = currency.format(savingsTargetState.monthly_target || savingsTargetState.default_target || 0);
-  }
-
-  const summary = document.getElementById('savings-summary');
-  if (!summary) return;
-  const effective = Number(savingsTargetState.monthly_target || 0);
-  const defaultTarget = Number(savingsTargetState.default_target || 0);
-  const isOverride = Boolean(savingsTargetState.is_override);
-  summary.innerHTML = `
-    <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Meta aplicada</p>
-      <p class="mt-1 text-xl font-bold tabular text-indigo-700">${currency.format(effective)}</p>
-    </div>
-    <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Padrão</p>
-      <p class="mt-1 text-xl font-bold tabular text-slate-900">${currency.format(defaultTarget)}</p>
-    </div>
-    <div class="rounded-xl border ${isOverride ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 bg-white'} px-4 py-3">
-      <p class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Origem</p>
-      <p class="mt-1 text-xl font-bold text-slate-900">${isOverride ? 'Ajuste mensal' : 'Meta padrão'}</p>
-    </div>
-  `;
-}
-
-async function refreshSavingsPlanning() {
-  await loadMonthData();
-}
-
-document.getElementById('savings-default-form')?.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const monthly_target = Number(document.getElementById('savings-default-target').value);
-  if (Number.isNaN(monthly_target) || monthly_target < 0) return;
-  try {
-    await fetchJson('/savings-target', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ monthly_target }),
-    });
-    await refreshSavingsPlanning();
-    showToast('Meta padrão de reserva salva.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
-
-document.getElementById('savings-default-clear')?.addEventListener('click', async () => {
-  try {
-    await fetchJson('/savings-target', { method: 'DELETE' });
-    await refreshSavingsPlanning();
-    showToast('Meta padrão removida.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
-
-document.getElementById('savings-month-form')?.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const monthly_target = Number(document.getElementById('savings-month-target').value);
-  if (Number.isNaN(monthly_target) || monthly_target < 0) return;
-  try {
-    await fetchJson(`/savings-target/months/${selectedMonth}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ monthly_target }),
-    });
-    await refreshSavingsPlanning();
-    showToast('Ajuste de reserva salvo.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
-
-document.getElementById('savings-month-clear')?.addEventListener('click', async () => {
-  try {
-    await fetchJson(`/savings-target/months/${selectedMonth}`, { method: 'DELETE' });
-    await refreshSavingsPlanning();
-    showToast('Ajuste mensal removido.', 'success');
-  } catch (err) { showToast(err.message, 'error'); }
-});
 
 // ── Category form ───────────────────────────────────────────────────────────
 

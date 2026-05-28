@@ -927,11 +927,8 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-const PERIODS = [
-  { key: 'month', label: 'Este mês' },
-  { key: 'prev_month', label: 'Mês anterior' },
-];
-
+// Transações is scoped to the CURRENT month only. Previous months live in
+// Histórico, so the period selector was removed — activePeriod is pinned.
 let activePeriod = 'month';
 
 // Monotonic version counter so a late-arriving fetch from a previous filter
@@ -977,27 +974,16 @@ function rangeForPeriod(period) {
 }
 
 function renderPeriodFilter() {
+  // No more period selector — just a static label showing the current month
+  // so the user knows Transações only covers the ongoing month.
   const container = document.getElementById('period-filter');
   if (!container) return;
-  container.innerHTML = PERIODS.map((p) => {
-    const isActive = p.key === activePeriod;
-    const base = 'px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors';
-    const cls = isActive
-      ? `${base} bg-white text-indigo-700 shadow-sm`
-      : `${base} bg-white/20 border border-white/30 text-white hover:bg-white/30`;
-    return `<button class="${cls}" data-period="${p.key}">${p.label}</button>`;
-  }).join('');
-  container.querySelectorAll('button[data-period]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (btn.dataset.period === activePeriod) return;
-      activePeriod = btn.dataset.period;
-      renderPeriodFilter();
-      loadData().catch((err) => {
-        console.error(err);
-        document.getElementById('subtitle').textContent = 'Erro ao carregar dados';
-      });
-    });
+  const label = new Date().toLocaleDateString('pt-BR', {
+    month: 'long',
+    year: 'numeric',
   });
+  container.innerHTML =
+    `<span class="px-3.5 py-1.5 rounded-full text-sm font-medium bg-white/20 border border-white/30 text-white capitalize">${label}</span>`;
 }
 
 async function loadData() {
@@ -1007,6 +993,7 @@ async function loadData() {
   if (from) params.set('from_date', from);
   if (to) params.set('to_date', to);
   const qs = params.toString() ? `?${params.toString()}` : '';
+
   const [statsResponse, transactionsResponse, categoriesResponse] = await Promise.all([
     fetch(`/stats${qs}`),
     fetch(`/transactions${qs}`),

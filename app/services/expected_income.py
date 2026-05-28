@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session, select
 
 from app.models import BankIncomeMonth, ExpectedIncome, ExpectedIncomeOverride
-from app.services.history import refresh_bank_income_snapshots
+from app.services.snapshots import refresh_bank_income_snapshots
 
 
 class ExpectedIncomeValidationError(ValueError):

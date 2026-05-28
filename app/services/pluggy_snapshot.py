@@ -8,6 +8,7 @@ the whole sync.
 """
 from __future__ import annotations
 
+import calendar
 import datetime
 import logging
 from dataclasses import dataclass, field
@@ -501,4 +502,119 @@ def official_bills_total_for_month(
         "minimum_payment_amount": float(minimum),
         "bill_count": len(matched),
         "account_ids": sorted({bill.account_id for bill in matched}),
+    }
+
+
+def credit_card_obligation_summary(
+    session: Session,
+    year_month: str,
+) -> Dict[str, Any]:
+    """3-tier credit-card obligation summary for a given month.
+
+    Priority:
+    1. ``bill``             — official CreditCardBill rows due this month.
+    2. ``account_balance``  — sum of CREDIT Account.balance (open invoice).
+    3. ``transaction_fallback`` — reconstructed via invoice_summary().
+    """
+    from app.services.transaction_reports import invoice_summary  # avoid circular at import time
+
+    # ---- Tier 1: Pluggy CreditCardBill due in year_month ----
+    bills = list(session.exec(select(CreditCardBill)).all())
+    matched_bills = [
+        b for b in bills
+        if b.due_date is not None
+        and b.due_date.strftime("%Y-%m") == year_month
+        and b.total_amount is not None
+    ]
+
+    credit_accounts = [a for a in session.exec(select(Account)).all() if a.type == "CREDIT"]
+
+    if matched_bills:
+        official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
+        minimum_total = sum(
+            (b.minimum_payment_amount for b in matched_bills if b.minimum_payment_amount is not None),
+            Decimal("0"),
+        )
+        payments = sum(
+            (b.payments_total for b in matched_bills if b.payments_total is not None),
+            Decimal("0"),
+        )
+        charges = sum(
+            (b.finance_charges_total for b in matched_bills if b.finance_charges_total is not None),
+            Decimal("0"),
+        )
+        due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
+        open_total = sum(
+            (a.balance for a in credit_accounts if a.balance is not None),
+            Decimal("0"),
+        )
+        return {
+            "year_month": year_month,
+            "source": "bill",
+            "official_bill_total": float(official_total),
+            "current_open_total": float(open_total),
+            "minimum_payment_total": float(minimum_total),
+            "payments_total": float(payments),
+            "finance_charges_total": float(charges),
+            "due_dates": due_dates,
+            "cards": [
+                {
+                    "account_id": b.account_id,
+                    "due_date": b.due_date.isoformat() if b.due_date else None,
+                    "total_amount": float(b.total_amount or 0),
+                    "minimum_payment_amount": float(b.minimum_payment_amount or 0),
+                }
+                for b in matched_bills
+            ],
+        }
+
+    # ---- Tier 2: CREDIT Account.balance ----
+    credit_with_balance = [a for a in credit_accounts if a.balance is not None]
+    if credit_with_balance:
+        open_total = sum((a.balance for a in credit_with_balance), Decimal("0"))
+        min_total = sum(
+            (a.credit_minimum_payment for a in credit_with_balance if a.credit_minimum_payment is not None),
+            Decimal("0"),
+        )
+        due_dates = sorted({
+            a.credit_balance_due_date.isoformat()
+            for a in credit_with_balance
+            if a.credit_balance_due_date is not None
+        })
+        return {
+            "year_month": year_month,
+            "source": "account_balance",
+            "official_bill_total": None,
+            "current_open_total": float(open_total),
+            "minimum_payment_total": float(min_total),
+            "payments_total": None,
+            "finance_charges_total": None,
+            "due_dates": due_dates,
+            "cards": [
+                {
+                    "account_id": a.id,
+                    "due_date": a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None,
+                    "total_amount": float(a.balance or 0),
+                    "minimum_payment_amount": float(a.credit_minimum_payment or 0),
+                }
+                for a in credit_with_balance
+            ],
+        }
+
+    # ---- Tier 3: transaction fallback ----
+    year, month = int(year_month[:4]), int(year_month[5:])
+    _, last_day = calendar.monthrange(year, month)
+    from_date = datetime.date(year, month, 1)
+    to_date = datetime.date(year, month, last_day)
+    inv = invoice_summary(session, from_date=from_date, to_date=to_date)
+    return {
+        "year_month": year_month,
+        "source": "transaction_fallback",
+        "official_bill_total": None,
+        "current_open_total": float(inv["invoice_gross_total"]),
+        "minimum_payment_total": None,
+        "payments_total": None,
+        "finance_charges_total": None,
+        "due_dates": [],
+        "cards": [],
     }

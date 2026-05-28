@@ -80,18 +80,6 @@ def filter_transactions_by_account_type(
     return [tx for tx in transactions if tx.account_id in account_ids]
 
 
-def is_credit_card_payment_transaction(
-    tx: Transaction,
-    accounts_by_id: dict[str, Account],
-) -> bool:
-    classifier = TransactionClassifier(
-        accounts_by_id=accounts_by_id,
-        ignored_patterns=[],
-        bank_income_rules=[],
-        bank_cashflow_rules=[],
-    )
-    return classifier.is_invoice_payment(tx)
-
 
 def credit_card_payment_transactions(
     session: Session,

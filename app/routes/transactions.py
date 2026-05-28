@@ -1,19 +1,19 @@
-import csv
-import io
+import datetime
 from datetime import date
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from app.categorization import CategoryResolver
 from app.database import get_session
+from app.models import Account
+from app.pluggy_client import pluggy
 from app.services.transaction_reports import (
     enriched_transactions,
     monthly_stats_summary,
     stats_summary,
-    transaction_csv_rows,
     upcoming_summary,
     validate_account_type,
 )
@@ -52,44 +52,6 @@ def list_categories(session: Session = Depends(get_session)):
     return CategoryResolver(session).all_categories()
 
 
-@router.get("/export/transactions.csv")
-def export_transactions_csv(
-    account_type: Optional[str] = "CREDIT",
-    from_date: Optional[date] = None,
-    to_date: Optional[date] = None,
-    include_future: bool = False,
-    include_ignored: bool = False,
-    session: Session = Depends(get_session),
-):
-    try:
-        validate_account_type(account_type)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-
-    def generate():
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-        for row in transaction_csv_rows(
-            session,
-            account_type=account_type,
-            from_date=from_date,
-            to_date=to_date,
-            include_future=include_future,
-            include_ignored=include_ignored,
-        ):
-            writer.writerow(row)
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate()
-
-    filename = f"transactions-{date.today().isoformat()}.csv"
-    return StreamingResponse(
-        generate(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 @router.get("/upcoming")
 def upcoming(
     include_ignored: bool = False,
@@ -119,3 +81,49 @@ def stats(
         to_date=to_date,
         include_ignored=include_ignored,
     )
+
+
+@router.post("/accounts/{account_id}/refresh-balance")
+def refresh_balance(account_id: str, session: Session = Depends(get_session)):
+    account = session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(404, f"account {account_id} not found")
+    try:
+        data = pluggy.get_account_balance(account_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (404, 405, 501):
+            raise HTTPException(
+                503,
+                f"real-time balance not supported for account {account_id}",
+            ) from exc
+        if exc.response.status_code == 429:
+            raise HTTPException(429, "rate limited by Pluggy") from exc
+        raise HTTPException(502, f"Pluggy error: {exc.response.status_code}") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"network error reaching Pluggy: {exc}") from exc
+
+    from decimal import Decimal, InvalidOperation
+    raw_balance = data.get("balance")
+    if raw_balance is not None:
+        try:
+            account.balance = Decimal(str(raw_balance))
+        except (InvalidOperation, ValueError):
+            pass
+    raw_updated = data.get("updatedAt") or data.get("date")
+    if raw_updated:
+        try:
+            account.balance_updated_at = datetime.datetime.fromisoformat(
+                str(raw_updated).replace("Z", "+00:00")
+            )
+        except ValueError:
+            pass
+    session.add(account)
+    session.commit()
+    session.refresh(account)
+    return {
+        "account_id": account_id,
+        "balance": float(account.balance) if account.balance is not None else None,
+        "balance_updated_at": (
+            account.balance_updated_at.isoformat() if account.balance_updated_at else None
+        ),
+    }

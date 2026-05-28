@@ -114,64 +114,6 @@ def enriched_transactions(
     return rows
 
 
-def transaction_csv_rows(
-    session: Session,
-    account_type: Optional[str] = "CREDIT",
-    from_date: Optional[date] = None,
-    to_date: Optional[date] = None,
-    include_future: bool = False,
-    include_ignored: bool = False,
-):
-    resolver = CategoryResolver(session)
-    query = _transaction_list_query(
-        None,
-        from_date,
-        to_date,
-        include_future,
-    )
-    query, should_return_empty = _apply_account_type_filter(
-        query,
-        account_type,
-        session,
-    )
-    ignored_patterns = ignored_description_patterns(session)
-
-    yield [
-        "date",
-        "description",
-        "amount_original",
-        "amount_abs",
-        "currency",
-        "pluggy_category",
-        "category",
-        "account_id",
-        "transaction_id",
-    ]
-
-    if should_return_empty:
-        return
-
-    for tx in session.exec(query):
-        if (
-            not include_ignored
-            and ignored_patterns
-            and is_ignored_transaction(tx, ignored_patterns)
-        ):
-            continue
-        cat = resolver.resolve(tx.category, tx.description)
-        yield [
-            tx.date.isoformat(),
-            tx.description,
-            f"{tx.amount:.2f}",
-            f"{abs(tx.amount):.2f}",
-            tx.currency_code,
-            tx.category or "",
-            cat.name,
-            tx.account_id,
-            tx.id,
-        ]
-
-
 def upcoming_summary(
     session: Session,
     include_ignored: bool = False,

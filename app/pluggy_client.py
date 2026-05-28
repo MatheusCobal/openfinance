@@ -148,7 +148,10 @@ class PluggyClient:
         return results
 
     def list_transactions(
-        self, account_id: str, from_date: Optional[date] = None
+        self,
+        account_id: str,
+        from_date: Optional[date] = None,
+        bill_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         # Pluggy caps pageSize at 500. We paginate until we've fetched
         # everything; MAX_PAGES is a safety net against a runaway loop (25k
@@ -165,6 +168,8 @@ class PluggyClient:
             }
             if from_date is not None:
                 params["from"] = from_date.isoformat()
+            if bill_id is not None:
+                params["billId"] = bill_id
             response = self._request("GET", "/transactions", params=params)
             body = response.json()
             results = body.get("results", [])

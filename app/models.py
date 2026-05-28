@@ -126,6 +126,12 @@ class Transaction(SQLModel, table=True):
     description: str
     category: Optional[str] = None
     currency_code: str = "BRL"
+    # Pluggy bill/installment metadata (CREDIT accounts)
+    status: Optional[str] = None
+    bill_id: Optional[str] = Field(default=None, index=True)
+    installment_number: Optional[int] = None
+    total_installments: Optional[int] = None
+    total_amount: Optional[Decimal] = None
 
 
 class Category(SQLModel, table=True):
