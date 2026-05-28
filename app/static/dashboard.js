@@ -189,7 +189,7 @@ function renderMonthSummary(data) {
     {
       label: 'Entradas',
       value: data.bank_inflows_total || 0,
-      sub: 'Tudo que caiu na conta (inclui resgates)',
+      sub: 'Entradas bancárias reais',
       cls: 'text-emerald-700',
     },
     {

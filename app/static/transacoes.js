@@ -382,7 +382,7 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
   const previous = findMonth(cashflowData.months, previousKey);
   const balanceCurrent = findMonth(balanceData.months, selectedMonth) || {};
   const balancePrevious = findMonth(balanceData.months, previousKey);
-  const invoiceGross = capacityData.card_invoice_gross_total ?? balanceCurrent.card_spend ?? 0;
+  const inv = invoiceValueFromCapacity(capacityData, balanceCurrent.card_spend);
   const budgetAvailableToSpend = capacityData.budget_available_to_spend ?? capacityData.discretionary_available ?? capacityData.available_to_spend ?? 0;
   const dailyAvailable = capacityData.daily_discretionary_remaining ?? null;
   const variableBudgetTotal = capacityData.variable_budget_total ?? capacityData.planned_variable_total ?? 0;
@@ -406,7 +406,8 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
     `${fixedCostCount} itens`,
     `pago ${currency.format(fixedCostActual)}`,
     `pendente ${currency.format(fixedCostPending)}`,
-    ...(fixedCostVariance !== 0 ? [`diferença ${currency.format(Math.abs(fixedCostVariance))}`] : []),
+    ...(fixedCostVariance > 0 ? [`acima ${currency.format(fixedCostVariance)}`] : []),
+    ...(fixedCostVariance < 0 ? [`abaixo ${currency.format(Math.abs(fixedCostVariance))}`] : []),
   ].join(' · ');
 
   const reserveTarget = capacityData.reserve_target_total || 0;
@@ -455,9 +456,10 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
     flowCard({
       label: 'Fatura real',
       icon: '💳',
-      value: invoiceGross,
+      value: inv.value,
       prev: balancePrevious ? balancePrevious.card_spend : null,
-      countLabel: pluralCompras(capacityData.invoice_gross_count || balanceCurrent.card_spend_count || 0),
+      countLabel: inv.cardSubtext
+        ?? pluralCompras(capacityData.invoice_gross_count || balanceCurrent.card_spend_count || 0),
       tint: 'orange',
       higherIsBetter: false,
     }),
@@ -570,31 +572,52 @@ function renderSummary(stats) {
   document.getElementById('subtitle').textContent = subtitle;
 }
 
-function updateHeroFromCapacity(capacityData) {
-  if (!capacityData) return;
-  const source = capacityData.card_invoice_source;
-  let label, value, supporting;
+function invoiceValueFromCapacity(cd, balanceFallback) {
+  const source = cd?.card_invoice_source;
   if (source === 'account_balance') {
-    label = 'Fatura aberta / saldo do cartão';
-    value = capacityData.card_open_balance_total ?? 0;
-    supporting = 'dados do saldo do cartão';
-  } else if (source === 'bill') {
-    label = 'Fatura oficial Pluggy';
-    value = capacityData.card_invoice_official_total ?? 0;
-    const dueDates = capacityData.credit_card_due_dates;
-    supporting = Array.isArray(dueDates) && dueDates.length > 0
+    return {
+      value: cd.card_open_balance_total ?? 0,
+      heroLabel: 'Fatura aberta / saldo do cartão',
+      heroSupporting: 'dados do saldo do cartão',
+      cardSubtext: 'saldo do cartão',
+    };
+  }
+  if (source === 'bill') {
+    const dueDates = cd.credit_card_due_dates;
+    const dueLabel = Array.isArray(dueDates) && dueDates.length > 0
       ? `vencimento: ${dueDates.map(formatShortDate).join(', ')}`
       : 'fatura fechada do cartão';
-  } else if (source === 'transaction_fallback') {
-    label = 'Fatura reconstruída por transações';
-    value = capacityData.card_invoice_gross_total ?? 0;
-    supporting = 'fallback — sem fatura oficial disponível';
-  } else {
-    return;
+    return {
+      value: cd.card_invoice_official_total ?? 0,
+      heroLabel: 'Fatura oficial Pluggy',
+      heroSupporting: dueLabel,
+      cardSubtext: `fatura oficial · ${dueLabel}`,
+    };
   }
-  document.getElementById('stat-label').textContent = label;
-  document.getElementById('stat-total').textContent = currency.format(value);
-  document.getElementById('stat-payment-count').textContent = supporting;
+  if (source === 'transaction_fallback') {
+    return {
+      value: cd.card_invoice_gross_total ?? 0,
+      heroLabel: 'Fatura reconstruída por transações',
+      heroSupporting: 'fallback — sem fatura oficial disponível',
+      cardSubtext: 'reconstruída por transações',
+    };
+  }
+  return {
+    value: balanceFallback ?? 0,
+    heroLabel: null,
+    heroSupporting: null,
+    cardSubtext: null,
+  };
+}
+
+function updateHeroFromCapacity(capacityData) {
+  if (!capacityData?.card_invoice_source) return;
+  const inv = invoiceValueFromCapacity(capacityData);
+  if (inv.heroLabel) document.getElementById('stat-label').textContent = inv.heroLabel;
+  document.getElementById('stat-total').textContent = currency.format(inv.value);
+  if (inv.heroSupporting !== null) {
+    document.getElementById('stat-payment-count').textContent = inv.heroSupporting;
+  }
 }
 
 function formatShortDate(iso) {
