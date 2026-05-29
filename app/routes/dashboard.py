@@ -309,10 +309,14 @@ def debug_scheduled_installments(
             "total_signed": round(sum(t["signed_amount"] for t in lst), 2),
         }
 
+    # total = positive-only (matches corrected scheduled_installments_summary rule)
+    total_positive_only = round(sum(t["abs_amount"] for t in positive_txs), 2)
+
     return {
         "year_month": year_month,
         "window_start": window_start.isoformat(),
         "window_end": last_day.isoformat(),
+        "total": total_positive_only,
         "total_abs":    round(total_abs,    2),
         "total_signed": round(total_signed, 2),
         "count": len(transactions),

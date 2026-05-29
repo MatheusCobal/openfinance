@@ -2123,6 +2123,72 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # 20300 - 1500 = 18800
         self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
 
+    def test_scheduled_installments_excludes_negative_amounts(self):
+        """Negative-amount transactions (refunds, cancellations) must NOT be
+        counted as future obligations. Only tx.amount > 0 enters the total.
+
+        Mirrors the real-world "CANC PARCELA SEM J" entries returned by
+        Pluggy with negative amounts that were previously inflating the total
+        via abs(amount).
+        """
+        from app.services.fixed_costs import spending_capacity_summary, scheduled_installments_summary
+
+        with Session(self.engine) as session:
+            # Normal purchase — must be counted (amount > 0)
+            session.add(
+                Transaction(
+                    id="tx-future-pos",
+                    account_id="credit-1",
+                    date=date(2026, 7, 10),
+                    amount=Decimal("800"),
+                    description="Parcela TV 03/12",
+                    category="Electronics",
+                )
+            )
+            # Cancellation / refund — must NOT be counted (amount < 0)
+            session.add(
+                Transaction(
+                    id="tx-future-canc",
+                    account_id="credit-1",
+                    date=date(2026, 7, 10),
+                    amount=Decimal("-200"),
+                    description="CANC PARCELA SEM J03/12",
+                    category="Electronics",
+                )
+            )
+            # Zero-amount — must NOT be counted
+            session.add(
+                Transaction(
+                    id="tx-future-zero",
+                    account_id="credit-1",
+                    date=date(2026, 7, 10),
+                    amount=Decimal("0"),
+                    description="Ajuste zero",
+                    category="Electronics",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            installments = scheduled_installments_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        # Only the positive tx (800) is counted
+        self.assertEqual(installments["count"], 1)
+        self.assertEqual(installments["total"], 800.0)
+        self.assertEqual(installments["transactions"][0]["transaction_id"], "tx-future-pos")
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["future_card_obligation_source"], "scheduled_installments")
+        self.assertEqual(capacity["future_card_obligation_total"], 800.0)
+        # 20300 - 800 = 19500 (cancellation not subtracted)
+        self.assertEqual(capacity["budget_available_to_spend"], 19500.0)
+
     def test_future_month_bill_takes_priority_over_installments(self):
         """Future month: official bill overrides scheduled_installments."""
         from app.services.fixed_costs import spending_capacity_summary

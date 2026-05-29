@@ -870,17 +870,22 @@ def scheduled_installments_summary(
         .order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
 
+    # Only purchases (positive amount) count as future obligations.
+    # Credits, refunds and cancellations (amount <= 0) are excluded so they
+    # don't inflate the planned invoice total.
     total = Decimal("0")
     items: list[Dict[str, Any]] = []
     for tx in rows:
-        amount = abs(tx.amount)
-        total += amount
+        if tx.amount <= 0:
+            continue
+        total += tx.amount
         items.append(
             {
                 "transaction_id": tx.id,
                 "date": tx.date.isoformat(),
                 "description": tx.description,
-                "amount": float(amount),
+                "amount": float(tx.amount),
+                "signed_amount": float(tx.amount),
                 "category": tx.category,
             }
         )
