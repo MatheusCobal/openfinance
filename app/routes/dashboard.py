@@ -85,3 +85,45 @@ def credit_card_diagnostics(
         "all_bills_count": len(all_bills),
         "fallback_reason": fallback_reason,
     }
+
+
+@router.get("/debug/credit-card-bills")
+def debug_credit_card_bills(session: Session = Depends(get_session)):
+    """Dev diagnostic: all CreditCardBill rows joined with their Account.
+
+    Returns every stored bill ordered by due_date desc so the most recent
+    invoice is always first. Includes the account fields most useful for
+    debugging why the dashboard picks a particular invoice source.
+
+    Read-only — does not change any data.
+    """
+    accounts_by_id = {a.id: a for a in session.exec(select(Account)).all()}
+    bills = session.exec(
+        select(CreditCardBill).order_by(CreditCardBill.due_date.desc())  # type: ignore[arg-type]
+    ).all()
+
+    return {
+        "count": len(bills),
+        "bills": [
+            {
+                # ── Bill fields ──
+                "id": b.id,
+                "account_id": b.account_id,
+                "due_date": b.due_date.isoformat() if b.due_date else None,
+                "total_amount": float(b.total_amount) if b.total_amount is not None else None,
+                "minimum_payment_amount": float(b.minimum_payment_amount) if b.minimum_payment_amount is not None else None,
+                "payments_total": float(b.payments_total) if b.payments_total is not None else None,
+                "finance_charges_total": float(b.finance_charges_total) if b.finance_charges_total is not None else None,
+                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+                # ── Related account fields ──
+                "account_name": accounts_by_id[b.account_id].name if b.account_id in accounts_by_id else None,
+                "account_type": accounts_by_id[b.account_id].type if b.account_id in accounts_by_id else None,
+                "account_item_id": accounts_by_id[b.account_id].item_id if b.account_id in accounts_by_id else None,
+                "account_is_active": accounts_by_id[b.account_id].is_active if b.account_id in accounts_by_id else None,
+                "account_balance": float(accounts_by_id[b.account_id].balance) if b.account_id in accounts_by_id and accounts_by_id[b.account_id].balance is not None else None,
+                "account_credit_balance_due_date": accounts_by_id[b.account_id].credit_balance_due_date.isoformat() if b.account_id in accounts_by_id and accounts_by_id[b.account_id].credit_balance_due_date else None,
+                "account_balance_updated_at": accounts_by_id[b.account_id].balance_updated_at.isoformat() if b.account_id in accounts_by_id and accounts_by_id[b.account_id].balance_updated_at else None,
+            }
+            for b in bills
+        ],
+    }
