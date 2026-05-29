@@ -235,7 +235,6 @@ function renderCapacityFlow(capacity) {
   const rReceita  = expandedOverviewPanel === 'receita'  ? buildOverviewPanelContent('receita',  capacity, sobra, sobraPositive) : '';
   const rCustos   = expandedOverviewPanel === 'custos'   ? buildOverviewPanelContent('custos',   capacity, sobra, sobraPositive) : '';
   const rVariavel = expandedOverviewPanel === 'variavel' ? buildOverviewPanelContent('variavel', capacity, sobra, sobraPositive) : '';
-  const rReserva  = expandedOverviewPanel === 'reserva'  ? buildOverviewPanelContent('reserva',  capacity, sobra, sobraPositive) : '';
 
   // ── Calculation breakdown rows ──
   const bRows = [
@@ -265,27 +264,7 @@ function renderCapacityFlow(capacity) {
       <span class="text-xs tabular ${r.cls}">${currency.format(r.value)}</span>
     </div>
   `).join('');
-
-  // ── Reserve block (separate from the main breakdown) ──
-  const afterReserve     = capacity.available_after_reserve ?? (sobra - reserve);
-  const afterReservePos  = afterReserve >= 0;
-  const reserveHtml = reserve > 0 ? `
-    <div class="rounded-xl border border-indigo-100 bg-indigo-50/40 px-4 py-3 mb-4">
-      <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Reserva de emergência</p>
-      <div class="space-y-1">
-        <div class="flex items-baseline gap-2">
-          <span class="flex-1 text-xs text-slate-600">${isFuture ? 'Meta de reserva' : 'Reserva planejada / aplicada'}</span>
-          <span class="text-xs tabular text-indigo-700">− ${currency.format(reserve)}</span>
-        </div>
-        <div class="flex items-baseline gap-2 border-t border-indigo-100 pt-1 mt-0.5">
-          <span class="flex-1 text-xs font-medium text-slate-700">Disponível após reserva</span>
-          <span class="text-xs tabular font-bold ${afterReservePos ? 'text-emerald-700' : 'text-red-600'}">${currency.format(afterReserve)}</span>
-        </div>
-      </div>
-      <p class="text-[11px] text-slate-400 leading-snug mt-2">
-        A reserva é uma decisão de destino da sobra — não uma obrigação do mês. O valor acima é informativo.
-      </p>
-    </div>` : '';
+  const rLivre = expandedOverviewPanel === 'livre' ? `<div class="space-y-1">${breakdownHtml}</div>` : '';
 
   // ── Daily verba line ──
   const dailyHtml = (daysRemaining > 0 && daily > 0) ? `
@@ -364,7 +343,6 @@ function renderCapacityFlow(capacity) {
           ${isFuture ? '<span class="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Plano projetado</span>' : ''}
         </div>
         <p class="text-3xl font-bold tabular ${sobraPositive ? 'text-emerald-700' : 'text-red-600'}">${currency.format(sobra)}</p>
-        ${isFuture ? '<p class="text-[11px] text-slate-400 mt-1">Projeção antes do mês começar — baseada em metas planejadas.</p>' : ''}
       </div>
       ${dailyHtml}
     </div>
@@ -388,7 +366,7 @@ function renderCapacityFlow(capacity) {
           <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Variável ${varTotalPct.toFixed(0)}%
         </span>
         ${ccRemPct > 0 ? `<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span class="size-2 rounded-full bg-yellow-500 shrink-0"></span>Fatura não contemplada ${ccRemPct.toFixed(0)}%
+          <span class="size-2 rounded-full bg-yellow-500 shrink-0"></span>Fatura ${ccRemPct.toFixed(0)}%
         </span>` : ''}
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'} shrink-0"></span>Livre ${freePct.toFixed(0)}%
@@ -408,7 +386,6 @@ function renderCapacityFlow(capacity) {
           <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mr-2 text-[11px]">
             <span class="text-slate-500">esperada <span class="text-slate-700 font-semibold tabular">${currency.format(income)}</span></span>
             ${received > 0 ? `<span class="text-emerald-600">recebido <span class="font-semibold tabular">${currency.format(received)}</span></span>` : ''}
-            ${toReceive > 0 ? `<span class="text-amber-600">a receber <span class="font-semibold tabular">${currency.format(toReceive)}</span></span>` : ''}
           </div>
           <span class="text-slate-300 text-xs shrink-0 transition-transform ${expandedOverviewPanel === 'receita' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
         </button>
@@ -422,8 +399,8 @@ function renderCapacityFlow(capacity) {
         <button type="button" data-panel="custos"
           class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
           <span class="text-sm leading-none shrink-0">🏠</span>
-          <span class="flex-1 text-sm font-medium text-slate-700">Custos fixos reservados</span>
-          <span class="text-sm font-semibold tabular text-slate-600 shrink-0">${currency.format(fixedReserved)}</span>
+          <span class="flex-1 text-sm font-medium text-slate-700">${isFuture ? 'Custos fixos planejados' : 'Custos fixos reservados'}</span>
+          <span class="text-sm font-semibold tabular text-slate-600 shrink-0">${currency.format(isFuture ? fixedPlanned : fixedReserved)}</span>
           <span class="text-slate-300 text-xs ml-1 shrink-0 transition-transform ${expandedOverviewPanel === 'custos' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
         </button>
         <div class="${expandedOverviewPanel === 'custos' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
@@ -444,64 +421,33 @@ function renderCapacityFlow(capacity) {
               : `<span class="text-slate-500">consumido <span class="text-slate-700 font-semibold tabular">${currency.format(varConsumed)}</span></span>
                  ${varOverage > 0 ? `<span class="text-red-500">estouro <span class="font-semibold tabular">${currency.format(varOverage)}</span></span>` : ''}`
             }
-            ${unbudgeted > 0 ? `<span class="text-amber-500">para revisar <span class="font-semibold tabular">${currency.format(unbudgeted)}</span></span>` : ''}
           </div>
           <span class="text-slate-300 text-xs shrink-0 transition-transform ${expandedOverviewPanel === 'variavel' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
         </button>
         <div class="${expandedOverviewPanel === 'variavel' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
           ${rVariavel}
-          ${expandedOverviewPanel === 'variavel' ? `
-            <p class="text-[11px] text-slate-400 pt-2 mt-2 border-t border-slate-100 leading-snug">
-              As compras individuais do cartão já consomem estas metas. Transações conciliadas como custo fixo são excluídas dos gastos variáveis para evitar dupla contagem.
-            </p>` : ''}
         </div>
       </div>
 
-      <!-- Reserva row -->
+      <!-- Disponível para gastar row -->
       <div>
-        <button type="button" data-panel="reserva"
+        <button type="button" data-panel="livre"
           class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
-          <span class="text-sm leading-none shrink-0">🐷</span>
-          <span class="flex-1 text-sm font-medium text-slate-700">Reserva planejada</span>
-          <span class="text-sm font-semibold tabular text-slate-600 shrink-0">${currency.format(reserve)}</span>
-          <span class="text-slate-300 text-xs ml-1 shrink-0 transition-transform ${expandedOverviewPanel === 'reserva' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
+          <span class="text-sm leading-none shrink-0">💡</span>
+          <span class="flex-1 text-sm font-medium text-slate-700">${isFuture ? 'Projeção: livre para gastar' : 'Disponível para gastar'}</span>
+          <span class="text-sm font-semibold tabular ${sobraPositive ? 'text-emerald-700' : 'text-red-600'} shrink-0">${currency.format(sobra)}</span>
+          <span class="text-slate-300 text-xs ml-1 shrink-0 transition-transform ${expandedOverviewPanel === 'livre' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
         </button>
-        <div class="${expandedOverviewPanel === 'reserva' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
-          ${rReserva}
+        <div class="${expandedOverviewPanel === 'livre' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
+          ${rLivre}
         </div>
       </div>
 
     </div>
-
-    <!-- ── Credit card context card ── -->
-    ${ccHtml}
-
-    <!-- ── Calculation breakdown ── -->
-    <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 mb-4">
-      <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Como calculamos "disponível para gastar"</p>
-      <div class="space-y-1">${breakdownHtml}</div>
-    </div>
-
-    <!-- ── Reserve block (separate) ── -->
-    ${reserveHtml}
-
-    <!-- ── Unbudgeted audit card ── -->
-    ${unbudgeted > 0 ? `
-    <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
-      <div class="flex flex-wrap items-center gap-2 mb-1">
-        <p class="text-[11px] font-semibold text-amber-700 uppercase tracking-wider">Fora do planejamento · para revisar</p>
-      </div>
-      <p class="text-lg font-bold tabular text-amber-800">${currency.format(unbudgeted)}</p>
-      <p class="text-[11px] text-amber-700 leading-snug mt-1">
-        Gastos em categorias sem orçamento definido. Este valor <strong>não reduz o "Disponível para gastar"</strong> —
-        defina um orçamento para essas categorias para incluí-las no planejamento.
-      </p>
-    </div>` : ''}
 
     <!-- ── Audit note ── -->
     <p class="text-[11px] text-slate-400 leading-relaxed pt-2 border-t border-slate-100">
-      Apenas contas ativas são consideradas nestes cálculos. Contas desativadas (ex: CAIXA, C6) estão excluídas.
-      Transações conciliadas como custo fixo são excluídas dos gastos variáveis para evitar dupla contagem.
+      Apenas contas ativas são consideradas nestes cálculos.
     </p>
   `;
 
