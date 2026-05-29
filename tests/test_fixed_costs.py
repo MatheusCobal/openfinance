@@ -1404,11 +1404,9 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Pluggy "Fixed income" (CDB) movements:
         - do NOT appear in bank_outflows_total / bank_inflows_total
         - are tracked separately as raw reserva_* movements (informational)
-        - DO reduce budget_available_to_spend via reserve_reserved_total =
-          max(savings_target, applied_to_reserve), because money committed to
-          the reserve is reserved from consumption even though it is not an
-          expense. With no savings target set, reserve_reserved_total equals
-          the gross application amount.
+        - reserve_reserved_total is computed correctly but is NOT subtracted from
+          budget_available_to_spend (the headline "after obligations, how much is left?").
+          It IS subtracted in available_after_reserve (true disposable after savings).
         """
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -1450,14 +1448,16 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # No savings target set → target=0, reserved=max(0,1000)=1000
         self.assertEqual(capacity["reserve_target"], 0.0)
         self.assertEqual(capacity["reserve_reserved_total"], 1000.0)
-        # reserve subtracts from availability: 20300 - 1000 = 19300
-        self.assertEqual(capacity["budget_available_to_spend"], 19300.0)
+        # reserve does NOT reduce budget_available_to_spend (headline after obligations)
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+        # available_after_reserve = 20300 - 1000 = 19300
+        self.assertEqual(capacity["available_after_reserve"], 19300.0)
 
     # ----- 9. Reserve envelope: target vs. applied -----
 
     def test_reserve_target_no_application_reserves_full_target(self):
-        """Savings target=3000, no CDB applied → reserve_reserved=3000,
-        budget reduced by full target."""
+        """Savings target=3000, no CDB applied → reserve_reserved=3000.
+        budget_available_to_spend is NOT reduced; available_after_reserve is."""
         from app.models import SavingsTarget
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -1475,8 +1475,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["reserve_over_applied_total"], 0.0)
         self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
         self.assertEqual(capacity["reserve_planning_source"], "savings_target")
-        # 20300 - 3000 = 17300
-        self.assertEqual(capacity["budget_available_to_spend"], 17300.0)
+        # Reserve does NOT reduce budget_available_to_spend.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+        # available_after_reserve = 20300 - 3000 = 17300
+        self.assertEqual(capacity["available_after_reserve"], 17300.0)
 
     def test_reserve_target_partial_application_target_wins(self):
         """Savings target=3000, applied=1000 → max(3000,1000)=3000 reserved,
@@ -1508,8 +1510,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["reserve_over_applied_total"], 0.0)
         # target wins: max(3000, 1000) = 3000
         self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
-        # 20300 - 3000 = 17300
-        self.assertEqual(capacity["budget_available_to_spend"], 17300.0)
+        # Reserve does NOT reduce budget_available_to_spend.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+        # available_after_reserve = 20300 - 3000 = 17300
+        self.assertEqual(capacity["available_after_reserve"], 17300.0)
 
     def test_reserve_applied_exceeds_target_applied_wins(self):
         """Applied=3500 > target=3000 → max(3000,3500)=3500 reserved,
@@ -1541,8 +1545,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["reserve_over_applied_total"], 500.0)
         # applied wins: max(3000, 3500) = 3500
         self.assertEqual(capacity["reserve_reserved_total"], 3500.0)
-        # 20300 - 3500 = 16800
-        self.assertEqual(capacity["budget_available_to_spend"], 16800.0)
+        # Reserve does NOT reduce budget_available_to_spend.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+        # available_after_reserve = 20300 - 3500 = 16800
+        self.assertEqual(capacity["available_after_reserve"], 16800.0)
 
     # ----- 10. Auto-matched fixed cost must not double-count -----
 
@@ -1749,12 +1755,14 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["planning_mode"], "current_month")
         # Unbudgeted NOT subtracted.
         self.assertEqual(capacity["unbudgeted_variable_spent"], 400.0)
-        # Overage (100) and fixed (300) and reserve (1000) DO reduce availability.
+        # Overage (100) and fixed (300) reduce availability; reserve does NOT.
         self.assertEqual(capacity["variable_budget_overage"], 100.0)
         self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
         self.assertEqual(capacity["reserve_reserved_total"], 1000.0)
-        # 20300 - 300 (fixed) - 500 (consumed) - 100 (overage) - 1000 (reserve) = 18400
-        self.assertEqual(capacity["budget_available_to_spend"], 18400.0)
+        # 20300 - 300 (fixed) - 500 (consumed) - 100 (overage) = 19400
+        self.assertEqual(capacity["budget_available_to_spend"], 19400.0)
+        # available_after_reserve = 19400 - 1000 = 18400
+        self.assertEqual(capacity["available_after_reserve"], 18400.0)
 
     # ----- 12. card_invoice_remaining_to_reserve (current month) -----
 
@@ -1905,9 +1913,12 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Reserve uses target, not max(target, applied) since nothing applied yet.
         self.assertEqual(capacity["reserve_target_total"], 1000.0)
         # The installment (200) is also picked up as scheduled_installments fallback.
+        # Reserve is NOT subtracted from budget_available_to_spend.
         # Formula: 20300 - 300 (fixed_planned) - 500 (variable_budget_total)
-        #          - 200 (scheduled installment) - 1000 (reserve_target) = 18300
-        self.assertEqual(capacity["budget_available_to_spend"], 18300.0)
+        #          - 200 (scheduled installment) = 19300
+        self.assertEqual(capacity["budget_available_to_spend"], 19300.0)
+        # available_after_reserve = 19300 - 1000 (reserve_target) = 18300
+        self.assertEqual(capacity["available_after_reserve"], 18300.0)
 
     def test_future_month_no_account_balance_used(self):
         """Future month: Account.balance is never used as the card obligation."""
@@ -2097,6 +2108,52 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Installment (400) does NOT add on top of the bill.
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0 - 3000.0)
 
+    def test_future_month_reserve_not_in_budget_available(self):
+        """Future month: reserve_target_total does NOT reduce budget_available_to_spend.
+        It is subtracted only in available_after_reserve.
+        """
+        from app.models import SavingsTarget
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(SavingsTarget(monthly_target=Decimal("2000")))
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        self.assertEqual(capacity["reserve_target_total"], 2000.0)
+        # Reserve NOT in budget_available_to_spend.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+        # available_after_reserve = 20300 - 2000 = 18300
+        self.assertEqual(capacity["available_after_reserve"], 18300.0)
+
+    def test_current_month_reserve_not_in_budget_available(self):
+        """Current month: reserve_reserved_total does NOT reduce budget_available_to_spend.
+        It is subtracted only in available_after_reserve.
+        """
+        from app.models import SavingsTarget
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(SavingsTarget(monthly_target=Decimal("1500")))
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "current_month")
+        self.assertEqual(capacity["reserve_reserved_total"], 1500.0)
+        # Reserve NOT in budget_available_to_spend.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+        # available_after_reserve = 20300 - 1500 = 18800
+        self.assertEqual(capacity["available_after_reserve"], 18800.0)
+
     def test_future_month_no_installments_source_none(self):
         """Future month with no bill, no account_balance_due_month, no future
         transactions: source = 'none', obligation = 0.
@@ -2214,8 +2271,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # variable_budget_reserved = consumed (600), not target (800).
         self.assertEqual(capacity["variable_budget_consumed"], 600.0)
         self.assertEqual(capacity["variable_budget_reserved"], 600.0)
-        # 20300 - 200 (fixed) - 600 (var consumed) - 500 (reserve) - 200 (card gap) = 18800
-        self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
+        # 20300 - 200 (fixed) - 600 (var consumed) - 200 (card gap) = 19300 (reserve excluded)
+        self.assertEqual(capacity["budget_available_to_spend"], 19300.0)
+        # available_after_reserve = 19300 - 500 = 18800
+        self.assertEqual(capacity["available_after_reserve"], 18800.0)
 
 
 if __name__ == "__main__":

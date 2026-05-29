@@ -210,7 +210,7 @@ function renderCapacityFlow(capacity) {
   const varResPct    = income > 0 ? Math.min(100, (varReserved   / income) * 100) : 0;
   const reservePct   = income > 0 ? Math.min(100, (reserve       / income) * 100) : 0;
   const ccRemPct     = income > 0 ? Math.min(100, (cardBarAmt    / income) * 100) : 0;
-  const freePct      = Math.max(0, 100 - fixedPct - varResPct - reservePct - ccRemPct);
+  const freePct      = Math.max(0, 100 - fixedPct - varResPct - ccRemPct);
   const varTotalPct  = isFuture ? varResPct : varConsPct + varOverPct;
 
   // ── Credit card context ──
@@ -255,12 +255,6 @@ function renderCapacityFlow(capacity) {
                                                                'Fatura prevista do cartão';
     bRows.push({ label: cardRowLabel, value: futureCardObligation, op: '−', cls: 'text-amber-600' });
   }
-  bRows.push({
-    label: isFuture ? 'Reserva planejada' : 'Reserva planejada / aplicada',
-    value: reserve,
-    op: '−',
-    cls: 'text-slate-500',
-  });
   if (!isFuture && ccRemaining > 0) bRows.push({ label: 'Fatura ainda não contemplada', value: ccRemaining, op: '−', cls: 'text-amber-600' });
   bRows.push({ label: 'Disponível para gastar', value: sobra, op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
 
@@ -271,6 +265,27 @@ function renderCapacityFlow(capacity) {
       <span class="text-xs tabular ${r.cls}">${currency.format(r.value)}</span>
     </div>
   `).join('');
+
+  // ── Reserve block (separate from the main breakdown) ──
+  const afterReserve     = capacity.available_after_reserve ?? (sobra - reserve);
+  const afterReservePos  = afterReserve >= 0;
+  const reserveHtml = reserve > 0 ? `
+    <div class="rounded-xl border border-indigo-100 bg-indigo-50/40 px-4 py-3 mb-4">
+      <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Reserva de emergência</p>
+      <div class="space-y-1">
+        <div class="flex items-baseline gap-2">
+          <span class="flex-1 text-xs text-slate-600">${isFuture ? 'Meta de reserva' : 'Reserva planejada / aplicada'}</span>
+          <span class="text-xs tabular text-indigo-700">− ${currency.format(reserve)}</span>
+        </div>
+        <div class="flex items-baseline gap-2 border-t border-indigo-100 pt-1 mt-0.5">
+          <span class="flex-1 text-xs font-medium text-slate-700">Disponível após reserva</span>
+          <span class="text-xs tabular font-bold ${afterReservePos ? 'text-emerald-700' : 'text-red-600'}">${currency.format(afterReserve)}</span>
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-400 leading-snug mt-2">
+        A reserva é uma decisão de destino da sobra — não uma obrigação do mês. O valor acima é informativo.
+      </p>
+    </div>` : '';
 
   // ── Daily verba line ──
   const dailyHtml = (daysRemaining > 0 && daily > 0) ? `
@@ -362,7 +377,6 @@ function renderCapacityFlow(capacity) {
           ? `<div class="h-full bg-amber-400" style="width:${varResPct.toFixed(1)}%" title="Variável planejado (meta)"></div>`
           : `<div class="h-full bg-amber-400"  style="width:${varConsPct.toFixed(1)}%" title="Variável consumido"></div><div class="h-full bg-orange-400" style="width:${varOverPct.toFixed(1)}%" title="Estouro variável"></div>`
         }
-        <div class="h-full bg-indigo-300" style="width:${reservePct.toFixed(1)}%" title="Reserva planejada"></div>
         ${ccRemPct > 0 ? `<div class="h-full bg-yellow-500" style="width:${ccRemPct.toFixed(1)}%" title="Fatura ainda não contemplada"></div>` : ''}
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
       </div>
@@ -373,9 +387,6 @@ function renderCapacityFlow(capacity) {
         <span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full bg-amber-400 shrink-0"></span>Variável ${varTotalPct.toFixed(0)}%
         </span>
-        ${reservePct > 0 ? `<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span class="size-2 rounded-full bg-indigo-300 shrink-0"></span>Reserva ${reservePct.toFixed(0)}%
-        </span>` : ''}
         ${ccRemPct > 0 ? `<span class="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
           <span class="size-2 rounded-full bg-yellow-500 shrink-0"></span>Fatura não contemplada ${ccRemPct.toFixed(0)}%
         </span>` : ''}
@@ -470,6 +481,9 @@ function renderCapacityFlow(capacity) {
       <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Como calculamos "disponível para gastar"</p>
       <div class="space-y-1">${breakdownHtml}</div>
     </div>
+
+    <!-- ── Reserve block (separate) ── -->
+    ${reserveHtml}
 
     <!-- ── Unbudgeted audit card ── -->
     ${unbudgeted > 0 ? `

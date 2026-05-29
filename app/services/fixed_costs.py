@@ -1157,9 +1157,11 @@ def spending_capacity_summary(
     # ---- Reserve planning notes ----
     # Current reserve balance → Investment.balance (Pluggy snapshot, Histórico).
     # Monthly planned reserve → SavingsTarget / SavingsTargetOverride.
-    # reserve_reserved_total = max(target, applied) is subtracted from
-    # budget_available_to_spend because it is money reserved from consumption,
-    # even though it is not an expense — it is the user's own commitment.
+    # The reserve is a SAVINGS DECISION, not an operational obligation like a
+    # fixed cost or a card bill. It is therefore NOT subtracted from
+    # budget_available_to_spend (the headline "how much is left after obligations").
+    # Instead, a separate field available_after_reserve shows the residual after
+    # the user honours their reserve commitment.
     # The raw CDB movement totals (reserva_application_total / rescue / net)
     # are still exposed as informational context.
 
@@ -1236,20 +1238,23 @@ def spending_capacity_summary(
 
     # ---- Headline: "Disponível para gastar no mês" ----
     #
+    # Answers: "after paying all operational obligations and planned spending,
+    # how much is left?" — the reserve is NOT an obligation; it is a savings
+    # decision. It is shown separately via available_after_reserve.
+    #
     # FUTURE MONTH (projected plan):
     #   income
     # - fixed_cost_planned_total       (active fixed costs planned for the month)
     # - variable_budget_total          (full planned variable-budget envelope)
-    # - future_card_obligation_total   (official bill due that month, or 0)
-    # - reserve_target_total           (planned savings target)
+    # - future_card_obligation_total   (bill/installments due that month)
     #
     # CURRENT / PAST MONTH (real tracking):
     #   income
     # - fixed_cost_reserved_total         (planned pending + actual paid)
     # - variable_budget_reserved          (consumed + overage)
-    # - reserve_reserved_total            (max(target, applied))
     # - card_invoice_remaining_to_reserve (official bill gap not covered by individual txs)
     #
+    # NOTE: reserve_target_total / reserve_reserved_total are NOT included here.
     # NOTE: unbudgeted_variable_spent is intentionally excluded from both formulas.
     if planning_mode == "future_month":
         budget_available_to_spend = (
@@ -1257,16 +1262,22 @@ def spending_capacity_summary(
             - fixed_cost_planned_total
             - variable_budget_total
             - future_card_obligation_total
-            - reserve_target_total
         )
     else:
         budget_available_to_spend = (
             expected_income_total
             - fixed_cost_reserved_total
             - variable_budget_reserved
-            - reserve_reserved_total
             - card_invoice_remaining_to_reserve
         )
+
+    # ---- available_after_reserve ----
+    # What remains once the user honours the savings commitment.
+    # This is the "true disposable" after all obligations AND the reserve.
+    if planning_mode == "future_month":
+        available_after_reserve = budget_available_to_spend - reserve_target_total
+    else:
+        available_after_reserve = budget_available_to_spend - reserve_reserved_total
     # Keep the legacy aliases pointing at the same number so existing
     # consumers (tests, frontend) keep working while the new field rolls out.
     available_to_spend = budget_available_to_spend
@@ -1380,6 +1391,7 @@ def spending_capacity_summary(
         "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
         "discretionary_available": float(discretionary_available),
         "budget_available_to_spend": float(budget_available_to_spend),
+        "available_after_reserve": float(available_after_reserve),
         "projected_cash_available": projected_cash_available,
         "daily_discretionary_remaining": float(daily_discretionary_remaining),
         "days_remaining_in_month": days_remaining_in_month,
