@@ -236,12 +236,12 @@ function renderFlowSummary(capacityData, cashflowData, month) {
   const current        = findMonth(cashflowData?.months, month) || {};
   const previous       = findMonth(cashflowData?.months, previousKey);
 
-  const receivedIncome = capacityData.received_income_total ?? current.income ?? 0;
+  const receivedIncome = capacityData.bank_inflows_total ?? current.income ?? 0;
   const expectedIncome = capacityData.expected_income_total ?? 0;
   const toReceive      = capacityData.income_to_receive ?? 0;
-  const receivedHelp   = expectedIncome > 0
-    ? `de ${currency.format(expectedIncome)} esperados`
-    : pluralRecebimentos(current.income_count || 0);
+  const receivedHelp   = current.income_count > 0
+    ? pluralRecebimentos(current.income_count)
+    : 'Entradas bancárias reais';
 
   const fixedCostActual   = capacityData.fixed_cost_actual_total  || 0;
   const fixedCostPending  = capacityData.fixed_cost_pending_total || 0;
