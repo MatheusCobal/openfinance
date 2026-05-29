@@ -218,13 +218,15 @@ function renderCapacityFlow(capacity) {
   const ccGross     = capacity.card_invoice_gross_total    || 0;
   const ccSource    = capacity.card_invoice_source;
   const ccSourceLabel =
-    ccSource === 'bill'            ? 'Fatura oficial (Pluggy)' :
-    ccSource === 'account_balance' ? 'Saldo da conta cartão'   :
-                                     'Reconstruída por transações';
+    ccSource === 'bill'                      ? 'Fatura oficial (Pluggy)'              :
+    ccSource === 'account_balance'           ? 'Saldo da conta cartão'                :
+    ccSource === 'account_balance_due_month' ? 'Saldo do cartão com vencimento no mês':
+                                               'Reconstruída por transações';
   const ccSourceCls =
-    ccSource === 'bill'            ? 'bg-emerald-100 text-emerald-700' :
-    ccSource === 'account_balance' ? 'bg-indigo-100  text-indigo-700'  :
-                                     'bg-slate-100   text-slate-600';
+    ccSource === 'bill'                      ? 'bg-emerald-100 text-emerald-700' :
+    ccSource === 'account_balance'           ? 'bg-indigo-100  text-indigo-700'  :
+    ccSource === 'account_balance_due_month' ? 'bg-amber-100   text-amber-700'   :
+                                               'bg-slate-100   text-slate-600';
   const dueDates = capacity.credit_card_due_dates || [];
 
   // ── Pre-build accordion panel content (avoids nested template-literal issues) ──
@@ -244,7 +246,12 @@ function renderCapacityFlow(capacity) {
       : { label: 'Variável consumido',        value: varConsumed,    op: '−', cls: 'text-slate-500' },
   ];
   if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável', value: varOverage, op: '−', cls: 'text-red-500' });
-  if (isFuture && futureCardObligation > 0) bRows.push({ label: 'Parcelas/fatura prevista', value: futureCardObligation, op: '−', cls: 'text-amber-600' });
+  if (isFuture && futureCardObligation > 0) {
+    const cardRowLabel = ccSource === 'account_balance_due_month'
+      ? 'Fatura vencendo no mês'
+      : 'Fatura prevista do cartão';
+    bRows.push({ label: cardRowLabel, value: futureCardObligation, op: '−', cls: 'text-amber-600' });
+  }
   bRows.push({
     label: isFuture ? 'Reserva planejada' : 'Reserva planejada / aplicada',
     value: reserve,
@@ -272,19 +279,27 @@ function renderCapacityFlow(capacity) {
   // ── Credit card card HTML ──
   let ccHtml = '';
   if (isFuture) {
-    // Future month: show the official bill (prior billing cycle) reserved as a separate line.
-    // Never show Account.balance here.
+    // Future month: show the card obligation reserved as a separate line.
     if (futureCardObligation > 0) {
+      const futureBillBadgeLabel = ccSource === 'bill'
+        ? 'Fatura oficial (Pluggy)'
+        : 'Saldo do cartão com vencimento no mês';
+      const futureBillBadgeCls = ccSource === 'bill'
+        ? 'bg-emerald-100 text-emerald-700'
+        : 'bg-amber-100 text-amber-700';
+      const futureBillDesc = ccSource === 'bill'
+        ? 'Fatura do ciclo anterior com vencimento neste mês. Já reservada na projeção acima como "Fatura prevista do cartão".'
+        : 'Saldo atual do cartão com data de vencimento neste mês. Representa a fatura aberta que vencerá aqui. Já reservada na projeção acima como "Fatura vencendo no mês".';
       ccHtml = `
     <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
       <div class="flex flex-wrap items-center gap-2 mb-2">
         <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Fatura prevista</p>
-        <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Fatura oficial (Pluggy)</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${futureBillBadgeCls}">${escapeHtml(futureBillBadgeLabel)}</span>
       </div>
       <p class="text-lg font-bold tabular text-slate-800 mb-1">${currency.format(futureCardObligation)}</p>
       ${dueDates.length > 0 ? `<p class="text-[11px] text-slate-500 mb-1">Vencimento: ${dueDates.map((d) => escapeHtml(String(d))).join(' · ')}</p>` : ''}
       <p class="text-[11px] text-slate-400 leading-snug border-t border-amber-100 pt-2 mt-2">
-        Fatura do ciclo anterior com vencimento neste mês. Já reservada na projeção acima como "Parcelas/fatura prevista".
+        ${escapeHtml(futureBillDesc)}
         As compras planejadas para este mês constam nos orçamentos variáveis — sem dupla contagem.
       </p>
     </div>`;

@@ -2017,6 +2017,58 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Not subtracted from formula.
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
+    def test_future_month_account_balance_with_due_date_in_month(self):
+        """Future month: Account.balance is used when credit_balance_due_date falls
+        in that exact future month. source = 'account_balance_due_month' and
+        future_card_obligation_total equals the account balance.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+        from sqlmodel import select
+
+        with Session(self.engine) as session:
+            acct = session.exec(select(Account).where(Account.id == "credit-1")).one()
+            acct.balance = Decimal("40132.57")
+            acct.credit_balance_due_date = date(2026, 7, 10)
+            session.add(acct)
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        self.assertEqual(capacity["card_invoice_source"], "account_balance_due_month")
+        self.assertAlmostEqual(capacity["future_card_obligation_total"], 40132.57, places=2)
+        # Formula: 20300 - 40132.57 = -19832.57
+        self.assertAlmostEqual(capacity["budget_available_to_spend"], 20300.0 - 40132.57, places=2)
+
+    def test_future_month_account_balance_due_date_in_other_month(self):
+        """Future month: Account.balance is NOT used when credit_balance_due_date
+        falls in a different month. future_card_obligation_total must be 0.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+        from sqlmodel import select
+
+        with Session(self.engine) as session:
+            acct = session.exec(select(Account).where(Account.id == "credit-1")).one()
+            acct.balance = Decimal("40132.57")
+            # Due date is in August, not July
+            acct.credit_balance_due_date = date(2026, 8, 10)
+            session.add(acct)
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        # credit_balance_due_date is in 2026-08, not 2026-07 → not used
+        self.assertNotEqual(capacity["card_invoice_source"], "account_balance_due_month")
+        self.assertEqual(capacity["future_card_obligation_total"], 0.0)
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
+
     def test_current_month_not_broken_by_future_month_changes(self):
         """Regression: current-month formula (consumed + overage, gap-based card)
         must be unchanged after adding the future-month branch.

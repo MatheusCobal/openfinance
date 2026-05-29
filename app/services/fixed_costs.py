@@ -1192,16 +1192,21 @@ def spending_capacity_summary(
     )
 
     # ---- Future card obligation ----
-    # For a future month the correct card obligation is the Pluggy CreditCardBill
-    # whose due_date falls in that month (a prior billing-cycle bill that must be
-    # paid from that month's income).  Those prior-cycle transactions are NOT in
-    # the future month's variable-budget window, so there is no double-counting.
-    # Account.balance is never used for future months (already guarded in
-    # credit_card_obligation_summary tier-2).  If no official bill exists for
-    # the future month we use 0 — unbudgeted installments are already covered by
-    # variable_budget_total (if categorised) or shown as "para revisar" otherwise.
-    if planning_mode == "future_month" and cc_obligation["source"] == "bill":
-        future_card_obligation_total = Decimal(str(cc_obligation["official_bill_total"]))
+    # For a future month the correct card obligation is either:
+    #   "bill"                    — official CreditCardBill due that month.
+    #   "account_balance_due_month" — Account.balance for cards whose
+    #                                 credit_balance_due_date falls in that month
+    #                                 (current open invoice that will be due there).
+    # In both cases those obligations are NOT in the future month's variable-budget
+    # window, so there is no double-counting.
+    # For any other source (transaction_fallback, no data) we use 0.
+    if planning_mode == "future_month":
+        if cc_obligation["source"] == "bill":
+            future_card_obligation_total = Decimal(str(cc_obligation["official_bill_total"]))
+        elif cc_obligation["source"] == "account_balance_due_month":
+            future_card_obligation_total = Decimal(str(cc_obligation["current_open_total"]))
+        else:
+            future_card_obligation_total = Decimal("0")
     else:
         future_card_obligation_total = Decimal("0")
 

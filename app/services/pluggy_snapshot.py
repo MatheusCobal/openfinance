@@ -644,6 +644,48 @@ def credit_card_obligation_summary(
                 ],
             }
 
+    # ---- Tier 2b: CREDIT Account.balance with credit_balance_due_date in year_month (future month) ----
+    # For a future month we can use Account.balance only when the account's
+    # credit_balance_due_date falls exactly in that month. This represents the
+    # current open invoice that will become due in this specific future month.
+    # Accounts without a due_date, or with a due_date in a different month, are excluded.
+    if year_month > current_year_month:
+        credit_with_due_in_month = [
+            a for a in credit_accounts
+            if a.balance is not None
+            and a.credit_balance_due_date is not None
+            and a.credit_balance_due_date.strftime("%Y-%m") == year_month
+        ]
+        if credit_with_due_in_month:
+            open_total = sum((a.balance for a in credit_with_due_in_month), Decimal("0"))
+            min_total = sum(
+                (a.credit_minimum_payment for a in credit_with_due_in_month if a.credit_minimum_payment is not None),
+                Decimal("0"),
+            )
+            due_dates = sorted({
+                a.credit_balance_due_date.isoformat()
+                for a in credit_with_due_in_month
+            })
+            return {
+                "year_month": year_month,
+                "source": "account_balance_due_month",
+                "official_bill_total": None,
+                "current_open_total": float(open_total),
+                "minimum_payment_total": float(min_total),
+                "payments_total": None,
+                "finance_charges_total": None,
+                "due_dates": due_dates,
+                "cards": [
+                    {
+                        "account_id": a.id,
+                        "due_date": a.credit_balance_due_date.isoformat(),
+                        "total_amount": float(a.balance or 0),
+                        "minimum_payment_amount": float(a.credit_minimum_payment or 0),
+                    }
+                    for a in credit_with_due_in_month
+                ],
+            }
+
     # ---- Tier 3: transaction fallback ----
     year, month = int(year_month[:4]), int(year_month[5:])
     _, last_day = calendar.monthrange(year, month)
