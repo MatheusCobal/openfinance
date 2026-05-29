@@ -141,7 +141,7 @@ class BackendRegressionTest(unittest.TestCase):
                         id="tx-future",
                         account_id="credit-1",
                         date=self.next_month_day,
-                        amount=Decimal("-75.00"),
+                        amount=Decimal("75.00"),
                         description="Compra futura",
                         category="Shopping",
                     ),

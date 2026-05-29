@@ -141,6 +141,10 @@ def upcoming_summary(
     )
     category_info_by_id: Dict[int, Category] = {}
     for tx in future_txs:
+        # Exclude credits / refunds / cancellations (amount <= 0) so they
+        # don't inflate the scheduled invoice total via abs(amount).
+        if tx.amount <= 0:
+            continue
         month = tx.date.strftime("%Y-%m")
         cat = resolver.display_category(resolver.resolve(tx.category, tx.description))
         by_month_cat[month][cat.id].append(tx)

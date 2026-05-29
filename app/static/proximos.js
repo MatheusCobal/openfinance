@@ -127,8 +127,31 @@ function renderMonthChart() {
   panel?.classList.remove('hidden');
   if (monthChart) monthChart.destroy();
 
+  // Inline plugin: render the formatted value above each bar so it's always
+  // visible without requiring a hover.
+  const barValueLabels = {
+    id: 'barValueLabels',
+    afterDatasetsDraw(chart) {
+      const { ctx, data } = chart;
+      const meta = chart.getDatasetMeta(0);
+      ctx.save();
+      ctx.font = '600 10.5px Inter, ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = '#475569';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      meta.data.forEach((bar, i) => {
+        const value = data.datasets[0].data[i];
+        if (!value) return;
+        const label = currency.format(value);
+        ctx.fillText(label, bar.x, bar.y - 3);
+      });
+      ctx.restore();
+    },
+  };
+
   monthChart = new Chart(ctx, {
     type: 'bar',
+    plugins: [barValueLabels],
     data: {
       labels: allData.months.map((month) => formatMonthShort(month.month)),
       datasets: [
@@ -143,6 +166,7 @@ function renderMonthChart() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: { padding: { top: 22 } },
       onClick: (evt, elements) => {
         if (elements.length === 0) return;
         selectedMonth = allData.months[elements[0].index].month;
