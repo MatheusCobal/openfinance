@@ -220,16 +220,6 @@ function renderCapacityFlow(capacity) {
   const futureObligationSource      = capacity.future_card_obligation_source        || 'none';
   const futureObligationCount       = capacity.future_card_obligation_count         || 0;
   const futureObligationDisplayMonth = capacity.future_card_obligation_display_month || null;
-  const ccSourceLabel =
-    ccSource === 'bill'                      ? 'Fatura oficial (Pluggy)'              :
-    ccSource === 'account_balance'           ? 'Saldo da conta cartão'                :
-    ccSource === 'account_balance_due_month' ? 'Saldo do cartão com vencimento no mês':
-                                               'Reconstruída por transações';
-  const ccSourceCls =
-    ccSource === 'bill'                      ? 'bg-emerald-100 text-emerald-700' :
-    ccSource === 'account_balance'           ? 'bg-indigo-100  text-indigo-700'  :
-    ccSource === 'account_balance_due_month' ? 'bg-amber-100   text-amber-700'   :
-                                               'bg-slate-100   text-slate-600';
   const dueDates = capacity.credit_card_due_dates || [];
 
   // ── Pre-build accordion panel content (avoids nested template-literal issues) ──
@@ -279,69 +269,6 @@ function renderCapacityFlow(capacity) {
       <p class="text-[11px] text-slate-500 mb-0.5">${currency.format(daily)}/dia disponível</p>
       <p class="text-[11px] text-slate-400">${daysRemaining} dia${daysRemaining === 1 ? '' : 's'} restante${daysRemaining === 1 ? '' : 's'}</p>
     </div>` : '';
-
-  // ── Credit card card HTML ──
-  let ccHtml = '';
-  if (isFuture) {
-    // Future month: show the card obligation reserved as a separate line.
-    if (futureCardObligation > 0) {
-      const _installLabel = futureObligationDisplayMonth
-        ? `Parcelas / fatura de ${formatMonthShort(futureObligationDisplayMonth)} (${futureObligationCount})`
-        : `Parcelas previstas (${futureObligationCount})`;
-      const futureBillBadgeLabel =
-        futureObligationSource === 'bill'                      ? 'Fatura oficial (Pluggy)'              :
-        futureObligationSource === 'account_balance_due_month' ? 'Saldo do cartão com vencimento no mês':
-        futureObligationSource === 'scheduled_installments'    ? _installLabel :
-                                                                  'Prevista';
-      const futureBillBadgeCls =
-        futureObligationSource === 'bill'                      ? 'bg-emerald-100 text-emerald-700' :
-        futureObligationSource === 'scheduled_installments'    ? 'bg-blue-100    text-blue-700'    :
-                                                                  'bg-amber-100   text-amber-700';
-      const futureBillDesc =
-        futureObligationSource === 'bill'
-          ? 'Fatura do ciclo anterior com vencimento neste mês. Já reservada na projeção acima como "Fatura prevista do cartão".'
-          : futureObligationSource === 'scheduled_installments'
-          ? 'Parcelas já registradas no cartão com data neste mês. Representam compromissos já assumidos e foram subtraídas da projeção acima.'
-          : 'Saldo atual do cartão com data de vencimento neste mês. Representa a fatura aberta que vencerá aqui. Já reservada na projeção acima como "Fatura vencendo no mês".';
-      ccHtml = `
-    <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
-      <div class="flex flex-wrap items-center gap-2 mb-2">
-        <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Fatura prevista</p>
-        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${futureBillBadgeCls}">${escapeHtml(futureBillBadgeLabel)}</span>
-      </div>
-      <p class="text-lg font-bold tabular text-slate-800 mb-1">${currency.format(futureCardObligation)}</p>
-      ${dueDates.length > 0 ? `<p class="text-[11px] text-slate-500 mb-1">Vencimento: ${dueDates.map((d) => escapeHtml(String(d))).join(' · ')}</p>` : ''}
-      <p class="text-[11px] text-slate-400 leading-snug border-t border-amber-100 pt-2 mt-2">
-        ${escapeHtml(futureBillDesc)}
-        As compras planejadas para este mês constam nos orçamentos variáveis — sem dupla contagem.
-      </p>
-    </div>`;
-    }
-  } else if (ccOfficial > 0 || ccSource) {
-    ccHtml = `
-    <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
-      <div class="flex flex-wrap items-center gap-2 mb-2">
-        <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Fatura do cartão</p>
-        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${ccSourceCls}">${escapeHtml(ccSourceLabel)}</span>
-      </div>
-      <p class="text-lg font-bold tabular text-slate-800 mb-1">${currency.format(ccOfficial)}</p>
-      ${dueDates.length > 0 ? `<p class="text-[11px] text-slate-500 mb-1">Vencimento: ${dueDates.map((d) => escapeHtml(String(d))).join(' · ')}</p>` : ''}
-      <div class="space-y-1 mt-2 mb-2">
-        <div class="flex items-baseline gap-2">
-          <span class="flex-1 text-[11px] text-slate-500">Total já contemplado no planejamento</span>
-          <span class="text-[11px] tabular text-slate-600">${currency.format(ccGross)}</span>
-        </div>
-        <div class="flex items-baseline gap-2">
-          <span class="flex-1 text-[11px] ${ccRemaining > 0 ? 'text-amber-700 font-medium' : 'text-slate-500'}">Obrigação adicional (ainda não contemplada)</span>
-          <span class="text-[11px] tabular ${ccRemaining > 0 ? 'text-amber-700 font-semibold' : 'text-slate-500'}">${currency.format(ccRemaining)}</span>
-        </div>
-      </div>
-      <p class="text-[11px] text-slate-400 leading-snug border-t border-amber-100 pt-2">
-        As compras individuais já constam nos orçamentos variáveis e custos fixos acima — a fatura inteira não é subtraída para evitar dupla contagem.
-        ${ccRemaining > 0 ? 'O valor adicional acima representa a diferença entre a fatura oficial e as transações individuais registradas (carry-over, juros, cobranças não sincronizadas).' : 'A fatura está totalmente contemplada nas transações individuais registradas.'}
-      </p>
-    </div>`;
-  }
 
   container.innerHTML = `
     <!-- ── Hero: Disponível para gastar ── -->
@@ -522,17 +449,12 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
   if (key === 'variavel') {
     const allItems = capacity.variable_budgets?.items || [];
     const budgeted = allItems.filter((i) => i.target !== null && i.target > 0);
-    const unbudgeted = allItems.filter(
-      (i) => (i.target === null || i.target <= 0) && (i.actual_spent + i.future_spent) > 0
-    );
-    const unbudgetedTotal = unbudgeted.reduce((s, i) => s + i.actual_spent + i.future_spent, 0);
-    const unbudgetedCount = unbudgeted.reduce((s, i) => s + (i.actual_count || 0) + (i.future_count || 0), 0);
 
-    if (!budgeted.length && !unbudgeted.length) {
-      return '<p class="text-xs text-slate-400 py-2">Nenhuma meta definida e nenhum gasto variável no mês.</p>';
+    if (!budgeted.length) {
+      return '<p class="text-xs text-slate-400 py-2">Nenhuma meta de gasto variável definida para o mês.</p>';
     }
 
-    const budgetedHtml = budgeted.length > 0 ? `
+    return `
       <ul class="space-y-3 pt-1">
         ${budgeted.map((item) => {
           const pct = Math.min(100, item.actual_progress_pct || 0);
@@ -553,39 +475,7 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
           `;
         }).join('')}
       </ul>
-    ` : '';
-
-    const unbudgetedHtml = unbudgeted.length > 0 ? `
-      <div class="${budgeted.length > 0 ? 'mt-3 pt-2 border-t border-slate-200' : 'pt-1'}">
-        <div class="flex items-center justify-between mb-1.5">
-          <p class="text-[11px] font-semibold text-amber-600 uppercase tracking-wider">
-            Sem orçamento definido
-            ${unbudgetedCount > 0 ? `<span class="font-normal text-amber-500 normal-case">(${unbudgetedCount} transação${unbudgetedCount === 1 ? '' : 'ões'})</span>` : ''}
-          </p>
-          <span class="text-xs font-bold tabular text-amber-700">${currency.format(unbudgetedTotal)}</span>
-        </div>
-        <ul class="space-y-1">
-          ${unbudgeted.map((item) => {
-            const spent = item.actual_spent + item.future_spent;
-            const count = (item.actual_count || 0) + (item.future_count || 0);
-            return `
-              <li class="flex items-center gap-2 py-0.5">
-                <span class="size-2 rounded-full shrink-0" style="background:${escapeHtml(item.category_color)}"></span>
-                <span class="flex-1 text-xs text-slate-700 truncate">${escapeHtml(item.category_name)}</span>
-                <span class="text-[10px] text-slate-400 shrink-0">${count} tx</span>
-                <span class="text-xs font-semibold tabular text-amber-600 shrink-0">${currency.format(spent)}</span>
-              </li>
-            `;
-          }).join('')}
-        </ul>
-        <p class="text-[11px] text-slate-400 mt-2 leading-snug">
-          Estes gastos não têm meta e reduzem diretamente o "Disponível para gastar".
-          Defina metas na aba <strong>Metas variáveis</strong> para ter controle granular.
-        </p>
-      </div>
-    ` : '';
-
-    return budgetedHtml + unbudgetedHtml;
+    `;
   }
 
   if (key === 'reserva') {

@@ -150,44 +150,13 @@ function renderInvoiceCard(data, month) {
   const section = document.getElementById('invoice-card');
   if (!section) return;
   const official = data.card_invoice_current_open_total ?? data.card_invoice_official_total ?? data.card_invoice_gross_total ?? 0;
-  const src = data.card_invoice_source;
-  const sourceLabel =
-    src === 'open_cycle_transactions'     ? 'Fatura aberta estimada'          :
-    src === 'open_month_transactions'     ? 'Fatura aberta estimada'          :
-    src === 'pending_cycle_transactions'  ? 'Fatura aberta estimada'          :
-    src === 'pending_month_transactions'  ? 'Fatura aberta estimada'          :
-    src === 'account_balance_fallback'    ? 'Saldo do cartão'                  :
-    src === 'bill'                        ? 'Fatura oficial (Pluggy)'          :
-    src === 'account_balance'             ? 'Fatura aberta / saldo do cartão'  :
-                                           'Reconstruída por transações';
-  const sourceCls =
-    src === 'open_cycle_transactions'     ? 'bg-blue-50    text-blue-700'     :
-    src === 'open_month_transactions'     ? 'bg-blue-50    text-blue-700'     :
-    src === 'pending_cycle_transactions'  ? 'bg-blue-50    text-blue-700'     :
-    src === 'pending_month_transactions'  ? 'bg-blue-50    text-blue-700'     :
-    src === 'account_balance_fallback'    ? 'bg-slate-100  text-slate-600'    :
-    src === 'bill'                        ? 'bg-emerald-50 text-emerald-700'  :
-    src === 'account_balance'             ? 'bg-indigo-50  text-indigo-700'   :
-                                           'bg-slate-100  text-slate-600';
   const monthLabel = new Date(`${month}-01T00:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-  const cycleStart = data.card_invoice_cycle_start;
-  const cycleEnd   = data.card_invoice_cycle_end;
-  const txCount    = data.card_invoice_transaction_count || 0;
-  const cycleLabel = cycleStart && cycleEnd
-    ? `Ciclo: ${formatShortDate(cycleStart)} a ${formatShortDate(cycleEnd)}`
-    : null;
   section.innerHTML = `
     <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-      <div class="flex items-center gap-2 mb-3">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Fatura do cartão</p>
-        <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium">Cash-flow</span>
-        <span class="text-[10px] px-2 py-0.5 rounded-full ${sourceCls}">${escapeHtml(sourceLabel)}</span>
-      </div>
+      <p class="text-xs uppercase tracking-wider text-slate-500 font-medium mb-3">Fatura do cartão</p>
       <p class="text-3xl font-bold tabular text-slate-900">${currency.format(official)}</p>
       <div class="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-sm text-slate-500">
         <span class="capitalize">${escapeHtml(monthLabel)}</span>
-        ${cycleLabel ? `<span class="text-slate-300 text-xs">·</span><span class="text-xs">${escapeHtml(cycleLabel)}</span>` : ''}
-        ${txCount > 0 ? `<span class="text-slate-300 text-xs">·</span><span class="text-xs">${txCount} transaç${txCount === 1 ? 'ão' : 'ões'} pendente${txCount === 1 ? '' : 's'}</span>` : ''}
         <span class="text-slate-300 text-xs">·</span>
         <span>discricionária ${currency.format(data.card_invoice_discretionary_total || 0)}</span>
         <span class="text-slate-300 text-xs">·</span>
@@ -280,7 +249,6 @@ function renderFlowSummary(capacityData, cashflowData, month) {
   const overage    = capacityData.variable_budget_overage  || 0;
   const variableParts = [];
   if (variableBudgetTotal > 0) variableParts.push(`meta ${currency.format(variableBudgetTotal)}`);
-  if (unbudgeted > 0) variableParts.push(`sem orçamento ${currency.format(unbudgeted)}`);
   if (overage > 0) variableParts.push(`estouro ${currency.format(overage)}`);
   const variableSubtext = variableParts.length > 0 ? variableParts.join(' · ') : 'sem meta configurada';
 
