@@ -18,7 +18,10 @@ from app.services.fixed_cost_defaults import (
     DEFAULT_FIXED_COST_CATEGORIES,
     FIXED_COST_TEMPLATES,
 )
-from app.services.pluggy_snapshot import credit_card_obligation_summary
+from app.services.pluggy_snapshot import (
+    credit_card_obligation_summary,
+    current_open_card_invoice_summary,
+)
 from app.services.reserve import reserve_applied_in_month
 from app.services.savings import effective_target as savings_effective_target
 from app.services.transaction_reports import invoice_summary
@@ -1180,6 +1183,35 @@ def spending_capacity_summary(
         planning_mode = "past_month"
     is_future_month = planning_mode == "future_month"
 
+    # ---- Current-month open invoice: PENDING-based estimate ----
+    # For the current month we override card_invoice_official_total with the
+    # sum of PENDING transactions in the current billing cycle.  CreditCardBill
+    # represents a *closed* prior cycle and must not be used for the live open
+    # invoice — doing so inflated card_invoice_remaining_to_reserve with
+    # prior-cycle obligations that are not this month's spending.
+    if planning_mode == "current_month":
+        _open_inv = current_open_card_invoice_summary(session, year_month, today=today)
+        card_invoice_source = _open_inv["source"]
+        card_invoice_official_total = Decimal(str(_open_inv["total"]))
+        # Re-compute the gap with the PENDING-based official total.
+        card_invoice_remaining_to_reserve = max(
+            card_invoice_official_total - card_invoice_gross_total,
+            Decimal("0"),
+        )
+        card_invoice_current_open_total  = card_invoice_official_total
+        card_invoice_current_open_source = _open_inv["source"]
+        card_invoice_current_open_label  = _open_inv["label"]
+        card_invoice_cycle_start         = _open_inv.get("cycle_start")
+        card_invoice_cycle_end           = _open_inv.get("cycle_end")
+        card_invoice_tx_count            = _open_inv.get("transaction_count", 0)
+    else:
+        card_invoice_current_open_total  = Decimal("0")
+        card_invoice_current_open_source = "none"
+        card_invoice_current_open_label  = None
+        card_invoice_cycle_start         = None
+        card_invoice_cycle_end           = None
+        card_invoice_tx_count            = 0
+
     # ---- Variable budget commitment for the formula ----
     # For current/past months we use actual spending (consumed + overage).
     # For future months we use the full planned target — consumed is only a
@@ -1409,6 +1441,12 @@ def spending_capacity_summary(
         "future_card_obligation_source": future_card_obligation_source,
         "future_card_obligation_count": future_card_obligation_count,
         "card_invoice_source": card_invoice_source,
+        "card_invoice_current_open_total": float(card_invoice_current_open_total),
+        "card_invoice_current_open_source": card_invoice_current_open_source,
+        "card_invoice_current_open_label": card_invoice_current_open_label,
+        "card_invoice_cycle_start": card_invoice_cycle_start,
+        "card_invoice_cycle_end": card_invoice_cycle_end,
+        "card_invoice_transaction_count": card_invoice_tx_count,
         "card_open_balance_total": float(card_open_balance_total),
         "credit_card_due_dates": credit_card_due_dates,
         "invoice_paid_total": float(invoice_paid_total),

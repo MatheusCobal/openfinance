@@ -529,6 +529,162 @@ def official_bills_total_for_month(
     }
 
 
+def _billing_cycle_for_close_date(
+    close_date: datetime.date,
+) -> tuple[datetime.date, datetime.date]:
+    """Return (cycle_start, cycle_end) for a credit-card's close date.
+
+    The cycle ends on ``close_date``. The start is the day after the same
+    calendar day in the previous month.
+    Example: close=2026-06-04 → start=2026-05-05, end=2026-06-04.
+    """
+    cycle_end = close_date
+    prev_year = close_date.year if close_date.month > 1 else close_date.year - 1
+    prev_month = close_date.month - 1 if close_date.month > 1 else 12
+    max_day = calendar.monthrange(prev_year, prev_month)[1]
+    prev_day = min(close_date.day, max_day)
+    prev_close = datetime.date(prev_year, prev_month, prev_day)
+    cycle_start = prev_close + datetime.timedelta(days=1)
+    return cycle_start, cycle_end
+
+
+def current_open_card_invoice_summary(
+    session: Session,
+    year_month: str,
+    today: Optional[datetime.date] = None,
+) -> Dict[str, Any]:
+    """Estimate the current open card invoice from PENDING transactions.
+
+    Priority:
+    1. PENDING transactions with no bill_id within the current billing
+       cycle (determined by Account.credit_balance_close_date).
+       source = "pending_cycle_transactions"
+    2. PENDING transactions with no bill_id within the current calendar
+       month (fallback when no close_date is set on any account).
+       source = "pending_month_transactions"
+    3. Sum of Account.balance across active CREDIT accounts.
+       source = "account_balance_fallback"
+
+    CreditCardBill is intentionally NOT used here. Bills represent closed
+    billing cycles and must not be used for the live open invoice.
+    """
+    from sqlalchemy import or_  # SQLAlchemy or_ for NULL checks
+    from app.models import Transaction as Tx  # local alias avoids shadowing
+    from app.services.transactions import account_ids_by_type
+    from app.services.classification import SPENDING_ACCOUNT_TYPES
+
+    today = today if today is not None else datetime.date.today()
+    year_int, month_int = int(year_month[:4]), int(year_month[5:])
+    month_start = datetime.date(year_int, month_int, 1)
+    _, month_last = calendar.monthrange(year_int, month_int)
+    month_end = datetime.date(year_int, month_int, month_last)
+
+    active_ids = _active_item_ids(session)
+    credit_accounts = [
+        a for a in session.exec(select(Account)).all()
+        if a.type == "CREDIT" and a.is_active and a.item_id in active_ids
+    ]
+    if not credit_accounts:
+        return {
+            "total": 0.0,
+            "source": "none",
+            "label": "Sem contas de crédito",
+            "cycle_start": None,
+            "cycle_end": None,
+            "transaction_count": 0,
+            "account_count": 0,
+        }
+
+    credit_account_ids = {a.id for a in credit_accounts}
+
+    # ---- Tier 1: PENDING in billing cycle ----
+    accounts_with_close = [a for a in credit_accounts if a.credit_balance_close_date]
+    if accounts_with_close:
+        all_starts, all_ends = [], []
+        for a in accounts_with_close:
+            cs, ce = _billing_cycle_for_close_date(a.credit_balance_close_date)
+            all_starts.append(cs)
+            all_ends.append(ce)
+        cycle_start = min(all_starts)
+        cycle_end = max(all_ends)
+
+        pending_txs = session.exec(
+            select(Tx).where(
+                Tx.account_id.in_(credit_account_ids),
+                Tx.date >= cycle_start,
+                Tx.date <= cycle_end,
+                Tx.status == "PENDING",
+                or_(Tx.bill_id.is_(None), Tx.bill_id == ""),
+            )
+        ).all()
+
+        if pending_txs:
+            total = sum((abs(tx.amount) for tx in pending_txs), Decimal("0"))
+            return {
+                "total": float(total),
+                "source": "pending_cycle_transactions",
+                "label": "Fatura aberta estimada",
+                "cycle_start": cycle_start.isoformat(),
+                "cycle_end": cycle_end.isoformat(),
+                "transaction_count": len(pending_txs),
+                "account_count": len(accounts_with_close),
+            }
+
+    # ---- Tier 2: PENDING in current calendar month ----
+    effective_end = min(month_end, today)
+    month_pending = session.exec(
+        select(Tx).where(
+            Tx.account_id.in_(credit_account_ids),
+            Tx.date >= month_start,
+            Tx.date <= effective_end,
+            Tx.status == "PENDING",
+            or_(Tx.bill_id.is_(None), Tx.bill_id == ""),
+        )
+    ).all()
+
+    if month_pending:
+        total = sum((abs(tx.amount) for tx in month_pending), Decimal("0"))
+        return {
+            "total": float(total),
+            "source": "pending_month_transactions",
+            "label": "Fatura aberta estimada",
+            "cycle_start": month_start.isoformat(),
+            "cycle_end": effective_end.isoformat(),
+            "transaction_count": len(month_pending),
+            "account_count": len(credit_accounts),
+        }
+
+    # ---- Tier 3: Account.balance ----
+    accounts_with_balance = [a for a in credit_accounts if a.balance is not None]
+    if accounts_with_balance:
+        balance_total = sum((a.balance for a in accounts_with_balance), Decimal("0"))
+        due_dates = sorted({
+            a.credit_balance_due_date.isoformat()
+            for a in accounts_with_balance
+            if a.credit_balance_due_date
+        })
+        return {
+            "total": float(balance_total),
+            "source": "account_balance_fallback",
+            "label": "Saldo do cartão",
+            "cycle_start": None,
+            "cycle_end": None,
+            "transaction_count": 0,
+            "account_count": len(accounts_with_balance),
+            "due_dates": due_dates,
+        }
+
+    return {
+        "total": 0.0,
+        "source": "none",
+        "label": "Sem dados de fatura",
+        "cycle_start": None,
+        "cycle_end": None,
+        "transaction_count": 0,
+        "account_count": len(credit_accounts),
+    }
+
+
 def credit_card_obligation_summary(
     session: Session,
     year_month: str,

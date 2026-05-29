@@ -330,7 +330,10 @@ class DashboardSnapshotTest(_SyncTestBase):
 
 
 class CreditCardBillVsReconstructedTest(_SyncTestBase):
-    def test_spending_capacity_prefers_official_bill(self):
+    def test_spending_capacity_current_month_uses_pending_not_bill(self):
+        """For the current month, spending_capacity uses PENDING-based open invoice,
+        NOT CreditCardBill.  The bill exists but must be ignored for the live invoice.
+        """
         from app.services.fixed_costs import spending_capacity_summary
 
         with Session(self.engine) as session:
@@ -340,13 +343,22 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             capacity = spending_capacity_summary(
                 session, "2026-05", today=self.today
             )
-            # Bill due 2026-05-17 totalling 1500 → official source
-            self.assertEqual(capacity["card_invoice_source"], "bill")
+            # CreditCardBill exists (from FakePluggy) but must NOT be the source
+            self.assertNotEqual(capacity["card_invoice_source"], "bill")
+            # No PENDING transactions → falls back to account_balance_fallback
+            self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
+            # official_total = Account.balance (1500) via fallback
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
             # Transaction-reconstructed invoice still exposed as audit value
             self.assertIn("card_invoice_gross_total", capacity)
+            # New open-invoice fields are present
+            self.assertIn("card_invoice_current_open_total", capacity)
+            self.assertIn("card_invoice_current_open_source", capacity)
 
     def test_falls_back_to_account_balance_without_bill(self):
+        """Without a CreditCardBill and without PENDING transactions, the current-month
+        open invoice falls back to Account.balance (source = "account_balance_fallback").
+        """
         from app.services.fixed_costs import spending_capacity_summary
 
         self.fake_pluggy.bills_supported = False
@@ -354,11 +366,11 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
 
-            # No bills, but CREDIT account has balance=1500 → tier 2
+            # No bills, no PENDING → falls back to Account.balance
             capacity = spending_capacity_summary(
                 session, "2026-05", today=self.today
             )
-            self.assertEqual(capacity["card_invoice_source"], "account_balance")
+            self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
 
 
@@ -504,10 +516,18 @@ class CreditCardObligationSummaryTest(_SyncTestBase):
             capacity = spending_capacity_summary(session, "2026-05", today=self.today)
             self.assertIn("card_open_balance_total", capacity)
             self.assertIn("credit_card_due_dates", capacity)
-            self.assertEqual(capacity["card_invoice_source"], "bill")
-            # current_open_total for tier-1 is sum of CREDIT account balances
+            # Current month: PENDING-based estimate — CreditCardBill NOT used as source
+            self.assertNotEqual(capacity["card_invoice_source"], "bill")
+            self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
+            # card_open_balance_total still reflects Account.balance snapshot
             self.assertEqual(capacity["card_open_balance_total"], 1500.0)
-            self.assertIn("2026-05-17", capacity["credit_card_due_dates"])
+            # New open-invoice fields are present
+            self.assertIn("card_invoice_current_open_total", capacity)
+            self.assertIn("card_invoice_current_open_source", capacity)
+            self.assertIn("card_invoice_current_open_label", capacity)
+            self.assertIn("card_invoice_cycle_start", capacity)
+            self.assertIn("card_invoice_cycle_end", capacity)
+            self.assertIn("card_invoice_transaction_count", capacity)
 
     def test_budget_available_unchanged_by_bill_context(self):
         """Adding bill context must not double-count against budget_available_to_spend."""

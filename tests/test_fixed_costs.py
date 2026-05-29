@@ -1767,27 +1767,60 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     # ----- 12. card_invoice_remaining_to_reserve (current month) -----
 
     def test_card_invoice_gap_reduces_budget_available_current_month(self):
-        """Current-month: when official bill exceeds reconstructed card transactions,
-        the gap is subtracted from budget_available_to_spend.
+        """Current-month open invoice is based on PENDING transactions, NOT CreditCardBill.
 
-        Uses today=2026-06-30 (current month) so the current-month formula branch
-        (income - fixed - variable_reserved - reserve - gap) is exercised.
+        A CreditCardBill with due_date in the current month represents a *closed*
+        prior billing cycle and must NOT be used as the open invoice source.
+        With PENDING-based estimation: when PENDING transactions exceed gross
+        tracked transactions, the gap reduces budget_available_to_spend; but since
+        PENDING are a subset of gross, the gap is typically 0.
+
+        This test verifies:
+        - CreditCardBill is NOT the invoice source for the current month.
+        - A PENDING transaction in the billing cycle sets the official total.
+        - card_invoice_remaining_to_reserve = max(PENDING_total - gross_total, 0).
         """
         from app.services.fixed_costs import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(Category(id=95, name="Compras", color="#6366f1", sort_order=1))
             session.add(CategoryRule(pluggy_category="Shopping", category_id=95))
+            # Set up close_date so the cycle is 2026-05-05 → 2026-06-04
+            acct = session.exec(
+                __import__("sqlmodel", fromlist=["select"]).select(
+                    __import__("app.models", fromlist=["Account"]).Account
+                ).where(
+                    __import__("app.models", fromlist=["Account"]).Account.id == "credit-1"
+                )
+            ).one()
+            from datetime import date as _date
+            acct.credit_balance_close_date = _date(2026, 6, 4)
+            session.add(acct)
+            # PENDING transaction inside cycle — will be the official open total
             session.add(
                 Transaction(
-                    id="tx-card-gap-1",
+                    id="tx-card-pending-1",
+                    account_id="credit-1",
+                    date=date(2026, 6, 1),
+                    amount=Decimal("800"),
+                    description="Compra pendente",
+                    category="Shopping",
+                    status="PENDING",
+                    bill_id=None,
+                )
+            )
+            # Non-PENDING transaction also in gross (posted purchase)
+            session.add(
+                Transaction(
+                    id="tx-card-posted-1",
                     account_id="credit-1",
                     date=date(2026, 6, 10),
                     amount=Decimal("1000"),
-                    description="Compra cartao",
+                    description="Compra postada",
                     category="Shopping",
                 )
             )
+            # CreditCardBill — must NOT be used as open invoice source
             session.add(
                 CreditCardBill(
                     id="bill-gap-1",
@@ -1804,22 +1837,35 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
 
         self.assertEqual(capacity["planning_mode"], "current_month")
-        self.assertEqual(capacity["card_invoice_gross_total"], 1000.0)
-        self.assertEqual(capacity["card_invoice_official_total"], 5000.0)
-        # Gap = 5000 - 1000 = 4000
-        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 4000.0)
+        # CreditCardBill NOT used — source is PENDING-based
+        self.assertNotEqual(capacity["card_invoice_source"], "bill")
+        self.assertEqual(capacity["card_invoice_source"], "pending_cycle_transactions")
+        # official_total = PENDING in cycle (800)
+        self.assertEqual(capacity["card_invoice_official_total"], 800.0)
+        self.assertEqual(capacity["card_invoice_current_open_total"], 800.0)
+        # gross includes both PENDING (800) and posted (1000) = 1800
+        self.assertGreaterEqual(capacity["card_invoice_gross_total"], 800.0)
+        # gap = max(800 - 1800, 0) = 0 (PENDING ⊆ gross)
+        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
         # future_card_obligation_total is 0 for current month
         self.assertEqual(capacity["future_card_obligation_total"], 0.0)
-        # Unbudgeted card purchase NOT in formula
-        self.assertEqual(capacity["unbudgeted_variable_spent"], 1000.0)
-        # 20300 - 0 (fixed) - 0 (variable, no budgets) - 0 (reserve) - 4000 (gap) = 16300
-        self.assertEqual(capacity["budget_available_to_spend"], 16300.0)
+        # New fields exposed
+        self.assertIsNotNone(capacity["card_invoice_cycle_start"])
+        self.assertIsNotNone(capacity["card_invoice_cycle_end"])
+        self.assertEqual(capacity["card_invoice_transaction_count"], 1)
+        # 20300 - 0 (fixed) - 0 (variable) - 0 (gap) = 20300
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
     def test_card_invoice_no_gap_when_official_not_larger_current_month(self):
-        """Current-month: when official bill ≤ gross transactions, gap is 0."""
+        """Current-month: when no PENDING transactions, open invoice total is 0
+        and card_invoice_remaining_to_reserve is 0 regardless of any CreditCardBill.
+
+        CreditCardBill is now ignored for current-month open invoice calculation.
+        """
         from app.services.fixed_costs import spending_capacity_summary
 
         with Session(self.engine) as session:
+            # Posted (non-PENDING) transaction — counted in gross but not open invoice
             session.add(
                 Transaction(
                     id="tx-card-nogap-1",
@@ -1830,6 +1876,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                     category="Shopping",
                 )
             )
+            # CreditCardBill must NOT be used as open invoice
             session.add(
                 CreditCardBill(
                     id="bill-nogap-1",
@@ -1847,9 +1894,11 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["card_invoice_gross_total"], 2000.0)
-        self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
+        # No PENDING transactions, no balance → official = 0, not bill total
+        self.assertNotEqual(capacity["card_invoice_source"], "bill")
+        self.assertEqual(capacity["card_invoice_official_total"], 0.0)
         self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
-        # 20300 - 0 - 0 - 0 - 0 = 20300
+        # 20300 - 0 - 0 - 0 = 20300
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
     # ----- 13. planning_mode field -----
@@ -2264,17 +2313,344 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
 
         self.assertEqual(capacity["planning_mode"], "current_month")
-        # Current-month card logic: gap = max(800 - 600, 0) = 200.
-        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 200.0)
+        # CreditCardBill NOT used for current-month open invoice.
+        # No PENDING transactions → gap = 0.
+        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
         # future_card_obligation_total is 0 for current month.
         self.assertEqual(capacity["future_card_obligation_total"], 0.0)
         # variable_budget_reserved = consumed (600), not target (800).
         self.assertEqual(capacity["variable_budget_consumed"], 600.0)
         self.assertEqual(capacity["variable_budget_reserved"], 600.0)
-        # 20300 - 200 (fixed) - 600 (var consumed) - 200 (card gap) = 19300 (reserve excluded)
-        self.assertEqual(capacity["budget_available_to_spend"], 19300.0)
-        # available_after_reserve = 19300 - 500 = 18800
-        self.assertEqual(capacity["available_after_reserve"], 18800.0)
+        # 20300 - 200 (fixed) - 600 (var consumed) - 0 (card gap) = 19500 (reserve excluded)
+        self.assertEqual(capacity["budget_available_to_spend"], 19500.0)
+        # available_after_reserve = 19500 - 500 = 19000
+        self.assertEqual(capacity["available_after_reserve"], 19000.0)
+
+
+class CurrentOpenCardInvoiceTest(unittest.TestCase):
+    """Test suite for current_open_card_invoice_summary() and the new
+    PENDING-based open invoice logic in spending_capacity_summary().
+    """
+
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        def override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+
+        with Session(self.engine) as session:
+            session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
+            session.add(
+                Account(
+                    id="credit-1",
+                    item_id="item-1",
+                    name="Credit",
+                    type="CREDIT",
+                    credit_balance_close_date=date(2026, 6, 4),
+                )
+            )
+            session.add(
+                ExpectedIncome(
+                    description="Salario",
+                    amount=Decimal("10000"),
+                    expected_day=5,
+                )
+            )
+            session.commit()
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
+    # ── 1. PENDING in cycle are used ──────────────────────────────────────────
+
+    def test_pending_in_cycle_sets_open_invoice(self):
+        """PENDING transactions without bill_id within the billing cycle
+        (close_date → previous month same day + 1) are the primary source.
+        """
+        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+
+        # Cycle for close_date=2026-06-04 is 2026-05-05 to 2026-06-04
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-pending-in",
+                    account_id="credit-1",
+                    date=date(2026, 5, 20),
+                    amount=Decimal("300"),
+                    description="Pending inside",
+                    status="PENDING",
+                    bill_id=None,
+                )
+            )
+            # Posted tx (no status) — must not be counted
+            session.add(
+                Transaction(
+                    id="tx-posted",
+                    account_id="credit-1",
+                    date=date(2026, 5, 20),
+                    amount=Decimal("500"),
+                    description="Posted",
+                    status=None,
+                    bill_id=None,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            result = current_open_card_invoice_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(result["source"], "pending_cycle_transactions")
+        self.assertEqual(result["total"], 300.0)
+        self.assertEqual(result["transaction_count"], 1)
+        self.assertEqual(result["cycle_start"], "2026-05-05")
+        self.assertEqual(result["cycle_end"], "2026-06-04")
+
+    # ── 2. Transactions outside cycle are excluded ────────────────────────────
+
+    def test_pending_outside_cycle_excluded(self):
+        """PENDING transactions outside the billing cycle must not be counted."""
+        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+
+        with Session(self.engine) as session:
+            # Inside cycle (2026-05-05 to 2026-06-04) → counted
+            session.add(
+                Transaction(
+                    id="tx-inside",
+                    account_id="credit-1",
+                    date=date(2026, 6, 4),
+                    amount=Decimal("100"),
+                    description="Last day of cycle",
+                    status="PENDING",
+                    bill_id=None,
+                )
+            )
+            # OUTSIDE cycle (one day after cycle end) → excluded
+            session.add(
+                Transaction(
+                    id="tx-outside",
+                    account_id="credit-1",
+                    date=date(2026, 6, 5),
+                    amount=Decimal("999"),
+                    description="Next cycle",
+                    status="PENDING",
+                    bill_id=None,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            result = current_open_card_invoice_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(result["source"], "pending_cycle_transactions")
+        self.assertEqual(result["total"], 100.0)
+
+    # ── 3. POSTED transactions not counted ───────────────────────────────────
+
+    def test_posted_transactions_not_counted_in_open_invoice(self):
+        """Only PENDING (status == 'PENDING') transactions are counted.
+        Posted transactions (status=None or 'POSTED') are excluded.
+        """
+        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-posted-only",
+                    account_id="credit-1",
+                    date=date(2026, 5, 20),
+                    amount=Decimal("500"),
+                    description="Posted only",
+                    status=None,
+                    bill_id=None,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            result = current_open_card_invoice_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        # No PENDING → fallback (no balance either → "none")
+        self.assertNotEqual(result["source"], "pending_cycle_transactions")
+        self.assertEqual(result["total"], 0.0)
+
+    # ── 4. PENDING with bill_id are excluded ──────────────────────────────────
+
+    def test_pending_with_bill_id_excluded(self):
+        """PENDING transactions that already have a bill_id are already in a
+        closed bill and must not be counted in the open invoice estimate.
+        """
+        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-with-bill",
+                    account_id="credit-1",
+                    date=date(2026, 5, 20),
+                    amount=Decimal("400"),
+                    description="Already in a bill",
+                    status="PENDING",
+                    bill_id="some-bill-id",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            result = current_open_card_invoice_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        # PENDING but bill_id set → not counted
+        self.assertEqual(result["total"], 0.0)
+
+    # ── 5. CreditCardBill not used for current month open invoice ─────────────
+
+    def test_creditcardbill_not_used_for_current_month_open_invoice(self):
+        """CreditCardBill with due_date in the current month must NOT influence
+        the open invoice estimate via spending_capacity_summary.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(
+                CreditCardBill(
+                    id="bill-current",
+                    account_id="credit-1",
+                    due_date=date(2026, 6, 10),
+                    total_amount=Decimal("9999"),
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "current_month")
+        self.assertNotEqual(capacity["card_invoice_source"], "bill")
+        # Official total must NOT be the bill amount
+        self.assertNotEqual(capacity["card_invoice_official_total"], 9999.0)
+
+    # ── 6. No close_date → fallback to month PENDING ─────────────────────────
+
+    def test_no_close_date_fallback_to_month_pending(self):
+        """When no account has credit_balance_close_date, fall back to PENDING
+        transactions within the current calendar month.
+        """
+        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+
+        # Remove close_date from credit-1
+        with Session(self.engine) as session:
+            acct = session.exec(
+                __import__("sqlmodel", fromlist=["select"]).select(Account).where(
+                    Account.id == "credit-1"
+                )
+            ).one()
+            acct.credit_balance_close_date = None
+            session.add(acct)
+            session.add(
+                Transaction(
+                    id="tx-month-pending",
+                    account_id="credit-1",
+                    date=date(2026, 6, 15),
+                    amount=Decimal("250"),
+                    description="Month pending",
+                    status="PENDING",
+                    bill_id=None,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            result = current_open_card_invoice_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(result["source"], "pending_month_transactions")
+        self.assertEqual(result["total"], 250.0)
+
+    # ── 7. No PENDING → Account.balance fallback ─────────────────────────────
+
+    def test_no_pending_falls_back_to_account_balance(self):
+        """When no PENDING transactions exist, the open invoice falls back to
+        Account.balance. source = 'account_balance_fallback'.
+        """
+        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            acct = session.exec(
+                __import__("sqlmodel", fromlist=["select"]).select(Account).where(
+                    Account.id == "credit-1"
+                )
+            ).one()
+            acct.balance = Decimal("2500")
+            acct.credit_balance_due_date = date(2026, 6, 10)
+            session.add(acct)
+            session.commit()
+
+        with Session(self.engine) as session:
+            result = current_open_card_invoice_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(result["source"], "account_balance_fallback")
+        self.assertEqual(result["total"], 2500.0)
+        self.assertEqual(result["transaction_count"], 0)
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-06", today=date(2026, 6, 30)
+            )
+        self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
+        self.assertEqual(capacity["card_invoice_official_total"], 2500.0)
+
+    # ── 8. Future month is unchanged ─────────────────────────────────────────
+
+    def test_future_month_not_affected_by_current_month_changes(self):
+        """Future months still use CreditCardBill / scheduled_installments logic.
+        The new PENDING-based estimate only applies to current_month mode.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(
+                CreditCardBill(
+                    id="bill-future",
+                    account_id="credit-1",
+                    due_date=date(2026, 7, 10),
+                    total_amount=Decimal("3000"),
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 30)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        # Future month: CreditCardBill with due_date in that month IS still used
+        self.assertEqual(capacity["card_invoice_source"], "bill")
+        self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
+        # New current-open fields are not populated for future month
+        self.assertEqual(capacity["card_invoice_current_open_total"], 0.0)
+        self.assertEqual(capacity["card_invoice_current_open_source"], "none")
 
 
 if __name__ == "__main__":

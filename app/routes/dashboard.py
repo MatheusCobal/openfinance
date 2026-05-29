@@ -2,8 +2,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import Account, CreditCardBill
-from app.services.pluggy_snapshot import account_snapshot_summary, credit_card_obligation_summary
+from app.models import Account, CreditCardBill, Transaction
+from app.services.pluggy_snapshot import (
+    account_snapshot_summary,
+    credit_card_obligation_summary,
+    current_open_card_invoice_summary,
+)
 
 router = APIRouter()
 
@@ -125,5 +129,59 @@ def debug_credit_card_bills(session: Session = Depends(get_session)):
                 "account_balance_updated_at": accounts_by_id[b.account_id].balance_updated_at.isoformat() if b.account_id in accounts_by_id and accounts_by_id[b.account_id].balance_updated_at else None,
             }
             for b in bills
+        ],
+    }
+
+
+@router.get("/debug/current-card-invoice")
+def debug_current_card_invoice(
+    year_month: str = Query(..., description="YYYY-MM"),
+    session: Session = Depends(get_session),
+):
+    """Dev diagnostic: open card invoice estimate for year_month.
+
+    Shows which source tier was selected, the billing cycle window, and
+    the first 20 PENDING transactions (for current-month only).
+
+    Read-only — does not change any data.
+    """
+    import datetime, calendar as _cal
+    from sqlalchemy import or_
+    from app.services.classification import SPENDING_ACCOUNT_TYPES
+    from app.services.transactions import account_ids_by_type
+
+    summary = current_open_card_invoice_summary(session, year_month)
+
+    # Fetch the raw transactions for context (current month only)
+    year_int, month_int = int(year_month[:4]), int(year_month[5:])
+    _, month_last = _cal.monthrange(year_int, month_int)
+    month_start = datetime.date(year_int, month_int, 1)
+    month_end   = datetime.date(year_int, month_int, month_last)
+
+    credit_ids = account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
+    pending_txs = session.exec(
+        select(Transaction).where(
+            Transaction.account_id.in_(credit_ids),
+            Transaction.date >= month_start,
+            Transaction.date <= month_end,
+            Transaction.status == "PENDING",
+        )
+    ).all()
+
+    return {
+        **summary,
+        "sample_pending_transactions": [
+            {
+                "id": tx.id,
+                "account_id": tx.account_id,
+                "date": tx.date.isoformat(),
+                "amount": float(abs(tx.amount)),
+                "description": tx.description,
+                "status": tx.status,
+                "bill_id": tx.bill_id,
+                "installment_number": tx.installment_number,
+                "total_installments": tx.total_installments,
+            }
+            for tx in sorted(pending_txs, key=lambda t: t.date)[:20]
         ],
     }
