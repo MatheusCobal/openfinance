@@ -152,13 +152,17 @@ function renderInvoiceCard(data, month) {
   const official = data.card_invoice_current_open_total ?? data.card_invoice_official_total ?? data.card_invoice_gross_total ?? 0;
   const src = data.card_invoice_source;
   const sourceLabel =
+    src === 'open_cycle_transactions'     ? 'Fatura aberta estimada'          :
+    src === 'open_month_transactions'     ? 'Fatura aberta estimada'          :
     src === 'pending_cycle_transactions'  ? 'Fatura aberta estimada'          :
-    src === 'pending_month_transactions'  ? 'Transações pendentes'             :
+    src === 'pending_month_transactions'  ? 'Fatura aberta estimada'          :
     src === 'account_balance_fallback'    ? 'Saldo do cartão'                  :
     src === 'bill'                        ? 'Fatura oficial (Pluggy)'          :
     src === 'account_balance'             ? 'Fatura aberta / saldo do cartão'  :
                                            'Reconstruída por transações';
   const sourceCls =
+    src === 'open_cycle_transactions'     ? 'bg-blue-50    text-blue-700'     :
+    src === 'open_month_transactions'     ? 'bg-blue-50    text-blue-700'     :
     src === 'pending_cycle_transactions'  ? 'bg-blue-50    text-blue-700'     :
     src === 'pending_month_transactions'  ? 'bg-blue-50    text-blue-700'     :
     src === 'account_balance_fallback'    ? 'bg-slate-100  text-slate-600'    :

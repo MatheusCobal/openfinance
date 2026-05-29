@@ -1839,7 +1839,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["planning_mode"], "current_month")
         # CreditCardBill NOT used — source is PENDING-based
         self.assertNotEqual(capacity["card_invoice_source"], "bill")
-        self.assertEqual(capacity["card_invoice_source"], "pending_cycle_transactions")
+        self.assertEqual(capacity["card_invoice_source"], "open_cycle_transactions")
         # official_total = PENDING in cycle (800)
         self.assertEqual(capacity["card_invoice_official_total"], 800.0)
         self.assertEqual(capacity["card_invoice_current_open_total"], 800.0)
@@ -1894,9 +1894,11 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["card_invoice_gross_total"], 2000.0)
-        # No PENDING transactions, no balance → official = 0, not bill total
+        # Null-status tx (bill_id=null) IS counted by new rule → official = 2000
         self.assertNotEqual(capacity["card_invoice_source"], "bill")
-        self.assertEqual(capacity["card_invoice_official_total"], 0.0)
+        self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
+        self.assertEqual(capacity["card_invoice_official_total"], 2000.0)
+        # gap = max(2000 - 2000, 0) = 0 (tx already in gross)
         self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
         # 20300 - 0 - 0 - 0 = 20300
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
@@ -2371,9 +2373,11 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
 
     # ── 1. PENDING in cycle are used ──────────────────────────────────────────
 
-    def test_pending_in_cycle_sets_open_invoice(self):
-        """PENDING transactions without bill_id within the billing cycle
-        (close_date → previous month same day + 1) are the primary source.
+    def test_bill_id_null_in_cycle_sets_open_invoice(self):
+        """All transactions with bill_id null within the billing cycle are counted,
+        regardless of status. Both PENDING and null-status (already-settled)
+        purchases must be included — Pluggy uses null status for settled in-cycle
+        transactions and PENDING only for very recent ones.
         """
         from app.services.pluggy_snapshot import current_open_card_invoice_summary
 
@@ -2385,19 +2389,19 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
                     account_id="credit-1",
                     date=date(2026, 5, 20),
                     amount=Decimal("300"),
-                    description="Pending inside",
+                    description="Recent purchase (PENDING)",
                     status="PENDING",
                     bill_id=None,
                 )
             )
-            # Posted tx (no status) — must not be counted
+            # Null-status tx — already settled, must ALSO be counted
             session.add(
                 Transaction(
-                    id="tx-posted",
+                    id="tx-settled-in",
                     account_id="credit-1",
                     date=date(2026, 5, 20),
                     amount=Decimal("500"),
-                    description="Posted",
+                    description="Settled purchase (no status)",
                     status=None,
                     bill_id=None,
                 )
@@ -2409,9 +2413,10 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        self.assertEqual(result["source"], "pending_cycle_transactions")
-        self.assertEqual(result["total"], 300.0)
-        self.assertEqual(result["transaction_count"], 1)
+        self.assertEqual(result["source"], "open_cycle_transactions")
+        # Both PENDING and null-status are counted → 300 + 500 = 800
+        self.assertEqual(result["total"], 800.0)
+        self.assertEqual(result["transaction_count"], 2)
         self.assertEqual(result["cycle_start"], "2026-05-05")
         self.assertEqual(result["cycle_end"], "2026-06-04")
 
@@ -2453,27 +2458,41 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        self.assertEqual(result["source"], "pending_cycle_transactions")
+        self.assertEqual(result["source"], "open_cycle_transactions")
         self.assertEqual(result["total"], 100.0)
 
-    # ── 3. POSTED transactions not counted ───────────────────────────────────
+    # ── 3. Null-status transactions ARE counted; bill_id-filled are excluded ──
 
-    def test_posted_transactions_not_counted_in_open_invoice(self):
-        """Only PENDING (status == 'PENDING') transactions are counted.
-        Posted transactions (status=None or 'POSTED') are excluded.
+    def test_null_status_with_no_bill_id_counted_in_open_invoice(self):
+        """Transactions with status=null (already-settled) and bill_id=null
+        must be counted in the open invoice. This is the real Pluggy pattern
+        for Itaú/LATAM cards: settled in-cycle purchases have no status field.
         """
         from app.services.pluggy_snapshot import current_open_card_invoice_summary
 
         with Session(self.engine) as session:
+            # Null-status, in cycle, no bill_id → MUST be counted
             session.add(
                 Transaction(
-                    id="tx-posted-only",
+                    id="tx-settled-null",
                     account_id="credit-1",
                     date=date(2026, 5, 20),
                     amount=Decimal("500"),
-                    description="Posted only",
+                    description="Settled purchase",
                     status=None,
                     bill_id=None,
+                )
+            )
+            # Null-status, in cycle, bill_id filled → MUST be excluded
+            session.add(
+                Transaction(
+                    id="tx-closed-bill",
+                    account_id="credit-1",
+                    date=date(2026, 5, 20),
+                    amount=Decimal("999"),
+                    description="Already on a closed bill",
+                    status=None,
+                    bill_id="some-bill-id",
                 )
             )
             session.commit()
@@ -2483,9 +2502,10 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        # No PENDING → fallback (no balance either → "none")
-        self.assertNotEqual(result["source"], "pending_cycle_transactions")
-        self.assertEqual(result["total"], 0.0)
+        # Only the bill_id=null tx is counted
+        self.assertEqual(result["source"], "open_cycle_transactions")
+        self.assertEqual(result["total"], 500.0)
+        self.assertEqual(result["transaction_count"], 1)
 
     # ── 4. PENDING with bill_id are excluded ──────────────────────────────────
 
@@ -2581,7 +2601,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        self.assertEqual(result["source"], "pending_month_transactions")
+        self.assertEqual(result["source"], "open_month_transactions")
         self.assertEqual(result["total"], 250.0)
 
     # ── 7. No PENDING → Account.balance fallback ─────────────────────────────

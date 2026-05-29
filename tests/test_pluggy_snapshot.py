@@ -330,9 +330,11 @@ class DashboardSnapshotTest(_SyncTestBase):
 
 
 class CreditCardBillVsReconstructedTest(_SyncTestBase):
-    def test_spending_capacity_current_month_uses_pending_not_bill(self):
-        """For the current month, spending_capacity uses PENDING-based open invoice,
-        NOT CreditCardBill.  The bill exists but must be ignored for the live invoice.
+    def test_spending_capacity_current_month_uses_transactions_not_bill(self):
+        """For the current month, spending_capacity uses the transaction-based open
+        invoice (bill_id=null transactions in cycle/month), NOT CreditCardBill.
+        The FakePluggy syncs one credit transaction (status=null, amount=1500)
+        that falls in the current month outside the billing cycle.
         """
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -345,9 +347,9 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             )
             # CreditCardBill exists (from FakePluggy) but must NOT be the source
             self.assertNotEqual(capacity["card_invoice_source"], "bill")
-            # No PENDING transactions → falls back to account_balance_fallback
-            self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
-            # official_total = Account.balance (1500) via fallback
+            # Transaction-based: 1 tx in month with bill_id=null → open_month_transactions
+            self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
+            # official_total = the credit transaction amount (1500)
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
             # Transaction-reconstructed invoice still exposed as audit value
             self.assertIn("card_invoice_gross_total", capacity)
@@ -356,8 +358,10 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             self.assertIn("card_invoice_current_open_source", capacity)
 
     def test_falls_back_to_account_balance_without_bill(self):
-        """Without a CreditCardBill and without PENDING transactions, the current-month
-        open invoice falls back to Account.balance (source = "account_balance_fallback").
+        """Without a CreditCardBill the open invoice is still derived from
+        the synced credit transactions (bill_id=null).  The FakePluggy credit
+        transaction (amount=1500, status=null) is in the current month, so
+        source = "open_month_transactions" with total = 1500.
         """
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -366,11 +370,10 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
 
-            # No bills, no PENDING → falls back to Account.balance
             capacity = spending_capacity_summary(
                 session, "2026-05", today=self.today
             )
-            self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
+            self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
 
 
@@ -516,9 +519,9 @@ class CreditCardObligationSummaryTest(_SyncTestBase):
             capacity = spending_capacity_summary(session, "2026-05", today=self.today)
             self.assertIn("card_open_balance_total", capacity)
             self.assertIn("credit_card_due_dates", capacity)
-            # Current month: PENDING-based estimate — CreditCardBill NOT used as source
+            # Current month: transaction-based estimate — CreditCardBill NOT used as source
             self.assertNotEqual(capacity["card_invoice_source"], "bill")
-            self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
+            self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
             # card_open_balance_total still reflects Account.balance snapshot
             self.assertEqual(capacity["card_open_balance_total"], 1500.0)
             # New open-invoice fields are present

@@ -553,16 +553,18 @@ def current_open_card_invoice_summary(
     year_month: str,
     today: Optional[datetime.date] = None,
 ) -> Dict[str, Any]:
-    """Estimate the current open card invoice from PENDING transactions.
+    """Estimate the current open card invoice from real credit-card transactions.
 
     Priority:
-    1. PENDING transactions with no bill_id within the current billing
-       cycle (determined by Account.credit_balance_close_date).
-       source = "pending_cycle_transactions"
-    2. PENDING transactions with no bill_id within the current calendar
-       month (fallback when no close_date is set on any account).
-       source = "pending_month_transactions"
-    3. Sum of Account.balance across active CREDIT accounts.
+    1. All transactions with bill_id null within the current billing cycle
+       (determined by Account.credit_balance_close_date). No status filter —
+       Pluggy uses null status for already-settled in-cycle purchases and
+       PENDING only for very recent ones; both must be counted.
+       source = "open_cycle_transactions"
+    2. All transactions with bill_id null within the current calendar month
+       (fallback when no account has a close_date).
+       source = "open_month_transactions"
+    3. Sum of Account.balance across active CREDIT accounts as a last resort.
        source = "account_balance_fallback"
 
     CreditCardBill is intentionally NOT used here. Bills represent closed
@@ -597,7 +599,9 @@ def current_open_card_invoice_summary(
 
     credit_account_ids = {a.id for a in credit_accounts}
 
-    # ---- Tier 1: PENDING in billing cycle ----
+    # ---- Tier 1: all bill_id-null transactions in billing cycle ----
+    # No status filter: Pluggy marks already-settled in-cycle purchases as
+    # status=null and very recent ones as status=PENDING — both count.
     accounts_with_close = [a for a in credit_accounts if a.credit_balance_close_date]
     if accounts_with_close:
         all_starts, all_ends = [], []
@@ -608,49 +612,47 @@ def current_open_card_invoice_summary(
         cycle_start = min(all_starts)
         cycle_end = max(all_ends)
 
-        pending_txs = session.exec(
+        open_cycle_txs = session.exec(
             select(Tx).where(
                 Tx.account_id.in_(credit_account_ids),
                 Tx.date >= cycle_start,
                 Tx.date <= cycle_end,
-                Tx.status == "PENDING",
                 or_(Tx.bill_id.is_(None), Tx.bill_id == ""),
             )
         ).all()
 
-        if pending_txs:
-            total = sum((abs(tx.amount) for tx in pending_txs), Decimal("0"))
+        if open_cycle_txs:
+            total = sum((abs(tx.amount) for tx in open_cycle_txs), Decimal("0"))
             return {
                 "total": float(total),
-                "source": "pending_cycle_transactions",
+                "source": "open_cycle_transactions",
                 "label": "Fatura aberta estimada",
                 "cycle_start": cycle_start.isoformat(),
                 "cycle_end": cycle_end.isoformat(),
-                "transaction_count": len(pending_txs),
+                "transaction_count": len(open_cycle_txs),
                 "account_count": len(accounts_with_close),
             }
 
-    # ---- Tier 2: PENDING in current calendar month ----
+    # ---- Tier 2: all bill_id-null transactions in current calendar month ----
     effective_end = min(month_end, today)
-    month_pending = session.exec(
+    open_month_txs = session.exec(
         select(Tx).where(
             Tx.account_id.in_(credit_account_ids),
             Tx.date >= month_start,
             Tx.date <= effective_end,
-            Tx.status == "PENDING",
             or_(Tx.bill_id.is_(None), Tx.bill_id == ""),
         )
     ).all()
 
-    if month_pending:
-        total = sum((abs(tx.amount) for tx in month_pending), Decimal("0"))
+    if open_month_txs:
+        total = sum((abs(tx.amount) for tx in open_month_txs), Decimal("0"))
         return {
             "total": float(total),
-            "source": "pending_month_transactions",
+            "source": "open_month_transactions",
             "label": "Fatura aberta estimada",
             "cycle_start": month_start.isoformat(),
             "cycle_end": effective_end.isoformat(),
-            "transaction_count": len(month_pending),
+            "transaction_count": len(open_month_txs),
             "account_count": len(credit_accounts),
         }
 
