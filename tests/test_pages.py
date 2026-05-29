@@ -49,7 +49,7 @@ class PageSmokeTest(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
-        self.assertIn("Overview", response.text)
+        self.assertIn("Dashboard", response.text)
         # Dashboard must use the overview script, not the transactions one.
         self.assertIn("/static/dashboard.js", response.text)
         # And must NOT pull the transaction-management bundle.
