@@ -215,8 +215,10 @@ function renderCapacityFlow(capacity) {
 
   // ── Credit card context ──
   const ccOfficial  = capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
-  const ccGross     = capacity.card_invoice_gross_total    || 0;
-  const ccSource    = capacity.card_invoice_source;
+  const ccGross               = capacity.card_invoice_gross_total       || 0;
+  const ccSource              = capacity.card_invoice_source;
+  const futureObligationSource= capacity.future_card_obligation_source  || 'none';
+  const futureObligationCount = capacity.future_card_obligation_count   || 0;
   const ccSourceLabel =
     ccSource === 'bill'                      ? 'Fatura oficial (Pluggy)'              :
     ccSource === 'account_balance'           ? 'Saldo da conta cartão'                :
@@ -247,9 +249,10 @@ function renderCapacityFlow(capacity) {
   ];
   if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável', value: varOverage, op: '−', cls: 'text-red-500' });
   if (isFuture && futureCardObligation > 0) {
-    const cardRowLabel = ccSource === 'account_balance_due_month'
-      ? 'Fatura vencendo no mês'
-      : 'Fatura prevista do cartão';
+    const cardRowLabel =
+      futureObligationSource === 'account_balance_due_month' ? 'Fatura vencendo no mês'       :
+      futureObligationSource === 'scheduled_installments'    ? 'Parcelas futuras do cartão'    :
+                                                               'Fatura prevista do cartão';
     bRows.push({ label: cardRowLabel, value: futureCardObligation, op: '−', cls: 'text-amber-600' });
   }
   bRows.push({
@@ -281,15 +284,21 @@ function renderCapacityFlow(capacity) {
   if (isFuture) {
     // Future month: show the card obligation reserved as a separate line.
     if (futureCardObligation > 0) {
-      const futureBillBadgeLabel = ccSource === 'bill'
-        ? 'Fatura oficial (Pluggy)'
-        : 'Saldo do cartão com vencimento no mês';
-      const futureBillBadgeCls = ccSource === 'bill'
-        ? 'bg-emerald-100 text-emerald-700'
-        : 'bg-amber-100 text-amber-700';
-      const futureBillDesc = ccSource === 'bill'
-        ? 'Fatura do ciclo anterior com vencimento neste mês. Já reservada na projeção acima como "Fatura prevista do cartão".'
-        : 'Saldo atual do cartão com data de vencimento neste mês. Representa a fatura aberta que vencerá aqui. Já reservada na projeção acima como "Fatura vencendo no mês".';
+      const futureBillBadgeLabel =
+        futureObligationSource === 'bill'                      ? 'Fatura oficial (Pluggy)'              :
+        futureObligationSource === 'account_balance_due_month' ? 'Saldo do cartão com vencimento no mês':
+        futureObligationSource === 'scheduled_installments'    ? `Parcelas previstas (${futureObligationCount})` :
+                                                                  'Prevista';
+      const futureBillBadgeCls =
+        futureObligationSource === 'bill'                      ? 'bg-emerald-100 text-emerald-700' :
+        futureObligationSource === 'scheduled_installments'    ? 'bg-blue-100    text-blue-700'    :
+                                                                  'bg-amber-100   text-amber-700';
+      const futureBillDesc =
+        futureObligationSource === 'bill'
+          ? 'Fatura do ciclo anterior com vencimento neste mês. Já reservada na projeção acima como "Fatura prevista do cartão".'
+          : futureObligationSource === 'scheduled_installments'
+          ? 'Parcelas já registradas no cartão com data neste mês. Representam compromissos já assumidos e foram subtraídas da projeção acima.'
+          : 'Saldo atual do cartão com data de vencimento neste mês. Representa a fatura aberta que vencerá aqui. Já reservada na projeção acima como "Fatura vencendo no mês".';
       ccHtml = `
     <div class="rounded-xl border border-amber-200 bg-amber-50/40 px-4 py-3 mb-4">
       <div class="flex flex-wrap items-center gap-2 mb-2">

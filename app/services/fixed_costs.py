@@ -1192,23 +1192,47 @@ def spending_capacity_summary(
     )
 
     # ---- Future card obligation ----
-    # For a future month the correct card obligation is either:
-    #   "bill"                    — official CreditCardBill due that month.
-    #   "account_balance_due_month" — Account.balance for cards whose
-    #                                 credit_balance_due_date falls in that month
-    #                                 (current open invoice that will be due there).
-    # In both cases those obligations are NOT in the future month's variable-budget
-    # window, so there is no double-counting.
-    # For any other source (transaction_fallback, no data) we use 0.
+    # Priority order for future months:
+    #   1. "bill"                    — official CreditCardBill due that month.
+    #   2. "account_balance_due_month" — Account.balance with credit_balance_due_date
+    #                                    falling in that month.
+    #   3. "scheduled_installments"  — sum of future credit-card transactions already
+    #                                  in the DB for that month (committed installments).
+    #   4. "none"                    — no data, obligation = 0.
     if planning_mode == "future_month":
         if cc_obligation["source"] == "bill":
             future_card_obligation_total = Decimal(str(cc_obligation["official_bill_total"]))
+            future_card_obligation_source = "bill"
+            future_card_obligation_count = 0
         elif cc_obligation["source"] == "account_balance_due_month":
             future_card_obligation_total = Decimal(str(cc_obligation["current_open_total"]))
+            future_card_obligation_source = "account_balance_due_month"
+            future_card_obligation_count = 0
         else:
-            future_card_obligation_total = Decimal("0")
+            installments = scheduled_installments_summary(session, year_month, today=today)
+            # Exclude transactions already reserved as fixed costs so that a
+            # credit-card purchase matched to a fixed cost is not subtracted twice:
+            # once via fixed_cost_planned_total and once via this installment total.
+            non_fixed_items = [
+                item for item in installments["transactions"]
+                if item["transaction_id"] not in fixed_cost_accounted_ids
+            ]
+            non_fixed_total = sum(
+                (Decimal(str(item["amount"])) for item in non_fixed_items),
+                Decimal("0"),
+            )
+            if non_fixed_total > 0:
+                future_card_obligation_total = non_fixed_total
+                future_card_obligation_source = "scheduled_installments"
+                future_card_obligation_count = len(non_fixed_items)
+            else:
+                future_card_obligation_total = Decimal("0")
+                future_card_obligation_source = "none"
+                future_card_obligation_count = 0
     else:
         future_card_obligation_total = Decimal("0")
+        future_card_obligation_source = "none"
+        future_card_obligation_count = 0
 
     # ---- Headline: "Disponível para gastar no mês" ----
     #
@@ -1370,6 +1394,8 @@ def spending_capacity_summary(
         "card_invoice_official_total": float(card_invoice_official_total),
         "card_invoice_remaining_to_reserve": float(card_invoice_remaining_to_reserve),
         "future_card_obligation_total": float(future_card_obligation_total),
+        "future_card_obligation_source": future_card_obligation_source,
+        "future_card_obligation_count": future_card_obligation_count,
         "card_invoice_source": card_invoice_source,
         "card_open_balance_total": float(card_open_balance_total),
         "credit_card_due_dates": credit_card_due_dates,

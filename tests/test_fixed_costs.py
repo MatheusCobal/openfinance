@@ -1304,8 +1304,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["variable_budget_consumed"], 430.0)
         self.assertEqual(capacity["variable_budget_remaining"], 1070.0)
         self.assertEqual(capacity["variable_budget_overage"], 0.0)
-        # Future month: variable_budget_reserved = max(target=1500, consumed=430) = 1500; 20300 - 1500 = 18800
-        self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
+        # Future month: variable_budget_total=1500 (full target, not just consumed=430).
+        # tx-zaffari (430) is also picked up as a scheduled installment and subtracted.
+        # 20300 - 1500 (variable_budget_total) - 430 (installment) = 18370
+        self.assertEqual(capacity["budget_available_to_spend"], 18370.0)
 
     # ----- 6. Credit-card purchase not double-counted -----
 
@@ -1334,10 +1336,11 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Card invoice reflects the real R$ 430 charge
         self.assertEqual(capacity["card_invoice_gross_total"], 430.0)
         self.assertEqual(capacity["card_invoice_discretionary_total"], 430.0)
-        # Availability already lost R$ 430 from the category budget — NOT
-        # R$ 430 from category AND another R$ 430 from the invoice.
-        # Future month: variable_budget_reserved = max(target=1500, consumed=430) = 1500; 20300 - 1500 = 18800
-        self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
+        # For a future month the installment is subtracted BOTH as part of
+        # variable_budget_total (full target=1500) and as a scheduled installment (430).
+        # The invoice field is informational only and does NOT double-subtract.
+        # 20300 - 1500 (variable_budget_total) - 430 (scheduled installment) = 18370
+        self.assertEqual(capacity["budget_available_to_spend"], 18370.0)
 
     # ----- 7. Fixed cost on the credit card -----
 
@@ -1895,15 +1898,16 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
 
         self.assertEqual(capacity["planning_mode"], "future_month")
-        # Installment (200) is visible but does NOT drive the formula.
+        # variable_budget_consumed reflects the installment (200).
         self.assertEqual(capacity["variable_budget_consumed"], 200.0)
         # variable_budget_reserved equals the full target for future months.
         self.assertEqual(capacity["variable_budget_reserved"], 500.0)
         # Reserve uses target, not max(target, applied) since nothing applied yet.
         self.assertEqual(capacity["reserve_target_total"], 1000.0)
+        # The installment (200) is also picked up as scheduled_installments fallback.
         # Formula: 20300 - 300 (fixed_planned) - 500 (variable_budget_total)
-        #          - 0 (future_card_obligation) - 1000 (reserve_target) = 18500
-        self.assertEqual(capacity["budget_available_to_spend"], 18500.0)
+        #          - 200 (scheduled installment) - 1000 (reserve_target) = 18300
+        self.assertEqual(capacity["budget_available_to_spend"], 18300.0)
 
     def test_future_month_no_account_balance_used(self):
         """Future month: Account.balance is never used as the card obligation."""
@@ -1980,10 +1984,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Formula: 20300 - 0 (fixed) - 600 (variable_budget_total) - 3000 (bill) - 0 (reserve)
         self.assertEqual(capacity["budget_available_to_spend"], 16700.0)
 
-    def test_future_month_no_card_bill_zero_obligation(self):
-        """Future month without an official bill: future_card_obligation_total = 0.
-        An unbudgeted card installment is visible as unbudgeted_variable_spent but
-        NOT subtracted from budget_available_to_spend.
+    def test_future_month_no_card_bill_uses_scheduled_installments(self):
+        """Future month without an official bill: future credit-card transactions are
+        picked up by scheduled_installments_summary and subtracted as
+        future_card_obligation_total (source = 'scheduled_installments').
         """
         from app.services.fixed_costs import spending_capacity_summary
 
@@ -1991,7 +1995,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             # Category with NO budget → any spend lands in unbudgeted.
             session.add(Category(id=77, name="Eletronicos", color="#6366f1", sort_order=1))
             session.add(CategoryRule(pluggy_category="Electronics", category_id=77))
-            # Future installment in unbudgeted category — no official bill for July.
+            # Future installment — no official bill for July.
             session.add(
                 Transaction(
                     id="tx-installment-no-budget",
@@ -2010,11 +2014,103 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
 
         self.assertEqual(capacity["planning_mode"], "future_month")
-        # No official bill → obligation is 0.
+        # Installment picked up as scheduled_installments fallback.
+        self.assertEqual(capacity["future_card_obligation_source"], "scheduled_installments")
+        self.assertEqual(capacity["future_card_obligation_count"], 1)
+        self.assertEqual(capacity["future_card_obligation_total"], 400.0)
+        # Subtracted from budget_available_to_spend.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0 - 400.0)
+
+    def test_future_month_scheduled_installments_multiple_transactions(self):
+        """Future month: multiple future card transactions sum into
+        future_card_obligation_total when there is no official bill.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-parcela-1",
+                    account_id="credit-1",
+                    date=date(2026, 7, 5),
+                    amount=Decimal("1000"),
+                    description="Parcela A",
+                    category="Shopping",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-parcela-2",
+                    account_id="credit-1",
+                    date=date(2026, 7, 15),
+                    amount=Decimal("500"),
+                    description="Parcela B",
+                    category="Shopping",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["future_card_obligation_source"], "scheduled_installments")
+        self.assertEqual(capacity["future_card_obligation_count"], 2)
+        self.assertEqual(capacity["future_card_obligation_total"], 1500.0)
+        # 20300 - 1500 = 18800
+        self.assertEqual(capacity["budget_available_to_spend"], 18800.0)
+
+    def test_future_month_bill_takes_priority_over_installments(self):
+        """Future month: official bill overrides scheduled_installments."""
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            session.add(
+                CreditCardBill(
+                    id="bill-priority-1",
+                    account_id="credit-1",
+                    due_date=date(2026, 7, 10),
+                    total_amount=Decimal("3000"),
+                )
+            )
+            # Future installment that should NOT add to obligation (bill wins).
+            session.add(
+                Transaction(
+                    id="tx-installment-with-bill",
+                    account_id="credit-1",
+                    date=date(2026, 7, 20),
+                    amount=Decimal("400"),
+                    description="Parcela notebook",
+                    category="Shopping",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["future_card_obligation_source"], "bill")
+        self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
+        # Installment (400) does NOT add on top of the bill.
+        self.assertEqual(capacity["budget_available_to_spend"], 20300.0 - 3000.0)
+
+    def test_future_month_no_installments_source_none(self):
+        """Future month with no bill, no account_balance_due_month, no future
+        transactions: source = 'none', obligation = 0.
+        """
+        from app.services.fixed_costs import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session, "2026-07", today=date(2026, 6, 15)
+            )
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        self.assertEqual(capacity["future_card_obligation_source"], "none")
         self.assertEqual(capacity["future_card_obligation_total"], 0.0)
-        # Installment is visible as unbudgeted.
-        self.assertEqual(capacity["unbudgeted_variable_spent"], 400.0)
-        # Not subtracted from formula.
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
     def test_future_month_account_balance_with_due_date_in_month(self):
