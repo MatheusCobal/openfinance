@@ -1268,6 +1268,20 @@ def spending_capacity_summary(
         future_card_obligation_source = "none"
         future_card_obligation_count = 0
 
+    # ---- Display month for future card obligation ----
+    # When the source is "scheduled_installments", the transactions are dated
+    # in year_month but will appear on the *next* month's bill (card companies
+    # close the cycle and bill one month later). Expose this shifted month so
+    # the UI can show "Fatura de Julho" instead of "parcelas de Junho".
+    if future_card_obligation_source == "scheduled_installments":
+        _ym_y, _ym_m = int(year_month[:4]), int(year_month[5:])
+        if _ym_m == 12:
+            future_card_obligation_display_month = f"{_ym_y + 1}-01"
+        else:
+            future_card_obligation_display_month = f"{_ym_y}-{_ym_m + 1:02d}"
+    else:
+        future_card_obligation_display_month = year_month
+
     # ---- Headline: "Disponível para gastar no mês" ----
     #
     # Answers: "after paying all operational obligations and planned spending,
@@ -1440,6 +1454,7 @@ def spending_capacity_summary(
         "future_card_obligation_total": float(future_card_obligation_total),
         "future_card_obligation_source": future_card_obligation_source,
         "future_card_obligation_count": future_card_obligation_count,
+        "future_card_obligation_display_month": future_card_obligation_display_month,
         "card_invoice_source": card_invoice_source,
         "card_invoice_current_open_total": float(card_invoice_current_open_total),
         "card_invoice_current_open_source": card_invoice_current_open_source,

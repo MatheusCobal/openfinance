@@ -185,3 +185,126 @@ def debug_current_card_invoice(
             for tx in sorted(pending_txs, key=lambda t: t.date)[:20]
         ],
     }
+
+
+@router.get("/debug/scheduled-installments/{year_month}")
+def debug_scheduled_installments(
+    year_month: str,
+    session: Session = Depends(get_session),
+):
+    """Dev diagnostic: break down the scheduled installments for year_month.
+
+    Shows every credit-card transaction that lands in year_month (strictly
+    after today), grouped by account, date, status, and bill_id presence.
+    Also includes credit account details (close_date, due_date, limits).
+
+    Read-only — does not change any data.
+    """
+    import datetime, calendar as _cal
+    from sqlalchemy import or_
+    from app.services.classification import SPENDING_ACCOUNT_TYPES
+    from app.services.transactions import account_ids_by_type
+    from app.services.pluggy_snapshot import _active_item_ids
+
+    today = datetime.date.today()
+    year_int, month_int = int(year_month[:4]), int(year_month[5:])
+    first_day = datetime.date(year_int, month_int, 1)
+    _, month_last = _cal.monthrange(year_int, month_int)
+    last_day = datetime.date(year_int, month_int, month_last)
+    window_start = max(first_day, today + datetime.timedelta(days=1))
+
+    # ── Credit accounts ──────────────────────────────────────────────────────
+    active_ids = _active_item_ids(session)
+    credit_accounts = [
+        a for a in session.exec(select(Account)).all()
+        if a.type == "CREDIT" and a.is_active and a.item_id in active_ids
+    ]
+    credit_account_ids = {a.id for a in credit_accounts}
+
+    accounts_info = [
+        {
+            "account_id": a.id,
+            "account_name": a.name,
+            "credit_balance_close_date": a.credit_balance_close_date.isoformat() if a.credit_balance_close_date else None,
+            "credit_balance_due_date": a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None,
+            "credit_limit": float(a.credit_limit) if a.credit_limit is not None else None,
+            "credit_available_limit": float(a.credit_available_limit) if a.credit_available_limit is not None else None,
+            "balance": float(a.balance) if a.balance is not None else None,
+        }
+        for a in credit_accounts
+    ]
+
+    # ── Transactions ─────────────────────────────────────────────────────────
+    if window_start > last_day or not credit_account_ids:
+        rows = []
+    else:
+        rows = session.exec(
+            select(Transaction)
+            .where(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.date >= window_start,
+                Transaction.date <= last_day,
+            )
+            .order_by(Transaction.date.asc(), Transaction.amount.asc())
+        ).all()
+
+    accounts_by_id = {a.id: a.name for a in credit_accounts}
+
+    transactions = [
+        {
+            "id": tx.id,
+            "account_id": tx.account_id,
+            "account_name": accounts_by_id.get(tx.account_id, "?"),
+            "date": tx.date.isoformat(),
+            "amount": float(abs(tx.amount)),
+            "description": tx.description,
+            "status": tx.status,
+            "bill_id": tx.bill_id,
+            "installment_number": tx.installment_number,
+            "total_installments": tx.total_installments,
+            "total_amount": float(tx.total_amount) if tx.total_amount is not None else None,
+            "category": tx.category,
+        }
+        for tx in rows
+    ]
+
+    total = sum(t["amount"] for t in transactions)
+
+    # ── Groupings ─────────────────────────────────────────────────────────────
+    from collections import defaultdict
+
+    def _group(key_fn):
+        g: dict = defaultdict(lambda: {"count": 0, "total": 0.0})
+        for t in transactions:
+            k = key_fn(t)
+            g[k]["count"] += 1
+            g[k]["total"] = round(g[k]["total"] + t["amount"], 2)
+        return dict(g)
+
+    by_account = _group(lambda t: f"{t['account_id']} / {t['account_name']}")
+    by_date    = _group(lambda t: t["date"])
+    by_status  = _group(lambda t: t["status"] or "(null)")
+
+    bill_id_null  = [t for t in transactions if not t["bill_id"]]
+    bill_id_filled = [t for t in transactions if t["bill_id"]]
+    with_installment    = [t for t in transactions if t["installment_number"] is not None]
+    without_installment = [t for t in transactions if t["installment_number"] is None]
+
+    return {
+        "year_month": year_month,
+        "window_start": window_start.isoformat(),
+        "window_end": last_day.isoformat(),
+        "total": round(total, 2),
+        "count": len(transactions),
+        "credit_accounts": accounts_info,
+        "groupings": {
+            "by_account": by_account,
+            "by_date": by_date,
+            "by_status": by_status,
+            "bill_id_null":   {"count": len(bill_id_null),   "total": round(sum(t["amount"] for t in bill_id_null), 2)},
+            "bill_id_filled": {"count": len(bill_id_filled), "total": round(sum(t["amount"] for t in bill_id_filled), 2)},
+            "with_installment_number":    {"count": len(with_installment),    "total": round(sum(t["amount"] for t in with_installment), 2)},
+            "without_installment_number": {"count": len(without_installment), "total": round(sum(t["amount"] for t in without_installment), 2)},
+        },
+        "transactions": transactions,
+    }

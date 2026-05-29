@@ -217,8 +217,9 @@ function renderCapacityFlow(capacity) {
   const ccOfficial  = capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
   const ccGross               = capacity.card_invoice_gross_total       || 0;
   const ccSource              = capacity.card_invoice_source;
-  const futureObligationSource= capacity.future_card_obligation_source  || 'none';
-  const futureObligationCount = capacity.future_card_obligation_count   || 0;
+  const futureObligationSource      = capacity.future_card_obligation_source        || 'none';
+  const futureObligationCount       = capacity.future_card_obligation_count         || 0;
+  const futureObligationDisplayMonth = capacity.future_card_obligation_display_month || null;
   const ccSourceLabel =
     ccSource === 'bill'                      ? 'Fatura oficial (Pluggy)'              :
     ccSource === 'account_balance'           ? 'Saldo da conta cartão'                :
@@ -248,10 +249,16 @@ function renderCapacityFlow(capacity) {
   ];
   if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável', value: varOverage, op: '−', cls: 'text-red-500' });
   if (isFuture && futureCardObligation > 0) {
-    const cardRowLabel =
-      futureObligationSource === 'account_balance_due_month' ? 'Fatura vencendo no mês'       :
-      futureObligationSource === 'scheduled_installments'    ? 'Parcelas futuras do cartão'    :
-                                                               'Fatura prevista do cartão';
+    let cardRowLabel;
+    if (futureObligationSource === 'account_balance_due_month') {
+      cardRowLabel = 'Fatura vencendo no mês';
+    } else if (futureObligationSource === 'scheduled_installments' && futureObligationDisplayMonth) {
+      cardRowLabel = `Parcelas / fatura de ${formatMonthShort(futureObligationDisplayMonth)}`;
+    } else if (futureObligationSource === 'scheduled_installments') {
+      cardRowLabel = 'Parcelas/fatura prevista';
+    } else {
+      cardRowLabel = 'Fatura prevista do cartão';
+    }
     bRows.push({ label: cardRowLabel, value: futureCardObligation, op: '−', cls: 'text-amber-600' });
   }
   if (!isFuture && ccRemaining > 0) bRows.push({ label: 'Fatura ainda não contemplada', value: ccRemaining, op: '−', cls: 'text-amber-600' });
@@ -278,10 +285,13 @@ function renderCapacityFlow(capacity) {
   if (isFuture) {
     // Future month: show the card obligation reserved as a separate line.
     if (futureCardObligation > 0) {
+      const _installLabel = futureObligationDisplayMonth
+        ? `Parcelas / fatura de ${formatMonthShort(futureObligationDisplayMonth)} (${futureObligationCount})`
+        : `Parcelas previstas (${futureObligationCount})`;
       const futureBillBadgeLabel =
         futureObligationSource === 'bill'                      ? 'Fatura oficial (Pluggy)'              :
         futureObligationSource === 'account_balance_due_month' ? 'Saldo do cartão com vencimento no mês':
-        futureObligationSource === 'scheduled_installments'    ? `Parcelas previstas (${futureObligationCount})` :
+        futureObligationSource === 'scheduled_installments'    ? _installLabel :
                                                                   'Prevista';
       const futureBillBadgeCls =
         futureObligationSource === 'bill'                      ? 'bg-emerald-100 text-emerald-700' :
