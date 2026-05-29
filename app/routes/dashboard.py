@@ -250,13 +250,20 @@ def debug_scheduled_installments(
 
     accounts_by_id = {a.id: a.name for a in credit_accounts}
 
+    def _is_cancellation_like(desc: str) -> bool:
+        d = (desc or "").upper()
+        return d.startswith("CANC") or "CANCEL" in d
+
     transactions = [
         {
             "id": tx.id,
             "account_id": tx.account_id,
             "account_name": accounts_by_id.get(tx.account_id, "?"),
             "date": tx.date.isoformat(),
-            "amount": float(abs(tx.amount)),
+            "signed_amount": float(tx.amount),
+            "abs_amount": float(abs(tx.amount)),
+            "is_negative": float(tx.amount) < 0,
+            "is_cancellation_like": _is_cancellation_like(tx.description),
             "description": tx.description,
             "status": tx.status,
             "bill_id": tx.bill_id,
@@ -268,43 +275,59 @@ def debug_scheduled_installments(
         for tx in rows
     ]
 
-    total = sum(t["amount"] for t in transactions)
+    total_abs    = sum(t["abs_amount"]    for t in transactions)
+    total_signed = sum(t["signed_amount"] for t in transactions)
 
     # ── Groupings ─────────────────────────────────────────────────────────────
     from collections import defaultdict
 
     def _group(key_fn):
-        g: dict = defaultdict(lambda: {"count": 0, "total": 0.0})
+        g: dict = defaultdict(lambda: {"count": 0, "total_abs": 0.0, "total_signed": 0.0})
         for t in transactions:
             k = key_fn(t)
             g[k]["count"] += 1
-            g[k]["total"] = round(g[k]["total"] + t["amount"], 2)
+            g[k]["total_abs"]    = round(g[k]["total_abs"]    + t["abs_amount"],    2)
+            g[k]["total_signed"] = round(g[k]["total_signed"] + t["signed_amount"], 2)
         return dict(g)
 
     by_account = _group(lambda t: f"{t['account_id']} / {t['account_name']}")
     by_date    = _group(lambda t: t["date"])
     by_status  = _group(lambda t: t["status"] or "(null)")
 
-    bill_id_null  = [t for t in transactions if not t["bill_id"]]
+    bill_id_null   = [t for t in transactions if not t["bill_id"]]
     bill_id_filled = [t for t in transactions if t["bill_id"]]
     with_installment    = [t for t in transactions if t["installment_number"] is not None]
     without_installment = [t for t in transactions if t["installment_number"] is None]
+    negative_txs       = [t for t in transactions if t["is_negative"]]
+    positive_txs       = [t for t in transactions if not t["is_negative"]]
+    cancellation_txs   = [t for t in transactions if t["is_cancellation_like"]]
+
+    def _sums(lst):
+        return {
+            "count":        len(lst),
+            "total_abs":    round(sum(t["abs_amount"]    for t in lst), 2),
+            "total_signed": round(sum(t["signed_amount"] for t in lst), 2),
+        }
 
     return {
         "year_month": year_month,
         "window_start": window_start.isoformat(),
         "window_end": last_day.isoformat(),
-        "total": round(total, 2),
+        "total_abs":    round(total_abs,    2),
+        "total_signed": round(total_signed, 2),
         "count": len(transactions),
         "credit_accounts": accounts_info,
         "groupings": {
             "by_account": by_account,
-            "by_date": by_date,
-            "by_status": by_status,
-            "bill_id_null":   {"count": len(bill_id_null),   "total": round(sum(t["amount"] for t in bill_id_null), 2)},
-            "bill_id_filled": {"count": len(bill_id_filled), "total": round(sum(t["amount"] for t in bill_id_filled), 2)},
-            "with_installment_number":    {"count": len(with_installment),    "total": round(sum(t["amount"] for t in with_installment), 2)},
-            "without_installment_number": {"count": len(without_installment), "total": round(sum(t["amount"] for t in without_installment), 2)},
+            "by_date":    by_date,
+            "by_status":  by_status,
+            "bill_id_null":              _sums(bill_id_null),
+            "bill_id_filled":            _sums(bill_id_filled),
+            "with_installment_number":   _sums(with_installment),
+            "without_installment_number":_sums(without_installment),
+            "negative":                  _sums(negative_txs),
+            "positive":                  _sums(positive_txs),
+            "cancellation_like":         _sums(cancellation_txs),
         },
         "transactions": transactions,
     }
