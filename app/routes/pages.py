@@ -23,10 +23,6 @@ def proximos():
     return FileResponse(STATIC_DIR / "proximos.html")
 
 
-@router.get("/transacoes", include_in_schema=False)
-def transacoes():
-    return FileResponse(STATIC_DIR / "transacoes.html")
-
 
 @router.get("/orcamento", include_in_schema=False)
 def orcamento():

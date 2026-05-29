@@ -55,13 +55,6 @@ class PageSmokeTest(unittest.TestCase):
         # And must NOT pull the transaction-management bundle.
         self.assertNotIn("/static/transacoes.js", response.text)
 
-    def test_transacoes_page_loads(self):
-        response = self.client.get("/transacoes")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("text/html", response.headers["content-type"])
-        self.assertIn("Transações", response.text)
-        self.assertIn("/static/transacoes.js", response.text)
-        self.assertNotIn("Fatura planejamento", response.text)
 
     def test_orcamento_redirects_to_custos_fixos(self):
         response = self.client.get("/orcamento")
@@ -81,7 +74,7 @@ class PageSmokeTest(unittest.TestCase):
     def test_sidebar_has_no_orcamento_link(self):
         # Every primary page should route to /custos-fixos for Planejamento,
         # never to the deprecated /orcamento screen.
-        for path in ("/", "/transacoes", "/historico", "/custos-fixos", "/regras"):
+        for path in ("/", "/historico", "/custos-fixos", "/regras"):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
             self.assertNotIn('href="/orcamento"', response.text, path)
