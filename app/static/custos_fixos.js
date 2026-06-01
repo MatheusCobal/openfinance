@@ -121,6 +121,10 @@ function currentYearMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function getDefaultPlanningMonth() {
+  return shiftYearMonth(currentYearMonth(), 1);
+}
+
 function shiftYearMonth(ym, offset) {
   const [year, month] = ym.split('-').map(Number);
   const zeroBased = year * 12 + (month - 1) + offset;
@@ -2064,8 +2068,8 @@ document.getElementById('income-show-inactive')?.addEventListener('change', load
 // ── Init ───────────────────────────────────────────────────────────────────
 
 (async () => {
-  selectedMonth = currentYearMonth();
-  monthStrip = Array.from({ length: MONTH_WINDOW }, (_, i) => shiftYearMonth(selectedMonth, i));
+  selectedMonth = getDefaultPlanningMonth();
+  monthStrip = Array.from({ length: MONTH_WINDOW }, (_, i) => shiftYearMonth(currentYearMonth(), i));
   incomeSelectedMonth = selectedMonth;
   incomeMonthStrip = [...monthStrip];
   document.querySelectorAll('#planning-tabs [data-tab]').forEach((button) => {

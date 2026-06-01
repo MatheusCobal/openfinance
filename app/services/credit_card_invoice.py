@@ -547,38 +547,67 @@ def _current_month_invoice(
         }
 
     # ---- Tier 3: Account.balance snapshot ----
+    # Accounts with no due date (unknown) are valid — we can still use their balance.
+    # Accounts with a due date explicitly outside the selected month are stale —
+    # their balance reflects a prior invoice cycle, so skip them.
     accounts_with_balance = [a for a in credit_accounts if a.balance is not None]
+    _stale_ab_fields: Dict[str, Any] = {}
+
     if accounts_with_balance:
-        open_total = _account_balance_total(accounts_with_balance)
-        due_dates = sorted({
-            a.credit_balance_due_date.isoformat()
-            for a in accounts_with_balance
-            if a.credit_balance_due_date
-        })
-        return {
-            "year_month": year_month,
-            "planning_mode": "current_month",
-            "amount": float(open_total),
-            "source": "account_balance",
-            "source_label": "Saldo do cartão",
-            "is_estimated": True,
-            "due_dates": due_dates,
-            "cards": [
-                {
-                    "account_id": a.id,
-                    "due_date": a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None,
-                    "total_amount": float(a.balance or 0),
-                    "minimum_payment_amount": float(a.credit_minimum_payment or 0),
-                }
-                for a in accounts_with_balance
-            ],
-            "transaction_count": 0,
-            "bill_count": 0,
-            "account_count": len(accounts_with_balance),
-            "cycle_start": None,
-            "cycle_end": None,
-            "account_balance_total": float(open_total),
-        }
+        stale_accounts = [
+            a for a in accounts_with_balance
+            if a.credit_balance_due_date is not None
+            and a.credit_balance_due_date.strftime("%Y-%m") != year_month
+        ]
+        # Valid: no due date (unknown) or due date in the selected month
+        valid_accounts = [a for a in accounts_with_balance if a not in stale_accounts]
+
+        if valid_accounts:
+            open_total = _account_balance_total(valid_accounts)
+            due_dates = sorted({
+                a.credit_balance_due_date.isoformat()
+                for a in valid_accounts
+                if a.credit_balance_due_date
+            })
+            return {
+                "year_month": year_month,
+                "planning_mode": "current_month",
+                "amount": float(open_total),
+                "source": "account_balance",
+                "source_label": "Saldo do cartão",
+                "is_estimated": True,
+                "due_dates": due_dates,
+                "cards": [
+                    {
+                        "account_id": a.id,
+                        "due_date": a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None,
+                        "total_amount": float(a.balance or 0),
+                        "minimum_payment_amount": float(a.credit_minimum_payment or 0),
+                    }
+                    for a in valid_accounts
+                ],
+                "transaction_count": 0,
+                "bill_count": 0,
+                "account_count": len(valid_accounts),
+                "cycle_start": None,
+                "cycle_end": None,
+                "account_balance_total": float(bal_total),
+            }
+        else:
+            # All accounts have stale due dates — retain visibility but skip as invoice amount.
+            stale_dates = sorted({
+                a.credit_balance_due_date.isoformat()
+                for a in stale_accounts
+                if a.credit_balance_due_date
+            })
+            _stale_ab_fields = {
+                "account_balance_due_date": stale_dates[0] if stale_dates else None,
+                "account_balance_due_date_is_stale": True,
+                "account_balance_ignored_reason": (
+                    f"due date {stale_dates[0] if stale_dates else 'unknown'} "
+                    f"is outside the selected month {year_month}"
+                ),
+            }
 
     # ---- Tier 4: transaction fallback ----
     inv = invoice_summary(session, from_date=month_start, to_date=month_end)
@@ -599,9 +628,11 @@ def _current_month_invoice(
             "cycle_start": None,
             "cycle_end": None,
             "account_balance_total": float(bal_total),
+            **_stale_ab_fields,
         }
 
-    return _none_result(year_month, "current_month", len(credit_accounts), float(bal_total))
+    none_r = _none_result(year_month, "current_month", len(credit_accounts), float(bal_total))
+    return {**none_r, **_stale_ab_fields}
 
 
 def _future_month_invoice(
