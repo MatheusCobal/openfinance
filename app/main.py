@@ -7,11 +7,13 @@ from fastapi.staticfiles import StaticFiles
 from app.database import init_db
 from app.routes import (
     budgets,
+    credit_card,
     dashboard,
     expected_income,
     fixed_costs,
     history,
     pages,
+    planning,
     pluggy_webhooks,
     reserve,
     rules,
@@ -41,6 +43,8 @@ app.include_router(budgets.router)
 app.include_router(history.router)
 app.include_router(expected_income.router)
 app.include_router(fixed_costs.router)
+app.include_router(planning.router)
 app.include_router(savings.router)
 app.include_router(reserve.router)
 app.include_router(dashboard.router)
+app.include_router(credit_card.router)

@@ -22,11 +22,13 @@ from app.services.fixed_costs import (
     list_fixed_cost_templates,
     monthly_breakdown,
     set_override,
-    spending_capacity_monthly_summary,
-    spending_capacity_summary,
-    upcoming_months,
     update_fixed_cost,
     update_fixed_cost_category,
+)
+from app.services.planning import upcoming_months
+from app.services.spending_capacity import (
+    spending_capacity_monthly_summary,
+    spending_capacity_summary,
 )
 
 router = APIRouter()

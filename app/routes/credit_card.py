@@ -1,0 +1,27 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session
+
+from app.database import get_session
+from app.services.credit_card_invoice import planning_invoice_for_month
+
+router = APIRouter()
+
+
+@router.get("/credit-card/invoice/{year_month}")
+def credit_card_invoice(
+    year_month: str,
+    session: Session = Depends(get_session),
+):
+    """Single source of truth for the planning invoice of ``year_month``.
+
+    Returns the structured ``planning_invoice`` object: amount, source,
+    source_label, is_estimated, due_dates, cards, transaction_count,
+    bill_count, account_count, cycle_start, cycle_end.
+    """
+    try:
+        year, month = year_month.split("-")
+        if len(year) != 4 or len(month) != 2 or not (1 <= int(month) <= 12):
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "year_month must be in YYYY-MM format")
+    return planning_invoice_for_month(session, year_month)

@@ -17,10 +17,8 @@ from app.database import get_session
 from app.main import app
 from app.models import Account, CreditCardBill, Investment, Item, Transaction
 from app.services import sync as sync_service
-from app.services.pluggy_snapshot import (
-    account_snapshot_summary,
-    credit_card_obligation_summary,
-)
+from app.services.credit_card_invoice import planning_invoice_for_month
+from app.services.pluggy_snapshot import account_snapshot_summary
 from app.services.transactions import (
     account_ids_by_type,
     bank_outflow_transactions,
@@ -163,13 +161,15 @@ class DashboardSnapshotExcludesInactiveTest(unittest.TestCase):
 
 
 class CreditObligationExcludesInactiveTest(unittest.TestCase):
-    """Test 4 & 5: credit_card_obligation_summary excludes inactive accounts/bills."""
+    """Test 4 & 5: planning_invoice_for_month excludes inactive accounts/bills."""
 
     def setUp(self):
         self.engine = _make_engine()
 
     def test_account_balance_tier_excludes_inactive(self):
-        year_month = "2026-05"
+        # account_balance is the current-month fallback (no cycle txs, no bill).
+        # Pin today inside the queried month so it resolves as the current month.
+        today = date(2026, 5, 15)
         with Session(self.engine) as session:
             _seed_item(session, "item-active", is_active=True)
             _seed_item(session, "item-inactive", is_active=False)
@@ -178,13 +178,15 @@ class CreditObligationExcludesInactiveTest(unittest.TestCase):
             _seed_account(session, "cc-inactive", "item-inactive", "CREDIT",
                           is_active=False, balance=Decimal("5000"))
 
-            result = credit_card_obligation_summary(session, year_month)
+            result = planning_invoice_for_month(session, "2026-05", today=today)
 
         self.assertEqual(result["source"], "account_balance")
-        self.assertEqual(result["current_open_total"], 1000.0)
+        self.assertEqual(result["amount"], 1000.0)
 
     def test_bill_tier_excludes_bills_from_inactive_accounts(self):
-        year_month = "2026-05"
+        # official_bill is used for future/past months. Pin today before the
+        # queried month so 2026-05 is a future month (bill tier).
+        today = date(2026, 4, 1)
         with Session(self.engine) as session:
             _seed_item(session, "item-active", is_active=True)
             _seed_item(session, "item-inactive", is_active=False)
@@ -207,10 +209,10 @@ class CreditObligationExcludesInactiveTest(unittest.TestCase):
             ))
             session.commit()
 
-            result = credit_card_obligation_summary(session, year_month)
+            result = planning_invoice_for_month(session, "2026-05", today=today)
 
-        self.assertEqual(result["source"], "bill")
-        self.assertEqual(result["official_bill_total"], 1000.0)
+        self.assertEqual(result["source"], "official_bill")
+        self.assertEqual(result["amount"], 1000.0)
         account_ids_in_result = {c["account_id"] for c in result["cards"]}
         self.assertIn("cc-active", account_ids_in_result)
         self.assertNotIn("cc-inactive", account_ids_in_result)

@@ -768,7 +768,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
     def test_today_injection_makes_capacity_deterministic(self):
         """#7 — calling the service with an explicit `today` must override date.today()."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             # 31-day month (May 2026), pin today at the 11th.
@@ -792,7 +792,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
     def test_daily_discretionary_remaining(self):
         """#5 — discretionary_available divided across days left in month."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             # Mid-month with no expenses → all R$ 10k spread across 21 days.
@@ -822,7 +822,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
                 "due_day": 10,
             },
         )
-        from app.services.fixed_costs import spending_capacity_summary as cap
+        from app.services.spending_capacity import spending_capacity_summary as cap
 
         with Session(self.engine) as session:
             capacity = cap(session, "2026-05", today=date(2026, 5, 11))
@@ -831,7 +831,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
     def test_plan_status_flag_transitions(self):
         """#6 — healthy / tight / over based on the discretionary margin."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         # Healthy: no expenses, everything is discretionary
         with Session(self.engine) as session:
@@ -869,7 +869,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
     def test_plan_status_unknown_when_no_income(self):
         """No expected income configured → can't grade the plan."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
         from app.models import ExpectedIncome
         from sqlmodel import delete
 
@@ -928,7 +928,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
             )
             session.commit()
 
-        from app.services.fixed_costs import upcoming_months
+        from app.services.planning import upcoming_months
 
         with Session(self.engine) as session:
             months = upcoming_months(
@@ -964,17 +964,17 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
             )
             session.commit()
 
-        from app.services.fixed_costs import scheduled_installments_summary
+        from app.services.credit_card_invoice import scheduled_installments_for_month
 
         with Session(self.engine) as session:
             # Today is AFTER the transaction → not a future installment
-            summary = scheduled_installments_summary(
+            summary = scheduled_installments_for_month(
                 session, "2026-05", today=date(2026, 5, 20)
             )
             self.assertEqual(summary["total"], 0.0)
 
             # Today is BEFORE the transaction → it counts
-            summary = scheduled_installments_summary(
+            summary = scheduled_installments_for_month(
                 session, "2026-05", today=date(2026, 5, 5)
             )
             self.assertEqual(summary["total"], 400.0)
@@ -1036,7 +1036,7 @@ class BankOutflowExcludesInvoicePaymentTest(unittest.TestCase):
         self.assertNotIn("tx-fatura-bank", ids)
 
     def test_bank_outflows_total_excludes_invoice_payment(self):
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         def override_get_session():
             with Session(self.engine) as session:
@@ -1187,7 +1187,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         Uses today=2026-06-30 (current month) so the current-month formula branch
         (fixed_cost_reserved_total = actual paid) is exercised.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         cost = self._make_water_fixed_cost(amount=300)
 
@@ -1236,7 +1236,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         Uses today=2026-06-30 (current month) so the current-month formula branch
         (fixed_cost_reserved_total = actual paid) is exercised.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         cost = self._make_water_fixed_cost(amount=300)
 
@@ -1408,7 +1408,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
           budget_available_to_spend (the headline "after obligations, how much is left?").
           It IS subtracted in available_after_reserve (true disposable after savings).
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add_all(
@@ -1459,7 +1459,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Savings target=3000, no CDB applied → reserve_reserved=3000.
         budget_available_to_spend is NOT reduced; available_after_reserve is."""
         from app.models import SavingsTarget
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(SavingsTarget(monthly_target=Decimal("3000")))
@@ -1484,7 +1484,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Savings target=3000, applied=1000 → max(3000,1000)=3000 reserved,
         pending=2000, over_applied=0."""
         from app.models import SavingsTarget
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(SavingsTarget(monthly_target=Decimal("3000")))
@@ -1519,7 +1519,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Applied=3500 > target=3000 → max(3000,3500)=3500 reserved,
         pending=0, over_applied=500."""
         from app.models import SavingsTarget
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(SavingsTarget(monthly_target=Decimal("3000")))
@@ -1703,7 +1703,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         current-month formula branch (consumed + overage) is exercised.
         """
         from app.models import SavingsTarget
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(Category(id=90, name="Lazer", color="#a855f7", sort_order=1))
@@ -1780,7 +1780,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         - A PENDING transaction in the billing cycle sets the official total.
         - card_invoice_remaining_to_reserve = max(PENDING_total - gross_total, 0).
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(Category(id=95, name="Compras", color="#6366f1", sort_order=1))
@@ -1838,8 +1838,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         # CreditCardBill NOT used — source is PENDING-based
-        self.assertNotEqual(capacity["card_invoice_source"], "bill")
-        self.assertEqual(capacity["card_invoice_source"], "open_cycle_transactions")
+        self.assertNotEqual(capacity["card_invoice_source"], "official_bill")
+        self.assertEqual(capacity["card_invoice_source"], "open_invoice")
         # official_total = PENDING in cycle (800)
         self.assertEqual(capacity["card_invoice_official_total"], 800.0)
         self.assertEqual(capacity["card_invoice_current_open_total"], 800.0)
@@ -1862,7 +1862,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         CreditCardBill is now ignored for current-month open invoice calculation.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             # Posted (non-PENDING) transaction — counted in gross but not open invoice
@@ -1895,8 +1895,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["card_invoice_gross_total"], 2000.0)
         # Null-status tx (bill_id=null) IS counted by new rule → official = 2000
-        self.assertNotEqual(capacity["card_invoice_source"], "bill")
-        self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
+        self.assertNotEqual(capacity["card_invoice_source"], "official_bill")
+        self.assertEqual(capacity["card_invoice_source"], "open_invoice")
         self.assertEqual(capacity["card_invoice_official_total"], 2000.0)
         # gap = max(2000 - 2000, 0) = 0 (tx already in gross)
         self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
@@ -1907,7 +1907,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     def test_planning_mode_field_values(self):
         """planning_mode is 'current_month', 'future_month', or 'past_month'."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             c_cur = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 15))
@@ -1928,7 +1928,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Future month: formula uses variable_budget_total (full target), not
         variable_budget_consumed, even when future installments exist in the DB.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
         from app.models import SavingsTarget
 
         with Session(self.engine) as session:
@@ -1973,7 +1973,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     def test_future_month_no_account_balance_used(self):
         """Future month: Account.balance is never used as the card obligation."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
         from sqlmodel import select
 
         with Session(self.engine) as session:
@@ -1992,7 +1992,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # No official bill for 2026-07 → future_card_obligation_total must be 0.
         self.assertEqual(capacity["future_card_obligation_total"], 0.0)
         # Account.balance (8000) must NOT appear as the card obligation.
-        self.assertEqual(capacity["card_invoice_source"], "transaction_fallback")
+        self.assertEqual(capacity["card_invoice_source"], "none")
         # Full income available (no fixed costs, no budgets, no reserve).
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
@@ -2004,7 +2004,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         The bill covers a prior billing cycle — those purchases are NOT in the
         future month's variable budget, so there is no double-counting.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             # Official bill due in July 2026 (prior billing cycle).
@@ -2037,7 +2037,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
 
         self.assertEqual(capacity["planning_mode"], "future_month")
-        self.assertEqual(capacity["card_invoice_source"], "bill")
+        self.assertEqual(capacity["card_invoice_source"], "official_bill")
         # future_card_obligation_total = full bill (not gap).
         self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
         # card_invoice_remaining_to_reserve is still computed for info but not
@@ -2048,10 +2048,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     def test_future_month_no_card_bill_uses_scheduled_installments(self):
         """Future month without an official bill: future credit-card transactions are
-        picked up by scheduled_installments_summary and subtracted as
+        picked up by scheduled_installments_for_month and subtracted as
         future_card_obligation_total (source = 'scheduled_installments').
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             # Category with NO budget → any spend lands in unbudgeted.
@@ -2087,7 +2087,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Future month: multiple future card transactions sum into
         future_card_obligation_total when there is no official bill.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(
@@ -2131,7 +2131,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         Pluggy with negative amounts that were previously inflating the total
         via abs(amount).
         """
-        from app.services.fixed_costs import spending_capacity_summary, scheduled_installments_summary
+        from app.services.spending_capacity import spending_capacity_summary
+        from app.services.credit_card_invoice import scheduled_installments_for_month
 
         with Session(self.engine) as session:
             # Normal purchase — must be counted (amount > 0)
@@ -2170,7 +2171,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            installments = scheduled_installments_summary(
+            installments = scheduled_installments_for_month(
                 session, "2026-07", today=date(2026, 6, 15)
             )
 
@@ -2191,7 +2192,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     def test_future_month_bill_takes_priority_over_installments(self):
         """Future month: official bill overrides scheduled_installments."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(
@@ -2220,7 +2221,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 session, "2026-07", today=date(2026, 6, 15)
             )
 
-        self.assertEqual(capacity["future_card_obligation_source"], "bill")
+        self.assertEqual(capacity["future_card_obligation_source"], "official_bill")
         self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
         # Installment (400) does NOT add on top of the bill.
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0 - 3000.0)
@@ -2230,7 +2231,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         It is subtracted only in available_after_reserve.
         """
         from app.models import SavingsTarget
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(SavingsTarget(monthly_target=Decimal("2000")))
@@ -2253,7 +2254,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         It is subtracted only in available_after_reserve.
         """
         from app.models import SavingsTarget
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(SavingsTarget(monthly_target=Decimal("1500")))
@@ -2275,7 +2276,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Future month with no bill, no account_balance_due_month, no future
         transactions: source = 'none', obligation = 0.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             capacity = spending_capacity_summary(
@@ -2292,7 +2293,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         in that exact future month. source = 'account_balance_due_month' and
         future_card_obligation_total equals the account balance.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
         from sqlmodel import select
 
         with Session(self.engine) as session:
@@ -2317,7 +2318,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Future month: Account.balance is NOT used when credit_balance_due_date
         falls in a different month. future_card_obligation_total must be 0.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
         from sqlmodel import select
 
         with Session(self.engine) as session:
@@ -2343,7 +2344,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """Regression: current-month formula (consumed + overage, gap-based card)
         must be unchanged after adding the future-month branch.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
         from app.models import SavingsTarget
 
         with Session(self.engine) as session:
@@ -2396,8 +2397,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
 
 class CurrentOpenCardInvoiceTest(unittest.TestCase):
-    """Test suite for current_open_card_invoice_summary() and the new
-    PENDING-based open invoice logic in spending_capacity_summary().
+    """Open-invoice logic, now owned by planning_invoice_for_month() and
+    surfaced through spending_capacity_summary().
     """
 
     def setUp(self):
@@ -2437,15 +2438,14 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    # ── 1. PENDING in cycle are used ──────────────────────────────────────────
+    # ── 1. bill_id-null in cycle are counted ──────────────────────────────────
 
     def test_bill_id_null_in_cycle_sets_open_invoice(self):
         """All transactions with bill_id null within the billing cycle are counted,
         regardless of status. Both PENDING and null-status (already-settled)
-        purchases must be included — Pluggy uses null status for settled in-cycle
-        transactions and PENDING only for very recent ones.
+        purchases must be included.
         """
-        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+        from app.services.credit_card_invoice import planning_invoice_for_month
 
         # Cycle for close_date=2026-06-04 is 2026-05-05 to 2026-06-04
         with Session(self.engine) as session:
@@ -2460,7 +2460,6 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
                     bill_id=None,
                 )
             )
-            # Null-status tx — already settled, must ALSO be counted
             session.add(
                 Transaction(
                     id="tx-settled-in",
@@ -2475,13 +2474,13 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = current_open_card_invoice_summary(
+            result = planning_invoice_for_month(
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        self.assertEqual(result["source"], "open_cycle_transactions")
+        self.assertEqual(result["source"], "open_invoice")
         # Both PENDING and null-status are counted → 300 + 500 = 800
-        self.assertEqual(result["total"], 800.0)
+        self.assertEqual(result["amount"], 800.0)
         self.assertEqual(result["transaction_count"], 2)
         self.assertEqual(result["cycle_start"], "2026-05-05")
         self.assertEqual(result["cycle_end"], "2026-06-04")
@@ -2489,8 +2488,8 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
     # ── 2. Transactions outside cycle are excluded ────────────────────────────
 
     def test_pending_outside_cycle_excluded(self):
-        """PENDING transactions outside the billing cycle must not be counted."""
-        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+        """Transactions outside the billing cycle must not be counted."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
 
         with Session(self.engine) as session:
             # Inside cycle (2026-05-05 to 2026-06-04) → counted
@@ -2520,21 +2519,19 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = current_open_card_invoice_summary(
+            result = planning_invoice_for_month(
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        self.assertEqual(result["source"], "open_cycle_transactions")
-        self.assertEqual(result["total"], 100.0)
+        self.assertEqual(result["source"], "open_invoice")
+        self.assertEqual(result["amount"], 100.0)
 
-    # ── 3. Null-status transactions ARE counted; bill_id-filled are excluded ──
+    # ── 3. Null-status counted; bill_id-filled excluded from open invoice ─────
 
     def test_null_status_with_no_bill_id_counted_in_open_invoice(self):
         """Transactions with status=null (already-settled) and bill_id=null
-        must be counted in the open invoice. This is the real Pluggy pattern
-        for Itaú/LATAM cards: settled in-cycle purchases have no status field.
-        """
-        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+        must be counted in the open invoice; bill_id-filled ones must not."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
 
         with Session(self.engine) as session:
             # Null-status, in cycle, no bill_id → MUST be counted
@@ -2549,7 +2546,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
                     bill_id=None,
                 )
             )
-            # Null-status, in cycle, bill_id filled → MUST be excluded
+            # Null-status, in cycle, bill_id filled → MUST be excluded from open invoice
             session.add(
                 Transaction(
                     id="tx-closed-bill",
@@ -2564,22 +2561,21 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = current_open_card_invoice_summary(
+            result = planning_invoice_for_month(
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        # Only the bill_id=null tx is counted
-        self.assertEqual(result["source"], "open_cycle_transactions")
-        self.assertEqual(result["total"], 500.0)
+        # Only the bill_id=null tx is in the open-invoice estimate
+        self.assertEqual(result["source"], "open_invoice")
+        self.assertEqual(result["amount"], 500.0)
         self.assertEqual(result["transaction_count"], 1)
 
-    # ── 4. PENDING with bill_id are excluded ──────────────────────────────────
+    # ── 4. bill_id-filled tx is not part of the open-invoice tier ─────────────
 
-    def test_pending_with_bill_id_excluded(self):
-        """PENDING transactions that already have a bill_id are already in a
-        closed bill and must not be counted in the open invoice estimate.
-        """
-        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+    def test_bill_id_filled_not_in_open_invoice(self):
+        """A transaction that already has a bill_id must not produce an
+        open_invoice source — the cycle/month tiers exclude it."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
 
         with Session(self.engine) as session:
             session.add(
@@ -2596,20 +2592,19 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = current_open_card_invoice_summary(
+            result = planning_invoice_for_month(
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        # PENDING but bill_id set → not counted
-        self.assertEqual(result["total"], 0.0)
+        # The bill_id-filled tx is excluded from the open-invoice tier.
+        self.assertNotEqual(result["source"], "open_invoice")
 
     # ── 5. CreditCardBill not used for current month open invoice ─────────────
 
     def test_creditcardbill_not_used_for_current_month_open_invoice(self):
         """CreditCardBill with due_date in the current month must NOT influence
-        the open invoice estimate via spending_capacity_summary.
-        """
-        from app.services.fixed_costs import spending_capacity_summary
+        the open invoice estimate via spending_capacity_summary."""
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(
@@ -2628,25 +2623,20 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             )
 
         self.assertEqual(capacity["planning_mode"], "current_month")
-        self.assertNotEqual(capacity["card_invoice_source"], "bill")
+        self.assertNotEqual(capacity["card_invoice_source"], "official_bill")
         # Official total must NOT be the bill amount
         self.assertNotEqual(capacity["card_invoice_official_total"], 9999.0)
 
-    # ── 6. No close_date → fallback to month PENDING ─────────────────────────
+    # ── 6. No close_date → fallback to month transactions ────────────────────
 
-    def test_no_close_date_fallback_to_month_pending(self):
-        """When no account has credit_balance_close_date, fall back to PENDING
-        transactions within the current calendar month.
-        """
-        from app.services.pluggy_snapshot import current_open_card_invoice_summary
+    def test_no_close_date_fallback_to_month_transactions(self):
+        """When no account has credit_balance_close_date, fall back to bill_id-null
+        transactions within the current calendar month."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        from sqlmodel import select
 
-        # Remove close_date from credit-1
         with Session(self.engine) as session:
-            acct = session.exec(
-                __import__("sqlmodel", fromlist=["select"]).select(Account).where(
-                    Account.id == "credit-1"
-                )
-            ).one()
+            acct = session.exec(select(Account).where(Account.id == "credit-1")).one()
             acct.credit_balance_close_date = None
             session.add(acct)
             session.add(
@@ -2663,56 +2653,51 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = current_open_card_invoice_summary(
+            result = planning_invoice_for_month(
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        self.assertEqual(result["source"], "open_month_transactions")
-        self.assertEqual(result["total"], 250.0)
+        self.assertEqual(result["source"], "open_invoice")
+        self.assertEqual(result["amount"], 250.0)
 
-    # ── 7. No PENDING → Account.balance fallback ─────────────────────────────
+    # ── 7. No open-invoice txs → Account.balance fallback ────────────────────
 
     def test_no_pending_falls_back_to_account_balance(self):
-        """When no PENDING transactions exist, the open invoice falls back to
-        Account.balance. source = 'account_balance_fallback'.
-        """
-        from app.services.pluggy_snapshot import current_open_card_invoice_summary
-        from app.services.fixed_costs import spending_capacity_summary
+        """When no bill_id-null transactions exist, the open invoice falls back
+        to Account.balance. source = 'account_balance'."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        from app.services.spending_capacity import spending_capacity_summary
+        from sqlmodel import select
 
         with Session(self.engine) as session:
-            acct = session.exec(
-                __import__("sqlmodel", fromlist=["select"]).select(Account).where(
-                    Account.id == "credit-1"
-                )
-            ).one()
+            acct = session.exec(select(Account).where(Account.id == "credit-1")).one()
             acct.balance = Decimal("2500")
             acct.credit_balance_due_date = date(2026, 6, 10)
             session.add(acct)
             session.commit()
 
         with Session(self.engine) as session:
-            result = current_open_card_invoice_summary(
+            result = planning_invoice_for_month(
                 session, "2026-06", today=date(2026, 6, 30)
             )
 
-        self.assertEqual(result["source"], "account_balance_fallback")
-        self.assertEqual(result["total"], 2500.0)
+        self.assertEqual(result["source"], "account_balance")
+        self.assertEqual(result["amount"], 2500.0)
         self.assertEqual(result["transaction_count"], 0)
 
         with Session(self.engine) as session:
             capacity = spending_capacity_summary(
                 session, "2026-06", today=date(2026, 6, 30)
             )
-        self.assertEqual(capacity["card_invoice_source"], "account_balance_fallback")
+        self.assertEqual(capacity["card_invoice_source"], "account_balance")
         self.assertEqual(capacity["card_invoice_official_total"], 2500.0)
 
-    # ── 8. Future month is unchanged ─────────────────────────────────────────
+    # ── 8. Future month uses official bill ───────────────────────────────────
 
     def test_future_month_not_affected_by_current_month_changes(self):
-        """Future months still use CreditCardBill / scheduled_installments logic.
-        The new PENDING-based estimate only applies to current_month mode.
-        """
-        from app.services.fixed_costs import spending_capacity_summary
+        """Future months use the official CreditCardBill / scheduled installments
+        logic. The open-invoice estimate only applies to current_month mode."""
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             session.add(
@@ -2732,9 +2717,9 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # Future month: CreditCardBill with due_date in that month IS still used
-        self.assertEqual(capacity["card_invoice_source"], "bill")
+        self.assertEqual(capacity["card_invoice_source"], "official_bill")
         self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
-        # New current-open fields are not populated for future month
+        # Current-open fields are not populated for future month
         self.assertEqual(capacity["card_invoice_current_open_total"], 0.0)
         self.assertEqual(capacity["card_invoice_current_open_source"], "none")
 

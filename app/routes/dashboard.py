@@ -3,10 +3,8 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models import Account, CreditCardBill
-from app.services.pluggy_snapshot import (
-    account_snapshot_summary,
-    credit_card_obligation_summary,
-)
+from app.services.credit_card_invoice import planning_invoice_for_month
+from app.services.pluggy_snapshot import account_snapshot_summary
 
 router = APIRouter()
 
@@ -55,11 +53,12 @@ def credit_card_diagnostics(
     else:
         fallback_reason = "unknown"
 
-    obligation = credit_card_obligation_summary(session, year_month)
+    planning_invoice = planning_invoice_for_month(session, year_month)
 
     return {
         "year_month": year_month,
-        "source": obligation.get("source"),
+        "source": planning_invoice.get("source"),
+        "planning_invoice": planning_invoice,
         "credit_accounts": [
             {
                 "id": a.id,

@@ -336,7 +336,7 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
         The FakePluggy syncs one credit transaction (status=null, amount=1500)
         that falls in the current month outside the billing cycle.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             self._seed_item(session)
@@ -346,9 +346,9 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
                 session, "2026-05", today=self.today
             )
             # CreditCardBill exists (from FakePluggy) but must NOT be the source
-            self.assertNotEqual(capacity["card_invoice_source"], "bill")
-            # Transaction-based: 1 tx in month with bill_id=null → open_month_transactions
-            self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
+            self.assertNotEqual(capacity["card_invoice_source"], "official_bill")
+            # Transaction-based: 1 tx in month with bill_id=null → open_invoice
+            self.assertEqual(capacity["card_invoice_source"], "open_invoice")
             # official_total = the credit transaction amount (1500)
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
             # Transaction-reconstructed invoice still exposed as audit value
@@ -361,9 +361,9 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
         """Without a CreditCardBill the open invoice is still derived from
         the synced credit transactions (bill_id=null).  The FakePluggy credit
         transaction (amount=1500, status=null) is in the current month, so
-        source = "open_month_transactions" with total = 1500.
+        source = "open_invoice" with total = 1500.
         """
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         self.fake_pluggy.bills_supported = False
         with Session(self.engine) as session:
@@ -373,7 +373,7 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             capacity = spending_capacity_summary(
                 session, "2026-05", today=self.today
             )
-            self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
+            self.assertEqual(capacity["card_invoice_source"], "open_invoice")
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
 
 
@@ -462,55 +462,206 @@ class GracefulDegradationTest(_SyncTestBase):
             self.assertEqual(summary["source"], "transactions")
 
 
-class CreditCardObligationSummaryTest(_SyncTestBase):
-    """Tests for the 3-tier source hierarchy in credit_card_obligation_summary."""
+class PlanningInvoiceForMonthTest(_SyncTestBase):
+    """planning_invoice_for_month — the single source of truth for the planning
+    invoice. ``today`` is always passed explicitly so tests are deterministic
+    regardless of the system clock."""
 
-    def test_source_bill_when_bill_exists(self):
-        from app.services.pluggy_snapshot import credit_card_obligation_summary
+    REQUIRED_KEYS = (
+        "year_month", "amount", "source", "source_label", "is_estimated",
+        "due_dates", "cards", "transaction_count", "bill_count",
+        "account_count", "cycle_start", "cycle_end",
+    )
 
+    def _seed_credit(self, session, **kwargs):
+        session.add(Item(id="item-1", connector_id=200, connector_name="T", status="UPDATED"))
+        defaults = dict(id="cc1", item_id="item-1", name="CC", type="CREDIT")
+        defaults.update(kwargs)
+        session.add(Account(**defaults))
+        session.commit()
+
+    # ----- result shape -----
+
+    def test_result_has_required_keys(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
+            inv = planning_invoice_for_month(session, "2026-05", today=self.today)
+        for key in self.REQUIRED_KEYS:
+            self.assertIn(key, inv, f"missing key: {key}")
 
-            summary = credit_card_obligation_summary(session, "2026-05")
-            self.assertEqual(summary["source"], "bill")
-            self.assertEqual(summary["official_bill_total"], 1500.0)
-            self.assertIn("2026-05-17", summary["due_dates"])
-            self.assertEqual(len(summary["cards"]), 1)
-            self.assertEqual(summary["cards"][0]["account_id"], "credit-1")
+    # ----- current month -----
 
-    def test_source_account_balance_when_no_bill(self):
-        from app.services.pluggy_snapshot import credit_card_obligation_summary
-
-        self.fake_pluggy.bills_supported = False
+    def test_current_month_open_invoice(self):
+        """Current month uses the open invoice estimated from bill_id-null card
+        transactions (NOT the official CreditCardBill)."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
+            inv = planning_invoice_for_month(session, "2026-05", today=self.today)
+        self.assertEqual(inv["source"], "open_invoice")
+        self.assertEqual(inv["amount"], 1500.0)
+        self.assertEqual(inv["planning_mode"], "current_month")
+        self.assertTrue(inv["is_estimated"])
 
-            summary = credit_card_obligation_summary(session, "2026-05")
-            self.assertEqual(summary["source"], "account_balance")
-            self.assertEqual(summary["current_open_total"], 1500.0)
-            self.assertIsNone(summary["official_bill_total"])
-
-    def test_source_transaction_fallback_when_no_bill_no_balance(self):
-        from app.services.pluggy_snapshot import credit_card_obligation_summary
-
+    def test_current_month_account_balance_fallback(self):
+        """No bill_id-null transactions → fall back to Account.balance."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
         with Session(self.engine) as session:
-            session.add(
-                Item(id="item-1", connector_id=200, connector_name="Test", status="UPDATED")
+            self._seed_credit(
+                session, balance=Decimal("1500"),
+                credit_balance_due_date=date(2026, 5, 17),
             )
-            session.add(
-                Account(id="credit-no-balance", item_id="item-1", name="No Balance Card", type="CREDIT")
-            )
+            inv = planning_invoice_for_month(session, "2026-05", today=self.today)
+        self.assertEqual(inv["source"], "account_balance")
+        self.assertEqual(inv["amount"], 1500.0)
+
+    # ----- future month -----
+
+    def test_future_month_official_bill(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            self._seed_credit(session, balance=Decimal("999"),
+                              credit_balance_due_date=date(2026, 5, 17))
+            session.add(CreditCardBill(
+                id="bill-future", account_id="cc1",
+                due_date=date(2026, 6, 10), total_amount=Decimal("2500"),
+            ))
             session.commit()
+            inv = planning_invoice_for_month(session, "2026-06", today=self.today)
+        self.assertEqual(inv["source"], "official_bill")
+        self.assertEqual(inv["amount"], 2500.0)
+        self.assertEqual(inv["bill_count"], 1)
+        self.assertIn("2026-06-10", inv["due_dates"])
+        self.assertFalse(inv["is_estimated"])
 
-            summary = credit_card_obligation_summary(session, "2026-05")
-            self.assertEqual(summary["source"], "transaction_fallback")
-            self.assertIsNone(summary["official_bill_total"])
-            self.assertEqual(summary["due_dates"], [])
+    def test_future_month_account_balance_due_month(self):
+        """Account.balance is only used for a future month when the account's
+        credit_balance_due_date falls in that month."""
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            self._seed_credit(session, balance=Decimal("900"),
+                              credit_balance_due_date=date(2026, 6, 17))
+            inv = planning_invoice_for_month(session, "2026-06", today=self.today)
+        self.assertEqual(inv["source"], "account_balance_due_month")
+        self.assertEqual(inv["amount"], 900.0)
+
+    def test_future_month_scheduled_installments(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            self._seed_credit(session, balance=Decimal("900"),
+                              credit_balance_due_date=date(2026, 5, 17))
+            session.add(Transaction(
+                id="parc-1", account_id="cc1", date=date(2026, 7, 15),
+                amount=Decimal("400"), description="parcela", category="Shopping",
+            ))
+            session.commit()
+            inv = planning_invoice_for_month(session, "2026-07", today=self.today)
+        self.assertEqual(inv["source"], "scheduled_installments")
+        self.assertEqual(inv["amount"], 400.0)
+        self.assertEqual(inv["transaction_count"], 1)
+
+    def test_future_month_no_data_returns_none(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            self._seed_credit(session, balance=Decimal("900"),
+                              credit_balance_due_date=date(2026, 5, 17))
+            inv = planning_invoice_for_month(session, "2026-09", today=self.today)
+        self.assertEqual(inv["source"], "none")
+        self.assertEqual(inv["amount"], 0.0)
+
+    # ----- past month -----
+
+    def test_past_month_official_bill(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            self._seed_credit(session)
+            session.add(CreditCardBill(
+                id="bill-past", account_id="cc1",
+                due_date=date(2026, 4, 15), total_amount=Decimal("777"),
+            ))
+            session.commit()
+            inv = planning_invoice_for_month(session, "2026-04", today=self.today)
+        self.assertEqual(inv["source"], "official_bill")
+        self.assertEqual(inv["amount"], 777.0)
+
+    def test_past_month_transaction_fallback(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            self._seed_credit(session)
+            session.add(Transaction(
+                id="t-past", account_id="cc1", date=date(2026, 4, 10),
+                amount=Decimal("-220"), description="compra", category="Shopping",
+            ))
+            session.commit()
+            inv = planning_invoice_for_month(session, "2026-04", today=self.today)
+        self.assertEqual(inv["source"], "transaction_fallback")
+        self.assertEqual(inv["amount"], 220.0)
+
+    # ----- no data / inactive -----
+
+    def test_no_credit_card_data_returns_none(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            inv = planning_invoice_for_month(session, "2026-05", today=self.today)
+        self.assertEqual(inv["source"], "none")
+        self.assertEqual(inv["amount"], 0.0)
+        self.assertEqual(inv["account_count"], 0)
+
+    def test_inactive_accounts_ignored(self):
+        from app.services.credit_card_invoice import planning_invoice_for_month
+        with Session(self.engine) as session:
+            session.add(Item(id="item-inactive", connector_id=200,
+                             status="UPDATED", is_active=False))
+            session.add(Account(
+                id="cc-inactive", item_id="item-inactive", name="CC",
+                type="CREDIT", is_active=False, balance=Decimal("5000"),
+                credit_balance_due_date=date(2026, 5, 17),
+            ))
+            session.commit()
+            inv = planning_invoice_for_month(session, "2026-05", today=self.today)
+        self.assertEqual(inv["source"], "none")
+        self.assertEqual(inv["amount"], 0.0)
+        self.assertEqual(inv["account_count"], 0)
+
+    # ----- spending_capacity_summary integration -----
+
+    def test_spending_capacity_includes_planning_invoice(self):
+        from app.services.spending_capacity import spending_capacity_summary
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+            capacity = spending_capacity_summary(session, "2026-05", today=self.today)
+        self.assertIn("planning_invoice", capacity)
+        pinv = capacity["planning_invoice"]
+        self.assertIn("source", pinv)
+        self.assertIn("amount", pinv)
+        for key in self.REQUIRED_KEYS:
+            self.assertIn(key, pinv, f"planning_invoice missing key: {key}")
+
+    def test_spending_capacity_compatibility_fields_present(self):
+        from app.services.spending_capacity import spending_capacity_summary
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+            capacity = spending_capacity_summary(session, "2026-05", today=self.today)
+        for field in (
+            "card_invoice_official_total",
+            "card_invoice_current_open_total",
+            "card_invoice_current_open_source",
+            "card_invoice_current_open_label",
+            "future_card_obligation_total",
+            "future_card_obligation_source",
+            "future_card_obligation_display_month",
+            "card_invoice_remaining_to_reserve",
+            "credit_card_due_dates",
+        ):
+            self.assertIn(field, capacity, f"missing compat field: {field}")
 
     def test_spending_capacity_has_card_context_fields(self):
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             self._seed_item(session)
@@ -519,105 +670,35 @@ class CreditCardObligationSummaryTest(_SyncTestBase):
             capacity = spending_capacity_summary(session, "2026-05", today=self.today)
             self.assertIn("card_open_balance_total", capacity)
             self.assertIn("credit_card_due_dates", capacity)
-            # Current month: transaction-based estimate — CreditCardBill NOT used as source
-            self.assertNotEqual(capacity["card_invoice_source"], "bill")
-            self.assertEqual(capacity["card_invoice_source"], "open_month_transactions")
+            # Current month: open-invoice estimate — CreditCardBill NOT used as source
+            self.assertNotEqual(capacity["card_invoice_source"], "official_bill")
+            self.assertEqual(capacity["card_invoice_source"], "open_invoice")
             # card_open_balance_total still reflects Account.balance snapshot
             self.assertEqual(capacity["card_open_balance_total"], 1500.0)
-            # New open-invoice fields are present
             self.assertIn("card_invoice_current_open_total", capacity)
-            self.assertIn("card_invoice_current_open_source", capacity)
-            self.assertIn("card_invoice_current_open_label", capacity)
             self.assertIn("card_invoice_cycle_start", capacity)
             self.assertIn("card_invoice_cycle_end", capacity)
             self.assertIn("card_invoice_transaction_count", capacity)
 
     def test_budget_available_unchanged_by_bill_context(self):
-        """Adding bill context must not double-count against budget_available_to_spend."""
-        from app.services.fixed_costs import spending_capacity_summary
+        """Adding card context must not double-count against budget_available_to_spend."""
+        from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
 
-            capacity_with_bill = spending_capacity_summary(
-                session, "2026-05", today=self.today
-            )
-            # source is "bill" but budget_available_to_spend must not be reduced
-            # by the bill total (purchases already consumed their category budgets)
-            self.assertIn("budget_available_to_spend", capacity_with_bill)
+            capacity = spending_capacity_summary(session, "2026-05", today=self.today)
+            self.assertIn("budget_available_to_spend", capacity)
             self.assertNotEqual(
-                capacity_with_bill["budget_available_to_spend"],
-                capacity_with_bill["budget_available_to_spend"] - capacity_with_bill["card_invoice_official_total"],
+                capacity["budget_available_to_spend"],
+                capacity["budget_available_to_spend"] - capacity["card_invoice_official_total"],
             )
-
-    # ----- account_balance tier is current-month-only -----
-
-    def test_future_month_without_bill_uses_transaction_fallback(self):
-        """For a future month with no CreditCardBill, Account.balance must NOT
-        be used — it represents today's open invoice, not a future obligation.
-        The source should be transaction_fallback."""
-        from app.services.pluggy_snapshot import credit_card_obligation_summary
-
-        self.fake_pluggy.bills_supported = False
-        with Session(self.engine) as session:
-            self._seed_item(session)
-            sync_service.sync_item("item-1", session)
-            # Confirm the account got a balance from sync
-            acc = session.get(Account, "credit-1")
-            self.assertIsNotNone(acc.balance)
-
-            # Ask for the NEXT month (future relative to today=2026-05-28)
-            summary = credit_card_obligation_summary(session, "2026-06", today=self.today)
-
-        self.assertEqual(summary["source"], "transaction_fallback")
-        self.assertIsNone(summary["official_bill_total"])
-        # No future transactions exist → reconstruction total is zero
-        self.assertEqual(summary["current_open_total"], 0.0)
-
-    def test_past_month_without_bill_uses_transaction_fallback(self):
-        """For a past month with no CreditCardBill, Account.balance must NOT
-        be used — it represents today's snapshot, not the past obligation."""
-        from app.services.pluggy_snapshot import credit_card_obligation_summary
-
-        self.fake_pluggy.bills_supported = False
-        with Session(self.engine) as session:
-            self._seed_item(session)
-            sync_service.sync_item("item-1", session)
-
-            # Ask for a PAST month (before today=2026-05-28)
-            summary = credit_card_obligation_summary(session, "2026-04", today=self.today)
-
-        self.assertEqual(summary["source"], "transaction_fallback")
-        self.assertIsNone(summary["official_bill_total"])
-
-    def test_future_month_with_bill_uses_bill(self):
-        """A CreditCardBill with due_date in a future month must be used
-        regardless — Tier 1 (official bill) always wins."""
-        from app.services.pluggy_snapshot import credit_card_obligation_summary
-
-        with Session(self.engine) as session:
-            self._seed_item(session)
-            sync_service.sync_item("item-1", session)
-            # Add an official bill due in next month
-            session.add(CreditCardBill(
-                id="bill-future-1",
-                account_id="credit-1",
-                due_date=date(2026, 6, 10),
-                total_amount=Decimal("2500"),
-            ))
-            session.commit()
-
-            summary = credit_card_obligation_summary(session, "2026-06", today=self.today)
-
-        self.assertEqual(summary["source"], "bill")
-        self.assertEqual(summary["official_bill_total"], 2500.0)
-        self.assertIn("2026-06-10", summary["due_dates"])
 
     def test_spending_capacity_future_month_not_contaminated_by_account_balance(self):
         """spending_capacity_summary for a future month must not carry the
         current Account.balance into card_invoice_official_total / remaining."""
-        from app.services.fixed_costs import spending_capacity_summary
+        from app.services.spending_capacity import spending_capacity_summary
 
         self.fake_pluggy.bills_supported = False
         with Session(self.engine) as session:
@@ -628,8 +709,9 @@ class CreditCardObligationSummaryTest(_SyncTestBase):
 
             capacity = spending_capacity_summary(session, "2026-06", today=self.today)
 
-        # Source must be transaction_fallback, not account_balance
-        self.assertEqual(capacity["card_invoice_source"], "transaction_fallback")
+        # The synced account's due_date is 2026-05-17 (not in 2026-06) and there
+        # are no future transactions → no valid source → "none".
+        self.assertEqual(capacity["card_invoice_source"], "none")
         # The official total must NOT equal Account.balance
         self.assertNotEqual(capacity["card_invoice_official_total"], balance)
         # No future card transactions exist → gross = 0, official = 0, gap = 0
