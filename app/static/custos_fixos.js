@@ -211,6 +211,98 @@ function transactionCountLabel(count) {
   return count === 1 ? '1 transação' : `${count} transações`;
 }
 
+function formatPaymentStatus(status) {
+  const labels = {
+    paid: 'Paga',
+    partially_paid: 'Parcialmente paga',
+    unpaid: 'Não paga',
+    unknown: 'Status desconhecido',
+    not_applicable: 'Não aplicável',
+  };
+  return labels[status] || 'Status desconhecido';
+}
+
+function formatPaymentConfidence(confidence) {
+  const labels = {
+    high: 'alta confiança',
+    medium: 'média confiança',
+    low: 'baixa confiança',
+    none: 'sem confiança',
+  };
+  return labels[confidence] || 'sem confiança';
+}
+
+function formatPaymentSource(source) {
+  const labels = {
+    bill_payments_total: 'informado pela fatura',
+    invoice_payment_transaction: 'transação de pagamento encontrada',
+    bank_outflow_match: 'saída bancária compatível',
+    none: 'sem comprovação',
+  };
+  return labels[source] || 'sem comprovação';
+}
+
+function invoiceStatusStyle(status) {
+  const styles = {
+    paid: {
+      cls: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      amountCls: 'text-emerald-700',
+      headline: 'Fatura paga',
+    },
+    partially_paid: {
+      cls: 'border-amber-200 bg-amber-50 text-amber-700',
+      amountCls: 'text-amber-700',
+      headline: 'Parcialmente paga',
+    },
+    unpaid: {
+      cls: 'border-red-200 bg-red-50 text-red-700',
+      amountCls: 'text-red-700',
+      headline: 'Não paga',
+    },
+    unknown: {
+      cls: 'border-slate-200 bg-white text-slate-700',
+      amountCls: 'text-slate-700',
+      headline: 'Status desconhecido',
+    },
+    not_applicable: {
+      cls: 'border-slate-200 bg-white text-slate-600',
+      amountCls: 'text-slate-600',
+      headline: 'Não aplicável',
+    },
+  };
+  return styles[status] || styles.unknown;
+}
+
+function invoiceBreakdownLabel(invoice) {
+  const labels = {
+    paid: 'Fatura do cartão (paga)',
+    partially_paid: 'Fatura do cartão (restante)',
+    unpaid: 'Fatura do cartão (em aberto)',
+    unknown: 'Fatura do cartão (status desconhecido)',
+    not_applicable: 'Fatura do cartão',
+  };
+  return labels[invoice?.payment_status] || labels.unknown;
+}
+
+function renderInvoicePaymentTransactions(transactions) {
+  if (!Array.isArray(transactions) || transactions.length === 0) {
+    return '<p class="text-xs text-slate-400">Nenhuma transação de pagamento vinculada.</p>';
+  }
+  return `
+    <ul class="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white overflow-hidden">
+      ${transactions.map((tx) => `
+        <li class="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span class="text-xs font-semibold text-slate-500 tabular">${tx.date ? formatDate(tx.date) : '—'}</span>
+          <span class="text-sm font-semibold text-emerald-700 tabular">${currency.format(asMoneyNumber(tx.amount))}</span>
+          <span class="flex-1 min-w-[12rem] text-sm text-slate-700 truncate">${escapeHtml(tx.description || 'Pagamento encontrado')}</span>
+          ${tx.category ? `<span class="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">${escapeHtml(tx.category)}</span>` : ''}
+          ${tx.account_name || tx.account_id ? `<span class="text-[10px] text-slate-400">${escapeHtml(tx.account_name || tx.account_id)}</span>` : ''}
+        </li>
+      `).join('')}
+    </ul>
+  `;
+}
+
 // ── Month strip ────────────────────────────────────────────────────────────
 
 function renderMonthStrip() {
@@ -313,20 +405,11 @@ function renderCapacityFlow(capacity) {
       : { label: 'Variável consumido',        value: varConsumed,    op: '−', cls: 'text-slate-500' },
   ];
   if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável', value: varOverage, op: '−', cls: 'text-red-500' });
+  const auditInvoiceRemaining = asMoneyNumber(invoice.remaining_amount ?? invoiceIncludedAmount(capacity));
   if (isFuture) {
-    let cardRowLabel;
-    if (futureObligationSource === 'account_balance_due_month') {
-      cardRowLabel = 'Fatura vencendo no mês';
-    } else if (futureObligationSource === 'scheduled_installments' && futureObligationDisplayMonth) {
-      cardRowLabel = `Parcelas / fatura de ${formatMonthShort(futureObligationDisplayMonth)}`;
-    } else if (futureObligationSource === 'scheduled_installments') {
-      cardRowLabel = 'Parcelas/fatura prevista';
-    } else {
-      cardRowLabel = 'Fatura prevista do cartão';
-    }
-    bRows.push({ label: cardRowLabel, value: futureCardObligation, op: '−', cls: 'text-amber-600' });
+    bRows.push({ label: invoiceBreakdownLabel(invoice), value: auditInvoiceRemaining, op: '−', cls: 'text-amber-600' });
   }
-  if (!isFuture) bRows.push({ label: 'Fatura do cartão / diferença de fatura', value: ccRemaining, op: '−', cls: 'text-amber-600' });
+  if (!isFuture) bRows.push({ label: invoiceBreakdownLabel(invoice), value: auditInvoiceRemaining, op: '−', cls: 'text-amber-600' });
   bRows.push({ label: 'Disponível para gastar', value: sobra, op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
 
   const breakdownHtml = bRows.map((r, i) => `
@@ -336,7 +419,12 @@ function renderCapacityFlow(capacity) {
       <span class="text-xs tabular ${r.cls}">${currency.format(r.value)}</span>
     </div>
   `).join('');
-  const rLivre = expandedOverviewPanel === 'livre' ? `<div class="space-y-1">${breakdownHtml}</div>` : '';
+  const invoiceFormulaValue = invoiceIncludedAmount(capacity);
+  const auditMismatch = Math.abs(auditInvoiceRemaining - invoiceFormulaValue) >= 0.01;
+  const auditNote = auditMismatch
+    ? '<p class="text-[11px] text-slate-400 pt-2 border-t border-slate-100 mt-2">O cálculo atual ainda usa a regra consolidada do backend; esta linha mostra o status de pagamento para auditoria.</p>'
+    : '';
+  const rLivre = expandedOverviewPanel === 'livre' ? `<div class="space-y-1">${breakdownHtml}${auditNote}</div>` : '';
 
   // ── Daily verba line ──
   const dailyHtml = (daysRemaining > 0 && daily > 0) ? `
@@ -573,6 +661,8 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
   if (key === 'fatura') {
     const invoice = capacity.credit_card_invoice || capacity.planning_invoice || {};
     const amount = asMoneyNumber(invoice.amount);
+    const paidAmount = asMoneyNumber(invoice.paid_amount);
+    const remainingAmount = asMoneyNumber(invoice.remaining_amount);
     const sourceLabel = invoice.source_label || invoice.source || 'Sem fonte';
     const estimated = invoice.is_estimated === true ? 'Sim' : invoice.is_estimated === false ? 'Não' : '—';
     const dueDates = Array.isArray(invoice.due_dates) ? invoice.due_dates : [];
@@ -583,6 +673,11 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
     const billCount = Number(invoice.bill_count || 0);
     const includedAmount = invoiceIncludedAmount(capacity);
     const included = includedAmount > 0 ? `Sim, ${currency.format(includedAmount)}` : 'Não';
+    const paymentStatus = invoice.payment_status || 'unknown';
+    const style = invoiceStatusStyle(paymentStatus);
+    const paymentTxs = Array.isArray(invoice.matched_payment_transactions)
+      ? invoice.matched_payment_transactions
+      : [];
     const emptyMessage = amount === 0 || invoice.source === 'none'
       ? '<p class="text-xs text-slate-500 mb-3">Sem fatura identificada para este mês.</p>'
       : '';
@@ -590,10 +685,27 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
     return `
       <div class="pt-1">
         ${emptyMessage}
+        <div class="rounded-lg border ${style.cls} px-3 py-2 mb-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="text-[10px] font-semibold uppercase tracking-wider opacity-75">Status de pagamento</p>
+              <p class="text-sm font-bold">${style.headline}</p>
+            </div>
+            <span class="text-xs font-semibold px-2 py-1 rounded-full bg-white/70">${formatPaymentStatus(paymentStatus)}</span>
+          </div>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
             <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Fatura do cartão</p>
             <p class="text-base font-bold tabular text-slate-800">${currency.format(amount)}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pago</p>
+            <p class="text-base font-bold tabular text-emerald-700">${currency.format(paidAmount)}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Restante</p>
+            <p class="text-base font-bold tabular ${style.amountCls}">${currency.format(remainingAmount)}</p>
           </div>
           <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
             <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Fonte</p>
@@ -602,6 +714,14 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
           <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
             <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Estimado</p>
             <p class="text-sm font-semibold text-slate-700">${estimated}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Confiança</p>
+            <p class="text-sm font-semibold text-slate-700">${formatPaymentConfidence(invoice.payment_confidence)}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Comprovação</p>
+            <p class="text-sm font-semibold text-slate-700">${formatPaymentSource(invoice.payment_source)}</p>
           </div>
           <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
             <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Vencimento</p>
@@ -618,6 +738,10 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
           <div class="rounded-lg bg-white border border-slate-200 px-3 py-2 sm:col-span-2">
             <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Incluída no cálculo</p>
             <p class="text-sm font-semibold ${includedAmount > 0 ? 'text-amber-700' : 'text-slate-600'}">${escapeHtml(included)}</p>
+          </div>
+          <div class="sm:col-span-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Pagamento encontrado</p>
+            ${renderInvoicePaymentTransactions(paymentTxs)}
           </div>
         </div>
       </div>
@@ -672,9 +796,19 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
         ? { label: 'Variável planejado (meta)', value: lVarTotal,    op: '−', cls: 'text-slate-600' }
         : { label: 'Variável consumido',        value: lVarConsumed, op: '−', cls: 'text-slate-600' },
       ...(!lIsFuture && lVarOverage > 0 ? [{ label: 'Estouro variável', value: lVarOverage, op: '−', cls: 'text-slate-600' }] : []),
-      { label: 'Fatura do cartão / diferença de fatura', value: invoiceIncludedAmount(capacity), op: '−', cls: 'text-amber-600' },
+      {
+        label: invoiceBreakdownLabel(capacity.credit_card_invoice || capacity.planning_invoice || {}),
+        value: asMoneyNumber((capacity.credit_card_invoice || capacity.planning_invoice || {}).remaining_amount ?? invoiceIncludedAmount(capacity)),
+        op: '−',
+        cls: 'text-amber-600',
+      },
       { label: 'Pode gastar',                value: sobra,                                   op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
     ];
+    const formulaAmount = invoiceIncludedAmount(capacity);
+    const displayedAmount = asMoneyNumber((capacity.credit_card_invoice || capacity.planning_invoice || {}).remaining_amount ?? formulaAmount);
+    const formulaNote = Math.abs(displayedAmount - formulaAmount) >= 0.01
+      ? '<p class="text-[11px] text-slate-400 pt-2 border-t border-slate-100 mt-2">O cálculo atual ainda usa a regra consolidada do backend; esta linha mostra o status de pagamento para auditoria.</p>'
+      : '';
     return `
       <div class="space-y-2 pt-1">
         ${eq.map((r, i) => `
@@ -684,6 +818,7 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
             <span class="text-sm tabular ${r.cls}">${currency.format(r.value)}</span>
           </div>
         `).join('')}
+        ${formulaNote}
       </div>
     `;
   }
