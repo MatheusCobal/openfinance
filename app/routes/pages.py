@@ -10,12 +10,12 @@ router = APIRouter()
 
 @router.get("/", include_in_schema=False)
 def index():
-    return RedirectResponse(url="/custos-fixos", status_code=302)
+    return RedirectResponse(url="/planejamento", status_code=302)
 
 
 @router.get("/planejamento", include_in_schema=False)
 def planejamento():
-    return RedirectResponse(url="/custos-fixos", status_code=302)
+    return FileResponse(STATIC_DIR / "custos_fixos.html")
 
 
 @router.get("/historico", include_in_schema=False)
@@ -28,21 +28,21 @@ def proximos():
     return FileResponse(STATIC_DIR / "proximos.html")
 
 
+@router.get("/custos-fixos", include_in_schema=False)
+def custos_fixos_legacy():
+    # Legacy alias — redirects to the primary planning route.
+    return RedirectResponse(url="/planejamento", status_code=302)
+
 
 @router.get("/orcamento", include_in_schema=False)
 def orcamento():
     # Legacy budgets screen — redirects permanently to Planejamento.
-    return RedirectResponse(url="/custos-fixos", status_code=307)
+    return RedirectResponse(url="/planejamento", status_code=307)
 
 
 @router.get("/regras", include_in_schema=False)
 def regras():
     return FileResponse(STATIC_DIR / "regras.html")
-
-
-@router.get("/custos-fixos", include_in_schema=False)
-def custos_fixos():
-    return FileResponse(STATIC_DIR / "custos_fixos.html")
 
 
 @router.get("/health")

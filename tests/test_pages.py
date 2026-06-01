@@ -11,14 +11,16 @@ from app.main import app
 class PageSmokeTest(unittest.TestCase):
     """Routing/navigation smoke tests for the simplified UI.
 
-    After the dashboard removal:
-    - GET /  → 302 redirect to /custos-fixos
-    - GET /planejamento → 302 redirect to /custos-fixos
-    - GET /custos-fixos → Planejamento HTML (no Dashboard nav link)
+    Primary planning route: /planejamento (serves custos_fixos.html)
+    Legacy aliases:
+    - GET /  → 302 redirect to /planejamento
+    - GET /custos-fixos → 302 redirect to /planejamento
+    - GET /orcamento → 307 redirect to /planejamento
+    Other screens:
     - GET /historico → Histórico HTML
     - GET /proximos → Próximos HTML
     - GET /regras → Regras HTML
-    - GET /orcamento → 307 redirect to /custos-fixos
+    Removed routes:
     - Dashboard routes (/dashboard/*) → 404
     - Reserve/savings routes → 404
     """
@@ -45,19 +47,19 @@ class PageSmokeTest(unittest.TestCase):
     def test_root_redirects_to_planejamento(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["location"], "/custos-fixos")
+        self.assertEqual(response.headers["location"], "/planejamento")
 
-    def test_planejamento_route_redirects_to_custos_fixos(self):
+    def test_planejamento_route_serves_page(self):
         response = self.client.get("/planejamento")
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["location"], "/custos-fixos")
-
-    def test_custos_fixos_loads(self):
-        response = self.client.get("/custos-fixos")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
         # Must not expose a "Criar custo recorrente" tab button
         self.assertNotIn("Criar custo recorrente", response.text)
+
+    def test_custos_fixos_redirects_to_planejamento(self):
+        response = self.client.get("/custos-fixos")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["location"], "/planejamento")
 
     def test_historico_loads(self):
         response = self.client.get("/historico")
@@ -74,10 +76,10 @@ class PageSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
 
-    def test_orcamento_redirects_to_custos_fixos(self):
+    def test_orcamento_redirects_to_planejamento(self):
         response = self.client.get("/orcamento")
         self.assertEqual(response.status_code, 307)
-        self.assertEqual(response.headers["location"], "/custos-fixos")
+        self.assertEqual(response.headers["location"], "/planejamento")
 
     def test_dashboard_routes_return_404(self):
         for path in (
@@ -98,11 +100,12 @@ class PageSmokeTest(unittest.TestCase):
 
     def test_sidebar_has_no_dashboard_link(self):
         # Primary pages must not show a Dashboard nav item.
-        for path in ("/historico", "/custos-fixos", "/regras", "/proximos"):
+        for path in ("/historico", "/planejamento", "/regras", "/proximos"):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
             self.assertNotIn("Dashboard", response.text, path)
             self.assertNotIn('href="/orcamento"', response.text, path)
+            self.assertNotIn('href="/custos-fixos"', response.text, path)
 
 
 if __name__ == "__main__":
