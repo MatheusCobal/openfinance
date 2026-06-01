@@ -1280,7 +1280,11 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     # ----- 5. Variable budget: only consumed reduces availability -----
 
     def test_variable_budget_only_consumed_part_reduces_availability(self):
-        """Mercado planned R$ 1500, gasto R$ 430 → restam R$ 1070, disponível desce R$ 430."""
+        """Mercado planned R$ 1500, gasto R$ 430 → restam R$ 1070, disponível desce R$ 430.
+
+        Uses 2026-07 (reliably future) so the future-month formula applies
+        regardless of when today falls in June.
+        """
         with Session(self.engine) as session:
             session.add(
                 Category(id=1, name="Mercado", color="#22c55e", sort_order=1)
@@ -1291,7 +1295,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-zaffari",
                     account_id="credit-1",
-                    date=date(2026, 6, 4),
+                    date=date(2026, 7, 4),
                     amount=Decimal("430.00"),
                     description="Zaffari",
                     category="Supermarket",
@@ -1299,7 +1303,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
             session.commit()
 
-        capacity = self._capacity()
+        capacity = self._capacity("2026-07")
         self.assertEqual(capacity["variable_budget_total"], 1500.0)
         self.assertEqual(capacity["variable_budget_consumed"], 430.0)
         self.assertEqual(capacity["variable_budget_remaining"], 1070.0)
@@ -1313,7 +1317,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     def test_credit_card_purchase_not_double_counted_via_invoice(self):
         """Card purchase consumes category; gross invoice tracks it but
-        availability must NOT subtract the invoice again."""
+        availability must NOT subtract the invoice again.
+
+        Uses 2026-07 (reliably future) so the future-month formula applies.
+        """
         with Session(self.engine) as session:
             session.add(
                 Category(id=1, name="Mercado", color="#22c55e", sort_order=1)
@@ -1324,7 +1331,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-zaffari",
                     account_id="credit-1",
-                    date=date(2026, 6, 4),
+                    date=date(2026, 7, 4),
                     amount=Decimal("430.00"),
                     description="Zaffari",
                     category="Supermarket",
@@ -1332,7 +1339,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
             session.commit()
 
-        capacity = self._capacity()
+        capacity = self._capacity("2026-07")
         # Card invoice reflects the real R$ 430 charge
         self.assertEqual(capacity["card_invoice_gross_total"], 430.0)
         self.assertEqual(capacity["card_invoice_discretionary_total"], 430.0)
@@ -1347,6 +1354,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     def test_fixed_cost_on_credit_card_not_double_counted(self):
         """A fixed-cost-matched card purchase belongs to:
         gross invoice, fixed cost actual; NOT discretionary invoice nor variable budget.
+
+        Uses 2026-07 (reliably future) so the future-month formula applies.
         """
         with Session(self.engine) as session:
             session.add(
@@ -1358,7 +1367,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-vyvanse",
                     account_id="credit-1",
-                    date=date(2026, 6, 5),
+                    date=date(2026, 7, 5),
                     amount=Decimal("740.00"),
                     description="Farmacia Vyvanse",
                     category="Pharmacy",
@@ -1380,10 +1389,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         ).json()
         self.client.post(
             f"/fixed-costs/{cost['id']}/matches",
-            json={"transaction_id": "tx-vyvanse", "year_month": "2026-06"},
+            json={"transaction_id": "tx-vyvanse", "year_month": "2026-07"},
         )
 
-        capacity = self._capacity()
+        capacity = self._capacity("2026-07")
         # In gross invoice but excluded from discretionary
         self.assertEqual(capacity["card_invoice_gross_total"], 740.0)
         self.assertEqual(capacity["card_invoice_discretionary_total"], 0.0)
@@ -1455,6 +1464,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """A bank PIX that monthly_breakdown auto-matches to a fixed cost must
         NOT also leak into variable_budget_spent / unbudgeted_variable_spent.
         Otherwise it gets subtracted twice from budget_available_to_spend.
+
+        Uses 2026-07 (reliably future) so the future-month formula applies.
         """
         cost = self._make_water_fixed_cost(amount=300)
 
@@ -1471,7 +1482,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-water-auto",
                     account_id="bank-1",
-                    date=date(2026, 6, 10),
+                    date=date(2026, 7, 10),
                     amount=Decimal("-300"),
                     # Description matches the fixed-cost description so
                     # _find_matching_transaction picks it up without a
@@ -1484,14 +1495,14 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         # Sanity: the breakdown auto-matched it.
         breakdown = self.client.get(
-            "/fixed-costs/by-month", params={"year_month": "2026-06"}
+            "/fixed-costs/by-month", params={"year_month": "2026-07"}
         ).json()
         entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
         self.assertEqual(entry["status"], "paid")
         self.assertEqual(entry["match_source"], "auto")
         self.assertEqual(entry["actual_amount"], 300.0)
 
-        capacity = self._capacity()
+        capacity = self._capacity("2026-07")
         # Fixed cost side: actual R$ 300, reserved R$ 300, no variance.
         self.assertEqual(capacity["fixed_cost_actual_total"], 300.0)
         self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)

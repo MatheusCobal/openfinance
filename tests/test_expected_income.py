@@ -131,7 +131,7 @@ class ExpectedIncomeTest(unittest.TestCase):
                 Transaction(
                     id="tx-salary-received",
                     account_id="bank-1",
-                    date=date(self.today.year, self.today.month, 5),
+                    date=self.today,  # always on-or-before today; day 5 may be future
                     amount=Decimal("8000"),
                     description="Salário Empresa",
                     category="Salary",
@@ -248,7 +248,7 @@ class ExpectedIncomeTest(unittest.TestCase):
                 Transaction(
                     id="tx-big-salary",
                     account_id="bank-1",
-                    date=date(self.today.year, self.today.month, 5),
+                    date=self.today,  # always on-or-before today; day 5 may be future
                     amount=Decimal("9000"),
                     description="Salário Empresa",
                     category="Salary",
