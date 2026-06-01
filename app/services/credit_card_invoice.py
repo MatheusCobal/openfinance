@@ -44,6 +44,9 @@ from sqlmodel import Session, select
 from app.models import Account, CreditCardBill, Transaction
 
 
+PAYMENT_MATCH_TOLERANCE = Decimal("1.00")
+
+
 # ---------------------------------------------------------------------------
 # Helpers shared with pluggy_snapshot (billing-cycle calculation)
 # ---------------------------------------------------------------------------
@@ -85,6 +88,260 @@ def _account_balance_total(credit_accounts: list[Account]) -> Decimal:
         (a.balance for a in credit_accounts if a.balance is not None),
         Decimal("0"),
     )
+
+
+def _payment_status_from_amounts(
+    invoice_amount: Decimal,
+    paid_amount: Optional[Decimal],
+    *,
+    source: str,
+    confidence: str,
+) -> Dict[str, Any]:
+    invoice_amount = max(invoice_amount, Decimal("0"))
+    if invoice_amount <= 0:
+        return {
+            "payment_status": "unknown",
+            "payment_confidence": "none",
+            "payment_source": "none",
+            "paid_amount": 0.0,
+            "remaining_amount": 0.0,
+            "matched_payment_transactions": [],
+        }
+    if paid_amount is None:
+        return {
+            "payment_status": "unknown",
+            "payment_confidence": "none",
+            "payment_source": "none",
+            "paid_amount": 0.0,
+            "remaining_amount": float(invoice_amount),
+            "matched_payment_transactions": [],
+        }
+
+    paid_amount = max(paid_amount, Decimal("0"))
+    remaining = max(invoice_amount - paid_amount, Decimal("0"))
+    if paid_amount >= invoice_amount - PAYMENT_MATCH_TOLERANCE:
+        status = "paid"
+    elif paid_amount > 0:
+        status = "partially_paid"
+    else:
+        status = "unpaid"
+    return {
+        "payment_status": status,
+        "payment_confidence": confidence,
+        "payment_source": source,
+        "paid_amount": float(paid_amount),
+        "remaining_amount": float(remaining),
+        "matched_payment_transactions": [],
+    }
+
+
+def _serialize_payment_transaction(tx: Transaction) -> Dict[str, Any]:
+    return {
+        "id": tx.id,
+        "date": tx.date.isoformat(),
+        "amount": float(abs(tx.amount)),
+        "description": tx.description,
+        "account_id": tx.account_id,
+        "category": tx.category,
+    }
+
+
+def _find_invoice_payment_transactions(
+    session: Session,
+    *,
+    account_ids: set[str],
+    start_date: datetime.date,
+    end_date: datetime.date,
+) -> list[Transaction]:
+    from app.services.classification import TransactionClassifier
+    from app.services.transactions import account_ids_by_type
+
+    active_credit_ids = set(account_ids_by_type(session, {"CREDIT"}))
+    if account_ids:
+        active_credit_ids &= account_ids
+    if not active_credit_ids:
+        return []
+
+    classifier = TransactionClassifier.from_session(session)
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id.in_(active_credit_ids),
+            Transaction.date >= start_date,
+            Transaction.date <= end_date,
+        )
+        .order_by(Transaction.date.asc(), Transaction.description.asc())
+    ).all()
+    return [tx for tx in rows if classifier.is_invoice_payment(tx)]
+
+
+def _payment_status_from_transactions(
+    transactions: list[Transaction],
+    invoice_amount: Decimal,
+    *,
+    source: str = "invoice_payment_transaction",
+    confidence: str = "medium",
+) -> Dict[str, Any]:
+    paid_amount = sum((abs(tx.amount) for tx in transactions), Decimal("0"))
+    result = _payment_status_from_amounts(
+        invoice_amount,
+        paid_amount,
+        source=source,
+        confidence=confidence,
+    )
+    result["matched_payment_transactions"] = [
+        _serialize_payment_transaction(tx) for tx in transactions
+    ]
+    return result
+
+
+def _default_payment_status(invoice_amount: Decimal, source: str) -> Dict[str, Any]:
+    invoice_amount = max(invoice_amount, Decimal("0"))
+    if source == "none" and invoice_amount <= 0:
+        status = "not_applicable"
+        confidence = "none"
+        remaining = Decimal("0")
+    elif invoice_amount <= 0:
+        status = "unknown"
+        confidence = "none"
+        remaining = Decimal("0")
+    else:
+        status = "unknown"
+        confidence = "none"
+        remaining = invoice_amount
+    return {
+        "payment_status": status,
+        "payment_confidence": confidence,
+        "payment_source": "none",
+        "paid_amount": 0.0,
+        "remaining_amount": float(remaining),
+        "matched_payment_transactions": [],
+    }
+
+
+def _bill_window(bill: CreditCardBill) -> tuple[datetime.date, datetime.date]:
+    if bill.due_date is None:
+        today = datetime.date.today()
+        return today, today
+    return (
+        bill.due_date - datetime.timedelta(days=10),
+        bill.due_date + datetime.timedelta(days=5),
+    )
+
+
+def _card_payment_status(bill: CreditCardBill) -> Dict[str, Any]:
+    total = max(bill.total_amount or Decimal("0"), Decimal("0"))
+    paid = max(bill.payments_total or Decimal("0"), Decimal("0"))
+    if bill.total_amount is None or total <= 0 or bill.payments_total is None:
+        status = "unknown"
+        remaining = total
+    elif paid >= total - PAYMENT_MATCH_TOLERANCE:
+        status = "paid"
+        remaining = Decimal("0")
+    elif paid > 0:
+        status = "partially_paid"
+        remaining = total - paid
+    else:
+        status = "unpaid"
+        remaining = total
+    return {
+        "paid_amount": float(paid),
+        "remaining_amount": float(max(remaining, Decimal("0"))),
+        "payment_status": status,
+    }
+
+
+def _payment_status_for_official_bills(
+    session: Session,
+    bills: list[CreditCardBill],
+) -> Dict[str, Any]:
+    invoice_amount = sum((b.total_amount or Decimal("0") for b in bills), Decimal("0"))
+    if invoice_amount <= 0:
+        return _default_payment_status(invoice_amount, "official_bill")
+
+    if all(b.payments_total is not None for b in bills):
+        paid_amount = sum((b.payments_total or Decimal("0") for b in bills), Decimal("0"))
+        confidence = "high" if paid_amount > 0 else "medium"
+        return _payment_status_from_amounts(
+            invoice_amount,
+            paid_amount,
+            source="bill_payments_total",
+            confidence=confidence,
+        )
+
+    payment_txs: list[Transaction] = []
+    seen_ids: set[str] = set()
+    for bill in bills:
+        if bill.due_date is None:
+            continue
+        start_date, end_date = _bill_window(bill)
+        for tx in _find_invoice_payment_transactions(
+            session,
+            account_ids={bill.account_id},
+            start_date=start_date,
+            end_date=end_date,
+        ):
+            if tx.id not in seen_ids:
+                seen_ids.add(tx.id)
+                payment_txs.append(tx)
+
+    if payment_txs:
+        return _payment_status_from_transactions(payment_txs, invoice_amount)
+
+    return _default_payment_status(invoice_amount, "official_bill")
+
+
+def _payment_status_for_non_official_invoice(
+    session: Session,
+    result: Dict[str, Any],
+    today: datetime.date,
+) -> Dict[str, Any]:
+    invoice_amount = Decimal(str(result.get("amount") or 0))
+    source = result.get("source") or "none"
+    due_dates = [
+        datetime.date.fromisoformat(value)
+        for value in result.get("due_dates", [])
+        if value
+    ]
+    account_ids = {
+        card.get("account_id")
+        for card in result.get("cards", [])
+        if card.get("account_id")
+    }
+
+    if due_dates and invoice_amount > 0:
+        payment_txs: list[Transaction] = []
+        seen_ids: set[str] = set()
+        for due_date in due_dates:
+            start_date = due_date - datetime.timedelta(days=10)
+            end_date = due_date + datetime.timedelta(days=5)
+            for tx in _find_invoice_payment_transactions(
+                session,
+                account_ids=account_ids,
+                start_date=start_date,
+                end_date=end_date,
+            ):
+                if tx.id not in seen_ids:
+                    seen_ids.add(tx.id)
+                    payment_txs.append(tx)
+        if payment_txs:
+            return _payment_status_from_transactions(payment_txs, invoice_amount)
+        if any(due_date <= today for due_date in due_dates):
+            return _payment_status_from_amounts(
+                invoice_amount,
+                Decimal("0"),
+                source="none",
+                confidence="low",
+            )
+
+    return _default_payment_status(invoice_amount, source)
+
+
+def _with_payment_status(
+    result: Dict[str, Any],
+    payment_status: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {**result, **payment_status}
 
 
 def _none_result(
@@ -387,7 +644,8 @@ def _future_month_invoice(
     if matched_bills:
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
-        return {
+        payment_status = _payment_status_for_official_bills(session, matched_bills)
+        return _with_payment_status({
             "year_month": year_month,
             "planning_mode": "future_month",
             "amount": float(official_total),
@@ -401,6 +659,7 @@ def _future_month_invoice(
                     "due_date": b.due_date.isoformat() if b.due_date else None,
                     "total_amount": float(b.total_amount or 0),
                     "minimum_payment_amount": float(b.minimum_payment_amount or 0),
+                    **_card_payment_status(b),
                 }
                 for b in matched_bills
             ],
@@ -410,7 +669,7 @@ def _future_month_invoice(
             "cycle_start": None,
             "cycle_end": None,
             "account_balance_total": float(bal_total),
-        }
+        }, payment_status)
 
     # ---- Tier 2: Account.balance with due_date in this month ----
     credit_with_due_in_month = [
@@ -531,7 +790,8 @@ def _past_month_invoice(
     if matched_bills:
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
-        return {
+        payment_status = _payment_status_for_official_bills(session, matched_bills)
+        return _with_payment_status({
             "year_month": year_month,
             "planning_mode": "past_month",
             "amount": float(official_total),
@@ -545,6 +805,7 @@ def _past_month_invoice(
                     "due_date": b.due_date.isoformat() if b.due_date else None,
                     "total_amount": float(b.total_amount or 0),
                     "minimum_payment_amount": float(b.minimum_payment_amount or 0),
+                    **_card_payment_status(b),
                 }
                 for b in matched_bills
             ],
@@ -554,7 +815,7 @@ def _past_month_invoice(
             "cycle_start": None,
             "cycle_end": None,
             "account_balance_total": float(bal_total),
-        }
+        }, payment_status)
 
     # ---- Tier 2: transaction fallback ----
     inv = invoice_summary(session, from_date=first_day, to_date=last_day)
@@ -604,8 +865,15 @@ def planning_invoice_for_month(
     credit_accounts = _active_credit_accounts(session)
 
     if year_month == current_ym:
-        return _current_month_invoice(session, year_month, today, credit_accounts)
+        result = _current_month_invoice(session, year_month, today, credit_accounts)
     elif year_month > current_ym:
-        return _future_month_invoice(session, year_month, today, credit_accounts)
+        result = _future_month_invoice(session, year_month, today, credit_accounts)
     else:
-        return _past_month_invoice(session, year_month, credit_accounts)
+        result = _past_month_invoice(session, year_month, credit_accounts)
+
+    if "payment_status" in result:
+        return result
+    return _with_payment_status(
+        result,
+        _payment_status_for_non_official_invoice(session, result, today),
+    )
