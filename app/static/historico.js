@@ -37,13 +37,12 @@ function categoryIcon(name) {
 const INVOICE_COLOR = '#475569';
 const INCOME_COLOR = '#10b981';
 const HISTORY_TABS = [
-  { key: 'categories', label: 'Categorias' },
   { key: 'invoices', label: 'Faturas cartão' },
   { key: 'income', label: 'Receitas' },
   { key: 'cashflow', label: 'Entradas e saídas' },
 ];
 
-let activeTab = 'categories';
+let activeTab = 'invoices';
 let categoryHistory = null;
 let invoiceHistory = null;
 let incomeHistory = null;
@@ -474,17 +473,39 @@ function hideEmpty() {
   document.getElementById('empty').classList.add('hidden');
 }
 
-function renderCategoryHistory() {
+// Render category spending cards + charts into #cards without touching
+// tab-level state (no hideAllTabSections, no destroyCharts).  Called both
+// from renderCategoryHistory() (standalone, currently unused) and from
+// renderInvoiceHistory() to embed categories below the invoice section.
+function renderCategoryContent() {
   const data = categoryHistory;
   const cards = document.getElementById('cards');
+  if (!data || data.categories.length === 0 || data.months.length === 0) {
+    cards.innerHTML = '';
+    cards.classList.add('hidden');
+    return;
+  }
+
+  const ordered = [...data.categories].sort(
+    (a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999),
+  );
+
+  cards.innerHTML =
+    '<h2 class="col-span-full font-semibold text-slate-900 mb-2">Gastos por categoria</h2>' +
+    ordered.map((cat) => renderCard(cat, data.months)).join('');
+  cards.classList.remove('hidden');
+  // Charts must be created AFTER the canvas elements exist in the DOM.
+  ordered.forEach((cat) => renderChart(cat, data.months));
+}
+
+function renderCategoryHistory() {
+  const data = categoryHistory;
   const subtitle = document.getElementById('subtitle');
 
   destroyCharts();
   hideAllTabSections();
-  cards.classList.remove('hidden');
 
-  if (data.categories.length === 0 || data.months.length === 0) {
-    cards.innerHTML = '';
+  if (!data || data.categories.length === 0 || data.months.length === 0) {
     renderEmpty(
       'Nenhuma transação encontrada.',
       'Conecte um banco pelo Pluggy primeiro.',
@@ -494,8 +515,6 @@ function renderCategoryHistory() {
   }
   hideEmpty();
 
-  // Sort by sort_order so categories appear in a stable, intentional order
-  // (Mercado first, Outros last), independent of total.
   const ordered = [...data.categories].sort(
     (a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999),
   );
@@ -505,9 +524,7 @@ function renderCategoryHistory() {
     ` · ${data.months.length} ${data.months.length === 1 ? 'mês' : 'meses'}` +
     ` de histórico`;
 
-  cards.innerHTML = ordered.map((cat) => renderCard(cat, data.months)).join('');
-  // Charts must be created AFTER the canvas elements exist in the DOM.
-  ordered.forEach((cat) => renderChart(cat, data.months));
+  renderCategoryContent();
 }
 
 function renderInvoiceHistory() {
@@ -605,6 +622,9 @@ function renderInvoiceHistory() {
   });
 
   renderInvoiceChart(data);
+
+  // Show category spending below the invoice history.
+  renderCategoryContent();
 }
 
 // ── Income (Receitas) tab ───────────────────────────────────────────────
@@ -1333,15 +1353,6 @@ function renderActiveTab() {
       return;
     }
     renderCashflow();
-  } else {
-    if (!categoryHistory) {
-      renderUnavailable(
-        'Não foi possível carregar as categorias.',
-        'Tente atualizar novamente em alguns segundos.',
-      );
-      return;
-    }
-    renderCategoryHistory();
   }
 }
 

@@ -1,3 +1,4 @@
+import calendar
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -29,6 +30,34 @@ from app.services.transactions import (
     last_month_keys,
     month_key,
 )
+
+
+_DEFAULT_DUE_DAY = 6  # fallback when account has no credit_balance_due_date
+
+
+def invoice_month_from_payment(payment_date: date, due_day: int) -> str:
+    """Return the YYYY-MM of the invoice that a payment belongs to.
+
+    The invoice month is the month containing the nearest due date that
+    falls ON OR AFTER the payment date.
+
+    Example — payment 2026-04-29, due_day=4:
+      candidate this month = 2026-04-04  (already past)
+      → next month          = 2026-05   ✓
+
+    Example — payment 2026-05-03, due_day=4:
+      candidate this month = 2026-05-04  (still in the future)
+      → same month          = 2026-05   ✓
+    """
+    max_day = calendar.monthrange(payment_date.year, payment_date.month)[1]
+    candidate_day = min(due_day, max_day)
+    candidate = payment_date.replace(day=candidate_day)
+    if candidate >= payment_date:
+        return candidate.strftime("%Y-%m")
+    # Due date this month is already past — invoice belongs to next month.
+    if payment_date.month == 12:
+        return f"{payment_date.year + 1}-01"
+    return f"{payment_date.year}-{payment_date.month + 1:02d}"
 
 
 def ignored_transactions_monthly_summary(session: Session):
@@ -82,8 +111,14 @@ def ignored_transactions_monthly_summary(session: Session):
 
 
 def credit_card_payments_monthly_summary(session: Session, months: int):
-    refresh_credit_card_invoice_snapshots(session, months)
+    """Return monthly credit-card invoice payments for the last ``months`` months.
 
+    Payments are attributed to the invoice month (the month whose due date is
+    the nearest future due date relative to the payment date), NOT to the
+    calendar month of the payment transaction.  This correctly handles
+    payments made before the due date — e.g. a payment on 2026-04-29 for an
+    invoice due 2026-05-04 is attributed to 2026-05, not 2026-04.
+    """
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
@@ -93,26 +128,30 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
         start_date,
         today,
     )
-    snapshots = {
-        snapshot.year_month: snapshot
-        for snapshot in session.exec(select(CreditCardInvoiceMonth)).all()
-        if snapshot.year_month in month_keys
-    }
 
+    # Build a per-account due_day map from persisted Pluggy credit data.
+    account_due_days: Dict[str, int] = {}
+    for acct in session.exec(select(Account)).all():
+        if acct.type == "CREDIT" and acct.credit_balance_due_date:
+            account_due_days[acct.id] = acct.credit_balance_due_date.day
+
+    # Bucket each payment by the invoice month it belongs to.
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
+    tx_invoice_month: Dict[str, str] = {}  # tx.id → invoice_month
     for tx in payment_transactions:
-        month = month_key(tx.date)
-        if month in by_month:
-            by_month[month].append(tx)
+        due_day = account_due_days.get(tx.account_id, _DEFAULT_DUE_DAY)
+        inv_month = invoice_month_from_payment(tx.date, due_day)
+        tx_invoice_month[tx.id] = inv_month
+        if inv_month in by_month:
+            by_month[inv_month].append(tx)
 
     total = Decimal("0")
     total_count = 0
     output_months = []
     for month in month_keys:
-        snapshot = snapshots.get(month)
         txs = by_month[month]
-        month_total = snapshot.total if snapshot is not None else Decimal("0")
-        month_count = snapshot.payment_count if snapshot is not None else 0
+        month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        month_count = len(txs)
         total += month_total
         total_count += month_count
         output_months.append(
@@ -128,6 +167,7 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
                         "amount_abs": float(abs(tx.amount)),
                         "description": tx.description,
                         "pluggy_category": tx.category,
+                        "invoice_month": tx_invoice_month[tx.id],
                     }
                     for tx in txs
                 ],
