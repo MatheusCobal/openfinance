@@ -40,11 +40,6 @@ def regras():
     return FileResponse(STATIC_DIR / "regras.html")
 
 
-@router.get("/receita-futura", include_in_schema=False)
-def receita_futura():
-    return RedirectResponse(url="/custos-fixos?tab=receita", status_code=307)
-
-
 @router.get("/custos-fixos", include_in_schema=False)
 def custos_fixos():
     return FileResponse(STATIC_DIR / "custos_fixos.html")

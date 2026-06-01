@@ -3,8 +3,6 @@
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const MONTH_WINDOW = 6;
 const MAX_CUSTOM_CATEGORIES = 5;
-const TRANSACTION_SUGGESTIONS_INITIAL = 5;
-const TRANSACTION_SUGGESTIONS_MAX = 50;
 const MONTH_LABELS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 // ── Description matching helpers (mirrors backend _token_set / normalize_description) ──
@@ -1733,82 +1731,6 @@ document.getElementById('quick-cost-form').addEventListener('submit', async (eve
 });
 
 document.getElementById('show-inactive').addEventListener('change', loadCosts);
-
-// ── Transaction suggestions ─────────────────────────────────────────────────
-
-async function loadTransactionSuggestions() {
-  const list = document.getElementById('transaction-suggestions');
-  if (!list) return;
-  try {
-    const transactions = await fetchJson('/transactions?account_type=ALL&include_ignored=true');
-    const rows = transactions.slice(0, TRANSACTION_SUGGESTIONS_MAX);
-    if (rows.length === 0) {
-      list.innerHTML = '<li class="py-8 text-sm text-slate-500 text-center">Nenhuma transação recente encontrada.</li>';
-      return;
-    }
-    list.innerHTML = '';
-    rows.forEach((tx, index) => {
-      const row = buildTransactionSuggestionRow(tx);
-      if (index >= TRANSACTION_SUGGESTIONS_INITIAL) row.classList.add('transaction-suggestion-extra', 'hidden');
-      list.appendChild(row);
-    });
-    if (rows.length > TRANSACTION_SUGGESTIONS_INITIAL) {
-      const more = document.createElement('li');
-      more.className = 'py-3 text-center';
-      more.innerHTML = `
-        <button type="button" data-action="show-more"
-          class="inline-flex items-center gap-2 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors">
-          <span aria-hidden="true">＋</span>
-          Ver mais ${rows.length - TRANSACTION_SUGGESTIONS_INITIAL} transações
-        </button>
-      `;
-      more.querySelector('[data-action="show-more"]').addEventListener('click', () => {
-        list.querySelectorAll('.transaction-suggestion-extra').forEach((row) => row.classList.remove('hidden'));
-        more.remove();
-      });
-      list.appendChild(more);
-    }
-  } catch (err) {
-    list.innerHTML = `<li class="py-6 text-sm text-red-600 text-center">${escapeHtml(err.message)}</li>`;
-  }
-}
-
-function buildTransactionSuggestionRow(tx) {
-  const li = document.createElement('li');
-  li.className = 'py-3 px-1 flex items-center gap-3 hover:bg-slate-50 rounded-lg transition-colors';
-
-  const txDate = new Date(tx.date + 'T00:00:00');
-  const day = String(txDate.getDate()).padStart(2, '0');
-  const monthLabel = MONTH_LABELS[txDate.getMonth()];
-
-  li.innerHTML = `
-    <div class="flex flex-col items-center justify-center size-10 rounded-xl bg-slate-100 shrink-0">
-      <span class="text-base font-bold text-slate-700 leading-none tabular">${day}</span>
-      <span class="text-[9px] text-slate-400 uppercase tracking-wide leading-none mt-0.5">${monthLabel}</span>
-    </div>
-    <div class="flex-1 min-w-0">
-      <p class="font-medium text-slate-900 text-sm truncate">${escapeHtml(tx.description)}</p>
-      <p class="text-xs text-slate-400 mt-0.5">${escapeHtml(tx.custom_category_name || tx.category || 'Sem categoria')}</p>
-    </div>
-    <p class="font-semibold tabular text-sm text-slate-800 shrink-0">${currency.format(Math.abs(Number(tx.amount) || 0))}</p>
-    <button type="button" data-action="use"
-      class="shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg transition-colors">
-      + Criar custo
-    </button>
-  `;
-  li.querySelector('[data-action="use"]').addEventListener('click', async () => {
-    try {
-      await fetchJson('/fixed-costs/from-transaction', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transaction_id: tx.id }),
-      });
-      await Promise.all([loadCosts(), loadMonthData()]);
-      showToast('Custo fixo criado a partir da transação.', 'success');
-    } catch (err) { showToast(err.message, 'error'); }
-  });
-  return li;
-}
 
 // ── Expected income tab ────────────────────────────────────────────────────
 
