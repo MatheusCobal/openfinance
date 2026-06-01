@@ -135,6 +135,8 @@ function transactionAmountHtml(tx) {
 // Follows the selected dashboard period. The home intentionally supports
 // only the current month and the previous month, so this summary remains a
 // focused monthly snapshot instead of becoming another history screen.
+// TODO: when the dashboard overview is refactored, consume
+// /planning/month/{year_month} so its card invoice source matches Planejamento.
 
 const FLOW_TINTS = {
   emerald: { text: 'text-emerald-700', iconBg: 'bg-emerald-100' },

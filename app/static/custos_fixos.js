@@ -138,6 +138,79 @@ function formatDate(iso) {
   return `${day}/${month}`;
 }
 
+function asMoneyNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizePlanningOverview(planning) {
+  const rawCapacity = planning?.raw?.spending_capacity || {};
+  const invoice = planning?.credit_card_invoice || rawCapacity.planning_invoice || {};
+  const fixed = rawCapacity.fixed_costs || {
+    year_month: planning?.year_month,
+    total: planning?.fixed_costs?.planned || 0,
+    planned_total: planning?.fixed_costs?.planned || 0,
+    actual_total: planning?.fixed_costs?.actual || 0,
+    pending_total: planning?.fixed_costs?.pending || 0,
+    reserved_or_actual_total: planning?.fixed_costs?.reserved_or_actual || 0,
+    categories: [],
+    entries: planning?.fixed_costs?.entries || [],
+  };
+  const expectedIncome = rawCapacity.expected_income || {
+    year_month: planning?.year_month,
+    total: planning?.income?.expected || 0,
+    entries: planning?.income?.entries || [],
+  };
+  const variableBudgets = rawCapacity.variable_budgets || {
+    year_month: planning?.year_month,
+    summary: {
+      target: planning?.variable_budgets?.planned || 0,
+      target_consumed: planning?.variable_budgets?.consumed || 0,
+      target_remaining: planning?.variable_budgets?.remaining || 0,
+      target_overage: planning?.variable_budgets?.overage || 0,
+    },
+    items: planning?.variable_budgets?.items || [],
+  };
+
+  return {
+    ...rawCapacity,
+    year_month: planning?.year_month || rawCapacity.year_month,
+    planning_invoice: invoice,
+    credit_card_invoice: invoice,
+    expected_income_total: planning?.income?.expected ?? rawCapacity.expected_income_total ?? 0,
+    received_income_total: planning?.income?.received ?? rawCapacity.received_income_total ?? 0,
+    income_to_receive: planning?.income?.to_receive ?? rawCapacity.income_to_receive ?? 0,
+    fixed_cost_planned_total: planning?.fixed_costs?.planned ?? rawCapacity.fixed_cost_planned_total ?? fixed.planned_total ?? 0,
+    fixed_cost_actual_total: planning?.fixed_costs?.actual ?? rawCapacity.fixed_cost_actual_total ?? fixed.actual_total ?? 0,
+    fixed_cost_pending_total: planning?.fixed_costs?.pending ?? rawCapacity.fixed_cost_pending_total ?? fixed.pending_total ?? 0,
+    fixed_cost_reserved_total: planning?.fixed_costs?.reserved_or_actual ?? rawCapacity.fixed_cost_reserved_total ?? fixed.reserved_or_actual_total ?? 0,
+    variable_budget_total: planning?.variable_budgets?.planned ?? rawCapacity.variable_budget_total ?? 0,
+    variable_budget_consumed: planning?.variable_budgets?.consumed ?? rawCapacity.variable_budget_consumed ?? 0,
+    variable_budget_remaining: planning?.variable_budgets?.remaining ?? rawCapacity.variable_budget_remaining ?? 0,
+    variable_budget_overage: planning?.variable_budgets?.overage ?? rawCapacity.variable_budget_overage ?? 0,
+    available_to_spend: planning?.capacity?.available_to_spend ?? rawCapacity.available_to_spend ?? rawCapacity.budget_available_to_spend ?? 0,
+    budget_available_to_spend: planning?.capacity?.available_to_spend ?? rawCapacity.budget_available_to_spend ?? rawCapacity.available_to_spend ?? 0,
+    available_after_reserve: planning?.capacity?.available_after_reserve ?? rawCapacity.available_after_reserve ?? 0,
+    daily_discretionary_remaining: planning?.capacity?.daily_discretionary_remaining ?? rawCapacity.daily_discretionary_remaining ?? 0,
+    days_remaining_in_month: planning?.capacity?.days_remaining_in_month ?? rawCapacity.days_remaining_in_month ?? 0,
+    plan_status: planning?.capacity?.plan_status ?? rawCapacity.plan_status,
+    fixed_costs: fixed,
+    expected_income: expectedIncome,
+    variable_budgets: variableBudgets,
+  };
+}
+
+function invoiceIncludedAmount(capacity) {
+  const isFuture = (capacity.planning_mode || (capacity.is_future_month ? 'future_month' : 'current_month')) === 'future_month';
+  return isFuture
+    ? asMoneyNumber(capacity.future_card_obligation_total)
+    : asMoneyNumber(capacity.card_invoice_remaining_to_reserve);
+}
+
+function transactionCountLabel(count) {
+  return count === 1 ? '1 transação' : `${count} transações`;
+}
+
 // ── Month strip ────────────────────────────────────────────────────────────
 
 function renderMonthStrip() {
@@ -182,8 +255,8 @@ function renderCapacityFlow(capacity) {
   const reserve       = isFuture
     ? (capacity.reserve_target_total       || 0)
     : (capacity.reserve_reserved_total     || 0);
-  const ccRemaining         = capacity.card_invoice_remaining_to_reserve || 0;
-  const futureCardObligation= capacity.future_card_obligation_total      || 0;
+  const ccRemaining         = invoiceIncludedAmount(capacity);
+  const futureCardObligation= invoiceIncludedAmount(capacity);
   const varBudgetTotal= capacity.variable_budget_total            || 0;
   const varReserved   = capacity.variable_budget_reserved         || 0;
   const daily         = capacity.daily_discretionary_remaining    || 0;
@@ -214,18 +287,20 @@ function renderCapacityFlow(capacity) {
   const varTotalPct  = isFuture ? varResPct : varConsPct + varOverPct;
 
   // ── Credit card context ──
-  const ccOfficial  = capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
+  const invoice = capacity.credit_card_invoice || capacity.planning_invoice || {};
+  const ccOfficial  = invoice.amount ?? capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
   const ccGross               = capacity.card_invoice_gross_total       || 0;
-  const ccSource              = capacity.card_invoice_source;
+  const ccSource              = invoice.source || capacity.card_invoice_source;
   const futureObligationSource      = capacity.future_card_obligation_source        || 'none';
   const futureObligationCount       = capacity.future_card_obligation_count         || 0;
   const futureObligationDisplayMonth = capacity.future_card_obligation_display_month || null;
-  const dueDates = capacity.credit_card_due_dates || [];
+  const dueDates = invoice.due_dates || capacity.credit_card_due_dates || [];
 
   // ── Pre-build accordion panel content (avoids nested template-literal issues) ──
   const rReceita  = expandedOverviewPanel === 'receita'  ? buildOverviewPanelContent('receita',  capacity, sobra, sobraPositive) : '';
   const rCustos   = expandedOverviewPanel === 'custos'   ? buildOverviewPanelContent('custos',   capacity, sobra, sobraPositive) : '';
   const rVariavel = expandedOverviewPanel === 'variavel' ? buildOverviewPanelContent('variavel', capacity, sobra, sobraPositive) : '';
+  const rFatura   = expandedOverviewPanel === 'fatura'   ? buildOverviewPanelContent('fatura',   capacity, sobra, sobraPositive) : '';
 
   // ── Calculation breakdown rows ──
   const bRows = [
@@ -238,7 +313,7 @@ function renderCapacityFlow(capacity) {
       : { label: 'Variável consumido',        value: varConsumed,    op: '−', cls: 'text-slate-500' },
   ];
   if (!isFuture && varOverage > 0) bRows.push({ label: 'Estouro variável', value: varOverage, op: '−', cls: 'text-red-500' });
-  if (isFuture && futureCardObligation > 0) {
+  if (isFuture) {
     let cardRowLabel;
     if (futureObligationSource === 'account_balance_due_month') {
       cardRowLabel = 'Fatura vencendo no mês';
@@ -251,7 +326,7 @@ function renderCapacityFlow(capacity) {
     }
     bRows.push({ label: cardRowLabel, value: futureCardObligation, op: '−', cls: 'text-amber-600' });
   }
-  if (!isFuture && ccRemaining > 0) bRows.push({ label: 'Fatura ainda não contemplada', value: ccRemaining, op: '−', cls: 'text-amber-600' });
+  if (!isFuture) bRows.push({ label: 'Fatura do cartão / diferença de fatura', value: ccRemaining, op: '−', cls: 'text-amber-600' });
   bRows.push({ label: 'Disponível para gastar', value: sobra, op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' });
 
   const breakdownHtml = bRows.map((r, i) => `
@@ -292,7 +367,7 @@ function renderCapacityFlow(capacity) {
           ? `<div class="h-full bg-amber-400" style="width:${varResPct.toFixed(1)}%" title="Variável planejado (meta)"></div>`
           : `<div class="h-full bg-amber-400"  style="width:${varConsPct.toFixed(1)}%" title="Variável consumido"></div><div class="h-full bg-orange-400" style="width:${varOverPct.toFixed(1)}%" title="Estouro variável"></div>`
         }
-        ${ccRemPct > 0 ? `<div class="h-full bg-yellow-500" style="width:${ccRemPct.toFixed(1)}%" title="Fatura ainda não contemplada"></div>` : ''}
+        ${ccRemPct > 0 ? `<div class="h-full bg-yellow-500" style="width:${ccRemPct.toFixed(1)}%" title="Fatura do cartão"></div>` : ''}
         <div class="h-full ${sobraPositive ? 'bg-emerald-300' : 'bg-red-300'}" style="width:${freePct.toFixed(1)}%" title="Livre"></div>
       </div>
       <div class="flex flex-wrap gap-x-4 gap-y-0.5 mb-4">
@@ -363,6 +438,23 @@ function renderCapacityFlow(capacity) {
         </button>
         <div class="${expandedOverviewPanel === 'variavel' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
           ${rVariavel}
+        </div>
+      </div>
+
+      <!-- Fatura do cartão row: audit source used by backend planning -->
+      <div>
+        <button type="button" data-panel="fatura"
+          class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
+          <span class="text-sm leading-none shrink-0">💳</span>
+          <span class="flex-1 text-sm font-medium text-slate-700">Fatura do cartão</span>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mr-2 text-[11px]">
+            <span class="text-slate-500">fatura <span class="text-slate-700 font-semibold tabular">${currency.format(ccOfficial)}</span></span>
+            <span class="${invoiceIncludedAmount(capacity) > 0 ? 'text-amber-600' : 'text-slate-400'}">no cálculo <span class="font-semibold tabular">${currency.format(invoiceIncludedAmount(capacity))}</span></span>
+          </div>
+          <span class="text-slate-300 text-xs shrink-0 transition-transform ${expandedOverviewPanel === 'fatura' ? 'rotate-180' : ''}" style="display:inline-block">▼</span>
+        </button>
+        <div class="${expandedOverviewPanel === 'fatura' ? '' : 'hidden'} px-4 pb-4 pt-1 bg-slate-50 border-t border-slate-100">
+          ${rFatura}
         </div>
       </div>
 
@@ -478,6 +570,60 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
     `;
   }
 
+  if (key === 'fatura') {
+    const invoice = capacity.credit_card_invoice || capacity.planning_invoice || {};
+    const amount = asMoneyNumber(invoice.amount);
+    const sourceLabel = invoice.source_label || invoice.source || 'Sem fonte';
+    const estimated = invoice.is_estimated === true ? 'Sim' : invoice.is_estimated === false ? 'Não' : '—';
+    const dueDates = Array.isArray(invoice.due_dates) ? invoice.due_dates : [];
+    const cycle = invoice.cycle_start || invoice.cycle_end
+      ? `${invoice.cycle_start ? formatDate(invoice.cycle_start) : '—'} a ${invoice.cycle_end ? formatDate(invoice.cycle_end) : '—'}`
+      : '—';
+    const transactionCount = Number(invoice.transaction_count || 0);
+    const billCount = Number(invoice.bill_count || 0);
+    const includedAmount = invoiceIncludedAmount(capacity);
+    const included = includedAmount > 0 ? `Sim, ${currency.format(includedAmount)}` : 'Não';
+    const emptyMessage = amount === 0 || invoice.source === 'none'
+      ? '<p class="text-xs text-slate-500 mb-3">Sem fatura identificada para este mês.</p>'
+      : '';
+
+    return `
+      <div class="pt-1">
+        ${emptyMessage}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Fatura do cartão</p>
+            <p class="text-base font-bold tabular text-slate-800">${currency.format(amount)}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Fonte</p>
+            <p class="text-sm font-semibold text-slate-700">${escapeHtml(sourceLabel)}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Estimado</p>
+            <p class="text-sm font-semibold text-slate-700">${estimated}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Vencimento</p>
+            <p class="text-sm font-semibold text-slate-700">${dueDates.length ? dueDates.map(formatDate).join(', ') : '—'}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Ciclo</p>
+            <p class="text-sm font-semibold text-slate-700">${escapeHtml(cycle)}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Transações</p>
+            <p class="text-sm font-semibold text-slate-700">${transactionCount || billCount ? `${transactionCountLabel(transactionCount)} · ${billCount} fatura${billCount === 1 ? '' : 's'}` : '—'}</p>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 px-3 py-2 sm:col-span-2">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Incluída no cálculo</p>
+            <p class="text-sm font-semibold ${includedAmount > 0 ? 'text-amber-700' : 'text-slate-600'}">${escapeHtml(included)}</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   if (key === 'reserva') {
     const target  = capacity.reserve_target_total    || 0;
     const applied = capacity.reserve_applied_total   || 0;
@@ -516,20 +662,17 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
     const lVarConsumed  = capacity.variable_budget_consumed          || 0;
     const lVarOverage   = capacity.variable_budget_overage           || 0;
     const lVarTotal     = capacity.variable_budget_total             || 0;
-    const lVarReserved  = capacity.variable_budget_reserved          || 0;
-    const lIsFuture     = capacity.is_future_month                   || false;
-    const lUnbudgeted   = capacity.unbudgeted_variable_spent         || 0;
-    const lReserve      = capacity.reserve_reserved_total            || 0;
-    const lCcRem        = capacity.card_invoice_remaining_to_reserve || 0;
+    const lIsFuture     = (capacity.planning_mode || (capacity.is_future_month ? 'future_month' : 'current_month')) === 'future_month';
     const eq = [
       { label: 'Receita esperada',           value: capacity.expected_income_total     || 0, op: '',  cls: 'text-slate-700' },
-      { label: 'Custos fixos reservados',    value: capacity.fixed_cost_reserved_total || 0, op: '−', cls: 'text-slate-600' },
+      lIsFuture
+        ? { label: 'Custos fixos planejados', value: capacity.fixed_cost_planned_total || 0, op: '−', cls: 'text-slate-600' }
+        : { label: 'Custos fixos reservados', value: capacity.fixed_cost_reserved_total || 0, op: '−', cls: 'text-slate-600' },
       lIsFuture
         ? { label: 'Variável planejado (meta)', value: lVarTotal,    op: '−', cls: 'text-slate-600' }
         : { label: 'Variável consumido',        value: lVarConsumed, op: '−', cls: 'text-slate-600' },
       ...(!lIsFuture && lVarOverage > 0 ? [{ label: 'Estouro variável', value: lVarOverage, op: '−', cls: 'text-slate-600' }] : []),
-      { label: 'Reserva planejada/aplic.',   value: lReserve,                                op: '−', cls: 'text-slate-600' },
-      ...(lCcRem > 0 ? [{ label: 'Fatura ainda não contemplada', value: lCcRem,             op: '−', cls: 'text-amber-600' }] : []),
+      { label: 'Fatura do cartão / diferença de fatura', value: invoiceIncludedAmount(capacity), op: '−', cls: 'text-amber-600' },
       { label: 'Pode gastar',                value: sobra,                                   op: '=', cls: sobraPositive ? 'text-emerald-700 font-bold' : 'text-red-600 font-bold' },
     ];
     return `
@@ -541,9 +684,6 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
             <span class="text-sm tabular ${r.cls}">${currency.format(r.value)}</span>
           </div>
         `).join('')}
-        <p class="text-[11px] text-slate-400 pt-1 border-t border-slate-100 mt-1">
-          Reserva não é despesa, mas reduz o dinheiro livre porque é um compromisso planejado.
-        </p>
       </div>
     `;
   }
@@ -604,10 +744,9 @@ async function loadMonthData() {
   if (!selectedMonth) return;
   expandedOverviewPanel = null;   // reset expanded card when month changes
   try {
-    const [fixed, capacity] = await Promise.all([
-      fetchJson(`/fixed-costs/by-month?year_month=${selectedMonth}`),
-      fetchJson(`/spending-capacity?year_month=${selectedMonth}`),
-    ]);
+    const planning = await fetchJson(`/planning/month/${selectedMonth}`);
+    const capacity = normalizePlanningOverview(planning);
+    const fixed = capacity.fixed_costs;
     const free = capacity.discretionary_available ?? capacity.available_to_spend ?? capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
     document.getElementById('month-total').textContent = currency.format(fixed.total);
     document.getElementById('fixed-month-total').textContent = currency.format(fixed.total);
@@ -616,7 +755,22 @@ async function loadMonthData() {
     renderCategoryBar(fixed);
     renderMonthBreakdown(fixed);
   } catch (err) {
-    showToast(`Erro ao carregar mês: ${err.message}`, 'error');
+    showToast(`Erro ao carregar planejamento: ${err.message}`, 'error');
+    try {
+      const [fixed, capacity] = await Promise.all([
+        fetchJson(`/fixed-costs/by-month?year_month=${selectedMonth}`),
+        fetchJson(`/spending-capacity?year_month=${selectedMonth}`),
+      ]);
+      const free = capacity.discretionary_available ?? capacity.available_to_spend ?? capacity.remaining_after_plan ?? capacity.remaining_after_invoice;
+      document.getElementById('month-total').textContent = currency.format(fixed.total);
+      document.getElementById('fixed-month-total').textContent = currency.format(fixed.total);
+      document.getElementById('capacity-total').textContent = currency.format(free);
+      renderCapacityFlow(capacity);
+      renderCategoryBar(fixed);
+      renderMonthBreakdown(fixed);
+    } catch (fallbackErr) {
+      showToast(`Erro ao carregar mês: ${fallbackErr.message}`, 'error');
+    }
   }
   // Budget progress is independent — a failure here shouldn't block the rest
   await loadBudgetProgress();
