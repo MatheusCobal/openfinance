@@ -308,7 +308,7 @@ def sync_investments(session: Session, item_id: str) -> SnapshotOutcome:
     return outcome
 
 
-# ---------- dashboard queries ----------
+# ---------- account snapshot queries ----------
 
 
 def _active_item_ids(session: Session) -> set:
@@ -316,12 +316,12 @@ def _active_item_ids(session: Session) -> set:
 
 
 def account_snapshot_summary(session: Session) -> Dict[str, Any]:
-    """Aggregate Pluggy snapshot totals for the dashboard.
+    """Aggregate Pluggy snapshot totals for active accounts.
 
     Every total here comes straight from Pluggy-persisted data — account
     balances, creditData limits and Investment.balance — NOT from
-    re-deriving numbers out of raw transactions. The dashboard should treat
-    this as the source of truth for "how much money do I have / owe".
+    re-deriving numbers out of raw transactions. Treat this as the source
+    of truth for "how much money do I have / owe".
     """
     active_ids = _active_item_ids(session)
     all_accounts = list(session.exec(select(Account)).all())

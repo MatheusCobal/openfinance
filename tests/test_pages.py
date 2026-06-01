@@ -11,8 +11,16 @@ from app.main import app
 class PageSmokeTest(unittest.TestCase):
     """Routing/navigation smoke tests for the simplified UI.
 
-    These assert the pages and the dashboard snapshot endpoint respond, and
-    that /orcamento now redirects into Planejamento (/custos-fixos).
+    After the dashboard removal:
+    - GET /  → 302 redirect to /custos-fixos
+    - GET /planejamento → 302 redirect to /custos-fixos
+    - GET /custos-fixos → Planejamento HTML (no Dashboard nav link)
+    - GET /historico → Histórico HTML
+    - GET /proximos → Próximos HTML
+    - GET /regras → Regras HTML
+    - GET /orcamento → 307 redirect to /custos-fixos
+    - Dashboard routes (/dashboard/*) → 404
+    - Reserve/savings routes → 404
     """
 
     def setUp(self):
@@ -28,44 +36,56 @@ class PageSmokeTest(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[get_session] = override_get_session
-        # follow_redirects=False so we can assert the 307 on /orcamento.
+        # follow_redirects=False so we can assert redirect codes directly.
         self.client = TestClient(app, follow_redirects=False)
 
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def test_dashboard_snapshot_returns_json(self):
-        response = self.client.get("/dashboard/snapshot")
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        # Empty DB → zeroed but well-formed snapshot, never a 500.
-        for key in ("bank", "credit", "investments"):
-            self.assertIn(key, body)
-        self.assertIn("total", body["bank"])
-        self.assertIn("used", body["credit"])
-        self.assertIn("total", body["investments"])
-        self.assertNotIn("reserve_total", body["investments"])
-
-    def test_index_overview_loads(self):
+    def test_root_redirects_to_planejamento(self):
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("text/html", response.headers["content-type"])
-        self.assertIn("Dashboard", response.text)
-        # Dashboard must use the overview script, not the transactions one.
-        self.assertIn("/static/dashboard.js", response.text)
-        # And must NOT pull the transaction-management bundle.
-        self.assertNotIn("/static/transacoes.js", response.text)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["location"], "/custos-fixos")
 
-
-    def test_orcamento_redirects_to_custos_fixos(self):
-        response = self.client.get("/orcamento")
-        self.assertEqual(response.status_code, 307)
+    def test_planejamento_route_redirects_to_custos_fixos(self):
+        response = self.client.get("/planejamento")
+        self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["location"], "/custos-fixos")
 
     def test_custos_fixos_loads(self):
         response = self.client.get("/custos-fixos")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
+        # Must not expose a "Criar custo recorrente" tab button
+        self.assertNotIn("Criar custo recorrente", response.text)
+
+    def test_historico_loads(self):
+        response = self.client.get("/historico")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+
+    def test_proximos_loads(self):
+        response = self.client.get("/proximos")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+
+    def test_regras_loads(self):
+        response = self.client.get("/regras")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+
+    def test_orcamento_redirects_to_custos_fixos(self):
+        response = self.client.get("/orcamento")
+        self.assertEqual(response.status_code, 307)
+        self.assertEqual(response.headers["location"], "/custos-fixos")
+
+    def test_dashboard_routes_return_404(self):
+        for path in (
+            "/dashboard/snapshot",
+            "/dashboard/credit-card-diagnostics?year_month=2026-06",
+        ):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 404, f"Expected 404 for {path}")
 
     def test_removed_reserve_savings_routes_return_404(self):
         for path in (
@@ -76,17 +96,12 @@ class PageSmokeTest(unittest.TestCase):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 404, path)
 
-    def test_historico_loads(self):
-        response = self.client.get("/historico")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("text/html", response.headers["content-type"])
-
-    def test_sidebar_has_no_orcamento_link(self):
-        # Every primary page should route to /custos-fixos for Planejamento,
-        # never to the deprecated /orcamento screen.
-        for path in ("/", "/historico", "/custos-fixos", "/regras"):
+    def test_sidebar_has_no_dashboard_link(self):
+        # Primary pages must not show a Dashboard nav item.
+        for path in ("/historico", "/custos-fixos", "/regras", "/proximos"):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
+            self.assertNotIn("Dashboard", response.text, path)
             self.assertNotIn('href="/orcamento"', response.text, path)
 
 

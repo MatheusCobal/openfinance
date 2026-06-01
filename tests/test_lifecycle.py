@@ -1,7 +1,7 @@
 """Tests for active/inactive lifecycle on Item and Account.
 
 Verifies that inactive Items/Accounts are excluded from current
-dashboard/planning/cashflow calculations.
+planning/cashflow/snapshot calculations.
 """
 
 import unittest
@@ -139,7 +139,7 @@ class BankOutflowExcludesInactiveTest(unittest.TestCase):
         self.assertEqual(total, Decimal("100"))
 
 
-class DashboardSnapshotExcludesInactiveTest(unittest.TestCase):
+class AccountSnapshotExcludesInactiveTest(unittest.TestCase):
     """Test 3: account_snapshot_summary excludes inactive accounts."""
 
     def setUp(self):

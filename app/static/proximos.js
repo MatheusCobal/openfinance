@@ -170,7 +170,7 @@ function renderMonthChart() {
       onClick: (evt, elements) => {
         if (elements.length === 0) return;
         selectedMonth = allData.months[elements[0].index].month;
-        renderAll();
+        renderMonthOnly();
       },
       onHover: (evt, elements) => {
         evt.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
@@ -222,7 +222,7 @@ function renderChips() {
   strip.querySelectorAll('button[data-month]').forEach((btn) => {
     btn.addEventListener('click', () => {
       selectedMonth = btn.dataset.month;
-      renderAll();
+      renderMonthOnly();
       btn.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
     });
   });
@@ -307,9 +307,20 @@ function renderCategories() {
   container.innerHTML = html;
 }
 
+// Full render: called once after data loads (includes chart rebuild).
 function renderAll() {
   renderOverview();
   renderMonthChart();
+  renderChips();
+  renderMonthSummary();
+  renderCategories();
+}
+
+// Month-only render: called when user selects a different month.
+// The global chart and overview summary are NOT rebuilt — only the
+// chip strip (to update the active highlight), month summary text,
+// and the category breakdown list are refreshed.
+function renderMonthOnly() {
   renderChips();
   renderMonthSummary();
   renderCategories();
@@ -367,7 +378,7 @@ document.addEventListener('keydown', (e) => {
   const next = e.key === 'ArrowRight' ? idx + 1 : idx - 1;
   if (next < 0 || next >= allData.months.length) return;
   selectedMonth = allData.months[next].month;
-  renderAll();
+  renderMonthOnly();
 });
 
 loadData().catch((err) => {

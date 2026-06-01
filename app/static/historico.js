@@ -487,7 +487,7 @@ function renderCategoryHistory() {
     cards.innerHTML = '';
     renderEmpty(
       'Nenhuma transação encontrada.',
-      'Conecte um banco no dashboard primeiro.',
+      'Conecte um banco pelo Pluggy primeiro.',
     );
     subtitle.textContent = 'Nenhuma transação ainda';
     return;
@@ -523,7 +523,7 @@ function renderInvoiceHistory() {
     invoices.innerHTML = '';
     renderEmpty(
       'Nenhum pagamento de fatura encontrado.',
-      'Pagamentos ignorados dos dashboards aparecem aqui para auditoria.',
+      'Pagamentos ignorados aparecem aqui para auditoria.',
     );
     subtitle.textContent = 'Nenhum pagamento de fatura encontrado';
     return;
@@ -1196,7 +1196,7 @@ function renderCashflow() {
     section.innerHTML = '';
     renderEmpty(
       'Sem entradas ou saídas nos últimos 12 meses.',
-      'Conecte uma conta bancária no dashboard para começar a acompanhar o fluxo de caixa.',
+      'Conecte uma conta bancária pelo Pluggy para começar a acompanhar o fluxo de caixa.',
     );
     subtitle.textContent = 'Sem fluxo de caixa';
     return;

@@ -77,19 +77,18 @@ async function fetchJson(url, options) {
 function selectedPlanningTabFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const tab = params.get('tab');
-  if (['custos', 'variaveis', 'receita', 'transacao'].includes(tab)) return tab;
+  if (['custos', 'variaveis', 'receita'].includes(tab)) return tab;
   return 'overview';
 }
 
 function setPlanningTab(tabName, updateUrl = true) {
-  const allowedTabs = ['overview', 'custos', 'variaveis', 'receita', 'transacao'];
+  const allowedTabs = ['overview', 'custos', 'variaveis', 'receita'];
   const activeTab = allowedTabs.includes(tabName) ? tabName : 'overview';
   const panels = {
     overview: 'overview-tab',
     custos: 'fixed-costs-tab',
     variaveis: 'variable-goals-tab',
     receita: 'income-planning-tab',
-    transacao: 'transaction-cost-tab',
   };
   Object.entries(panels).forEach(([tab, panelId]) => {
     document.getElementById(panelId)?.classList.toggle('hidden', activeTab !== tab);
@@ -105,7 +104,6 @@ function setPlanningTab(tabName, updateUrl = true) {
     custos: 'Cadastre e edite compromissos recorrentes.',
     variaveis: 'Defina metas para gastos variáveis do mês.',
     receita: 'Cadastre o que você espera receber em cada mês.',
-    transacao: 'Crie um novo custo recorrente a partir de uma transação.',
   };
   document.getElementById('subtitle').textContent = subtitles[activeTab];
   if (updateUrl) {
@@ -2069,7 +2067,7 @@ document.getElementById('income-show-inactive')?.addEventListener('change', load
 
 (async () => {
   selectedMonth = getDefaultPlanningMonth();
-  monthStrip = Array.from({ length: MONTH_WINDOW }, (_, i) => shiftYearMonth(currentYearMonth(), i));
+  monthStrip = Array.from({ length: MONTH_WINDOW }, (_, i) => shiftYearMonth(getDefaultPlanningMonth(), i));
   incomeSelectedMonth = selectedMonth;
   incomeMonthStrip = [...monthStrip];
   document.querySelectorAll('#planning-tabs [data-tab]').forEach((button) => {
@@ -2084,7 +2082,6 @@ document.getElementById('income-show-inactive')?.addEventListener('change', load
       loadTemplates(),
       loadCosts(),
       loadMonthData(),
-      loadTransactionSuggestions(),
       loadIncomeEntries(),
       loadIncomeMonthBreakdown(),
     ]);

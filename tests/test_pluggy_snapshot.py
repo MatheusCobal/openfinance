@@ -304,8 +304,8 @@ class AccountSnapshotSyncTest(_SyncTestBase):
             self.assertEqual(buy.investment_id, "inv-cdb")
 
 
-class DashboardSnapshotTest(_SyncTestBase):
-    def test_dashboard_totals_from_pluggy_snapshot(self):
+class AccountSnapshotSummaryTest(_SyncTestBase):
+    def test_account_snapshot_totals_from_pluggy(self):
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
