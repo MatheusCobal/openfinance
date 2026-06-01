@@ -15,7 +15,7 @@ def index():
 
 @router.get("/planejamento", include_in_schema=False)
 def planejamento():
-    return FileResponse(STATIC_DIR / "custos_fixos.html")
+    return FileResponse(STATIC_DIR / "planejamento.html")
 
 
 @router.get("/historico", include_in_schema=False)

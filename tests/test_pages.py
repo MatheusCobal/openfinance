@@ -11,7 +11,7 @@ from app.main import app
 class PageSmokeTest(unittest.TestCase):
     """Routing/navigation smoke tests for the simplified UI.
 
-    Primary planning route: /planejamento (serves custos_fixos.html)
+    Primary planning route: /planejamento (serves planejamento.html)
     Legacy aliases:
     - GET /  → 302 redirect to /planejamento
     - GET /custos-fixos → 302 redirect to /planejamento
@@ -53,6 +53,9 @@ class PageSmokeTest(unittest.TestCase):
         response = self.client.get("/planejamento")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
+        # Must load the renamed JS bundle, not the old custos_fixos.js
+        self.assertIn("planejamento.js", response.text)
+        self.assertNotIn("custos_fixos.js", response.text)
         # Must not expose a "Criar custo recorrente" tab button
         self.assertNotIn("Criar custo recorrente", response.text)
 
