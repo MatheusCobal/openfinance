@@ -308,20 +308,3 @@ class BudgetOverride(SQLModel, table=True):
     category_id: int = Field(foreign_key="category.id", index=True)
     year_month: str = Field(index=True)
     monthly_target: Decimal
-
-
-class SavingsTarget(SQLModel, table=True):
-    """Default monthly savings target. Singleton row (id=1)."""
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    monthly_target: Decimal
-
-
-class SavingsTargetOverride(SQLModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("year_month", name="uq_savingstargetoverride_month"),
-    )
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    year_month: str = Field(index=True)
-    monthly_target: Decimal

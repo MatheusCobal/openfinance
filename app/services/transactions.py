@@ -267,7 +267,7 @@ def investment_application_transactions(
     """Return CDB/investment APPLICATIONS (money going into investments).
 
     Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
-    bank_outflow_transactions and tracked separately as "Reserva".
+    bank_outflow_transactions.
     """
     return _investment_transactions(session, start_date, end_date, "out")
 
@@ -280,7 +280,7 @@ def investment_rescue_transactions(
     """Return CDB/investment RESCUES (money coming back from investments).
 
     Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
-    bank_inflow_transactions and tracked separately as "Reserva".
+    bank_inflow_transactions.
     """
     return _investment_transactions(session, start_date, end_date, "in")
 

@@ -308,45 +308,11 @@ def sync_investments(session: Session, item_id: str) -> SnapshotOutcome:
     return outcome
 
 
-# ---------- reserve / dashboard queries ----------
-
-
-# Pluggy investment ``type`` values that we treat as "reserva de emergência".
-# Anything liquid + low risk: fixed income, savings accounts, money-market
-# funds. Equities and ETFs are deliberately excluded — they're investment,
-# not reserve.
-RESERVE_INVESTMENT_TYPES = {"FIXED_INCOME", "SAVINGS", "MUTUAL_FUND", "TREASURY"}
+# ---------- dashboard queries ----------
 
 
 def _active_item_ids(session: Session) -> set:
     return {item.id for item in session.exec(select(Item)).all() if item.is_active}
-
-
-def reserve_investments(session: Session) -> List[Investment]:
-    active_ids = _active_item_ids(session)
-    return [
-        inv
-        for inv in session.exec(select(Investment)).all()
-        if (inv.type or "").upper() in RESERVE_INVESTMENT_TYPES
-        and inv.item_id in active_ids
-    ]
-
-
-def reserve_total_from_investments(session: Session) -> Decimal:
-    """Sum of Investment.balance for reserve-eligible positions.
-
-    Returns 0 when no investments are persisted yet — callers should use
-    that as a signal to fall back to the transaction-derived reserve.
-    """
-    total = Decimal("0")
-    for inv in reserve_investments(session):
-        if inv.balance is not None:
-            total += inv.balance
-    return total
-
-
-def has_any_investments(session: Session) -> bool:
-    return session.exec(select(Investment.id).limit(1)).first() is not None
 
 
 def account_snapshot_summary(session: Session) -> Dict[str, Any]:
@@ -379,7 +345,6 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
     credit_limit = _sum(a.credit_limit for a in credit_accounts)
     credit_available = _sum(a.credit_available_limit for a in credit_accounts)
     investments_total = _sum(i.balance for i in investments)
-    reserve_total = reserve_total_from_investments(session)
 
     # Whether the snapshot is actually populated. Lets the frontend decide
     # between "show the number" and "sync first / unavailable".
@@ -452,10 +417,7 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
         },
         "investments": {
             "total": float(investments_total),
-            "reserve_total": float(reserve_total),
             "investment_count": len(investments),
-            "reserve_investment_count": len(reserve_investments(session)),
             "has_investments": len(investments) > 0,
         },
     }
-

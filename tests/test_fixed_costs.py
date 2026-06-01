@@ -1060,7 +1060,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     Validates the headline number behaves like a real envelope: planned
     bills reserve cash before being paid, paid bills only move availability
     by their variance, category budgets are consumed per transaction (not
-    via the invoice total), CDB applications flow through reserve, and the
+    via the invoice total), investment movements stay out of bank cash flow, and the
     monthly endpoint exposes the new field.
     """
 
@@ -1398,15 +1398,12 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Future month: max(target=1000, consumed=0) = 1000; 20300 - 740 (fixed) - 1000 (var target) = 18560
         self.assertEqual(capacity["budget_available_to_spend"], 18560.0)
 
-    # ----- 8. CDB / Fixed income flows through reserve -----
+    # ----- 8. CDB / Fixed income stays out of bank flows -----
 
     def test_fixed_income_cdb_not_in_bank_flows_nor_available(self):
         """Pluggy "Fixed income" (CDB) movements:
         - do NOT appear in bank_outflows_total / bank_inflows_total
-        - are tracked separately as raw reserva_* movements (informational)
-        - reserve_reserved_total is computed correctly but is NOT subtracted from
-          budget_available_to_spend (the headline "after obligations, how much is left?").
-          It IS subtracted in available_after_reserve (true disposable after savings).
+        - do NOT create active reserve/savings planning fields.
         """
         from app.services.spending_capacity import spending_capacity_summary
 
@@ -1440,117 +1437,19 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             )
         # Not in normal cash flows
         self.assertEqual(capacity["bank_outflows_total"], 0.0)
-        # Raw movement totals still reported for transparency
-        self.assertEqual(capacity["reserva_application_total"], 1000.0)
-        self.assertEqual(capacity["reserva_rescue_total"], 200.0)
-        # reserve_applied_total = 1000 (gross application; rescue not subtracted)
-        self.assertEqual(capacity["reserve_applied_total"], 1000.0)
-        # No savings target set → target=0, reserved=max(0,1000)=1000
-        self.assertEqual(capacity["reserve_target"], 0.0)
-        self.assertEqual(capacity["reserve_reserved_total"], 1000.0)
-        # reserve does NOT reduce budget_available_to_spend (headline after obligations)
+        self.assertEqual(capacity["bank_inflows_total"], 0.0)
+        for field in (
+            "reserva_application_total",
+            "reserva_rescue_total",
+            "reserve_applied_total",
+            "reserve_target_total",
+            "reserve_reserved_total",
+            "available_after_reserve",
+        ):
+            self.assertNotIn(field, capacity)
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
-        # available_after_reserve = 20300 - 1000 = 19300
-        self.assertEqual(capacity["available_after_reserve"], 19300.0)
 
-    # ----- 9. Reserve envelope: target vs. applied -----
-
-    def test_reserve_target_no_application_reserves_full_target(self):
-        """Savings target=3000, no CDB applied → reserve_reserved=3000.
-        budget_available_to_spend is NOT reduced; available_after_reserve is."""
-        from app.models import SavingsTarget
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            session.add(SavingsTarget(monthly_target=Decimal("3000")))
-            session.commit()
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
-        self.assertEqual(capacity["reserve_target_total"], 3000.0)
-        self.assertEqual(capacity["reserve_applied_total"], 0.0)
-        self.assertEqual(capacity["reserve_pending_total"], 3000.0)
-        self.assertEqual(capacity["reserve_over_applied_total"], 0.0)
-        self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
-        self.assertEqual(capacity["reserve_planning_source"], "savings_target")
-        # Reserve does NOT reduce budget_available_to_spend.
-        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
-        # available_after_reserve = 20300 - 3000 = 17300
-        self.assertEqual(capacity["available_after_reserve"], 17300.0)
-
-    def test_reserve_target_partial_application_target_wins(self):
-        """Savings target=3000, applied=1000 → max(3000,1000)=3000 reserved,
-        pending=2000, over_applied=0."""
-        from app.models import SavingsTarget
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            session.add(SavingsTarget(monthly_target=Decimal("3000")))
-            session.add(
-                Transaction(
-                    id="tx-cdb-partial",
-                    account_id="bank-1",
-                    date=date(2026, 6, 10),
-                    amount=Decimal("-1000"),
-                    description="Aplicacao CDB",
-                    category="Fixed income",
-                )
-            )
-            session.commit()
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
-        self.assertEqual(capacity["reserve_target_total"], 3000.0)
-        self.assertEqual(capacity["reserve_applied_total"], 1000.0)
-        self.assertEqual(capacity["reserve_pending_total"], 2000.0)
-        self.assertEqual(capacity["reserve_over_applied_total"], 0.0)
-        # target wins: max(3000, 1000) = 3000
-        self.assertEqual(capacity["reserve_reserved_total"], 3000.0)
-        # Reserve does NOT reduce budget_available_to_spend.
-        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
-        # available_after_reserve = 20300 - 3000 = 17300
-        self.assertEqual(capacity["available_after_reserve"], 17300.0)
-
-    def test_reserve_applied_exceeds_target_applied_wins(self):
-        """Applied=3500 > target=3000 → max(3000,3500)=3500 reserved,
-        pending=0, over_applied=500."""
-        from app.models import SavingsTarget
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            session.add(SavingsTarget(monthly_target=Decimal("3000")))
-            session.add(
-                Transaction(
-                    id="tx-cdb-over",
-                    account_id="bank-1",
-                    date=date(2026, 6, 10),
-                    amount=Decimal("-3500"),
-                    description="Aplicacao CDB",
-                    category="Fixed income",
-                )
-            )
-            session.commit()
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
-        self.assertEqual(capacity["reserve_target_total"], 3000.0)
-        self.assertEqual(capacity["reserve_applied_total"], 3500.0)
-        self.assertEqual(capacity["reserve_pending_total"], 0.0)
-        self.assertEqual(capacity["reserve_over_applied_total"], 500.0)
-        # applied wins: max(3000, 3500) = 3500
-        self.assertEqual(capacity["reserve_reserved_total"], 3500.0)
-        # Reserve does NOT reduce budget_available_to_spend.
-        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
-        # available_after_reserve = 20300 - 3500 = 16800
-        self.assertEqual(capacity["available_after_reserve"], 16800.0)
-
-    # ----- 10. Auto-matched fixed cost must not double-count -----
+    # ----- 9. Auto-matched fixed cost must not double-count -----
 
     def test_auto_matched_fixed_cost_excluded_from_variable_budget(self):
         """A bank PIX that monthly_breakdown auto-matches to a fixed cost must
@@ -1667,33 +1566,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         )
 
 
-    def test_monthly_endpoint_includes_reserve_fields(self):
-        """/spending-capacity/monthly must expose reserve planning fields in
-        each month row and in the aggregate summary."""
-        response = self.client.get(
-            "/spending-capacity/monthly", params={"months": 1}
-        )
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        row = payload["months"][0]
-        summary = payload["summary"]
-
-        reserve_numeric = [
-            "reserve_target_total",
-            "reserve_applied_total",
-            "reserve_reserved_total",
-            "reserve_pending_total",
-            "reserve_over_applied_total",
-        ]
-        for field in reserve_numeric:
-            self.assertIn(field, row, f"row missing {field}")
-            self.assertIn(field, summary, f"summary missing {field}")
-
-        # reserve_planning_source is a string — in row but NOT summed in summary
-        self.assertIn("reserve_planning_source", row)
-        self.assertEqual(row["reserve_planning_source"], "savings_target")
-
-    # ----- 11. Unbudgeted spend does NOT reduce disponível -----
+    # ----- 10. Unbudgeted spend does NOT reduce disponível -----
 
     def test_unbudgeted_variable_spent_excluded_from_budget_available(self):
         """Current-month: unbudgeted spend is informational only, not in formula.
@@ -1702,7 +1575,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         Uses today=2026-06-30 so that 2026-06 is the current month and the
         current-month formula branch (consumed + overage) is exercised.
         """
-        from app.models import SavingsTarget
         from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
@@ -1711,7 +1583,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.add(Category(id=91, name="Mercado", color="#22c55e", sort_order=2))
             session.add(CategoryRule(pluggy_category="Food", category_id=91))
             session.add(Budget(category_id=91, monthly_target=Decimal("500")))
-            session.add(SavingsTarget(monthly_target=Decimal("1000")))
             session.add(
                 Transaction(
                     id="tx-lazer-1",
@@ -1732,16 +1603,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                     category="Food",
                 )
             )
-            session.add(
-                Transaction(
-                    id="tx-savings-1",
-                    account_id="bank-1",
-                    date=date(2026, 6, 15),
-                    amount=Decimal("-1000"),
-                    description="Aplicacao CDB",
-                    category="Fixed income",
-                )
-            )
             session.commit()
 
         self._make_water_fixed_cost(amount=300)
@@ -1755,16 +1616,13 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["planning_mode"], "current_month")
         # Unbudgeted NOT subtracted.
         self.assertEqual(capacity["unbudgeted_variable_spent"], 400.0)
-        # Overage (100) and fixed (300) reduce availability; reserve does NOT.
+        # Overage (100) and fixed (300) reduce availability.
         self.assertEqual(capacity["variable_budget_overage"], 100.0)
         self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
-        self.assertEqual(capacity["reserve_reserved_total"], 1000.0)
         # 20300 - 300 (fixed) - 500 (consumed) - 100 (overage) = 19400
         self.assertEqual(capacity["budget_available_to_spend"], 19400.0)
-        # available_after_reserve = 19400 - 1000 = 18400
-        self.assertEqual(capacity["available_after_reserve"], 18400.0)
 
-    # ----- 12. card_invoice_remaining_to_reserve (current month) -----
+    # ----- 12. card_invoice_remaining_to_include (current month) -----
 
     def test_card_invoice_gap_reduces_budget_available_current_month(self):
         """Current-month open invoice is based on PENDING transactions, NOT CreditCardBill.
@@ -1778,7 +1636,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         This test verifies:
         - CreditCardBill is NOT the invoice source for the current month.
         - A PENDING transaction in the billing cycle sets the official total.
-        - card_invoice_remaining_to_reserve = max(PENDING_total - gross_total, 0).
+        - card_invoice_remaining_to_include = max(PENDING_total - gross_total, 0).
         """
         from app.services.spending_capacity import spending_capacity_summary
 
@@ -1846,7 +1704,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # gross includes both PENDING (800) and posted (1000) = 1800
         self.assertGreaterEqual(capacity["card_invoice_gross_total"], 800.0)
         # gap = max(800 - 1800, 0) = 0 (PENDING ⊆ gross)
-        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+        self.assertEqual(capacity["card_invoice_remaining_to_include"], 0.0)
         # future_card_obligation_total is 0 for current month
         self.assertEqual(capacity["future_card_obligation_total"], 0.0)
         # New fields exposed
@@ -1858,7 +1716,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     def test_card_invoice_no_gap_when_official_not_larger_current_month(self):
         """Current-month: when no PENDING transactions, open invoice total is 0
-        and card_invoice_remaining_to_reserve is 0 regardless of any CreditCardBill.
+        and card_invoice_remaining_to_include is 0 regardless of any CreditCardBill.
 
         CreditCardBill is now ignored for current-month open invoice calculation.
         """
@@ -1899,7 +1757,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["card_invoice_source"], "open_invoice")
         self.assertEqual(capacity["card_invoice_official_total"], 2000.0)
         # gap = max(2000 - 2000, 0) = 0 (tx already in gross)
-        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+        self.assertEqual(capacity["card_invoice_remaining_to_include"], 0.0)
         # 20300 - 0 - 0 - 0 = 20300
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
@@ -1929,13 +1787,11 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         variable_budget_consumed, even when future installments exist in the DB.
         """
         from app.services.spending_capacity import spending_capacity_summary
-        from app.models import SavingsTarget
 
         with Session(self.engine) as session:
             session.add(Category(id=80, name="Lazer", color="#a855f7", sort_order=1))
             session.add(CategoryRule(pluggy_category="Entertainment", category_id=80))
             session.add(Budget(category_id=80, monthly_target=Decimal("500")))
-            session.add(SavingsTarget(monthly_target=Decimal("1000")))
             # Future installment already in DB — only partially uses the R$500 envelope.
             session.add(
                 Transaction(
@@ -1961,15 +1817,10 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["variable_budget_consumed"], 200.0)
         # variable_budget_reserved equals the full target for future months.
         self.assertEqual(capacity["variable_budget_reserved"], 500.0)
-        # Reserve uses target, not max(target, applied) since nothing applied yet.
-        self.assertEqual(capacity["reserve_target_total"], 1000.0)
         # The installment (200) is also picked up as scheduled_installments fallback.
-        # Reserve is NOT subtracted from budget_available_to_spend.
         # Formula: 20300 - 300 (fixed_planned) - 500 (variable_budget_total)
         #          - 200 (scheduled installment) = 19300
         self.assertEqual(capacity["budget_available_to_spend"], 19300.0)
-        # available_after_reserve = 19300 - 1000 (reserve_target) = 18300
-        self.assertEqual(capacity["available_after_reserve"], 18300.0)
 
     def test_future_month_no_account_balance_used(self):
         """Future month: Account.balance is never used as the card obligation."""
@@ -2040,9 +1891,9 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["card_invoice_source"], "official_bill")
         # future_card_obligation_total = full bill (not gap).
         self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
-        # card_invoice_remaining_to_reserve is still computed for info but not
+        # card_invoice_remaining_to_include is still computed for info but not
         # in the future-month formula.
-        self.assertGreaterEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+        self.assertGreaterEqual(capacity["card_invoice_remaining_to_include"], 0.0)
         # Formula: 20300 - 0 (fixed) - 600 (variable_budget_total) - 3000 (bill) - 0 (reserve)
         self.assertEqual(capacity["budget_available_to_spend"], 16700.0)
 
@@ -2226,52 +2077,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Installment (400) does NOT add on top of the bill.
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0 - 3000.0)
 
-    def test_future_month_reserve_not_in_budget_available(self):
-        """Future month: reserve_target_total does NOT reduce budget_available_to_spend.
-        It is subtracted only in available_after_reserve.
-        """
-        from app.models import SavingsTarget
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            session.add(SavingsTarget(monthly_target=Decimal("2000")))
-            session.commit()
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
-
-        self.assertEqual(capacity["planning_mode"], "future_month")
-        self.assertEqual(capacity["reserve_target_total"], 2000.0)
-        # Reserve NOT in budget_available_to_spend.
-        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
-        # available_after_reserve = 20300 - 2000 = 18300
-        self.assertEqual(capacity["available_after_reserve"], 18300.0)
-
-    def test_current_month_reserve_not_in_budget_available(self):
-        """Current month: reserve_reserved_total does NOT reduce budget_available_to_spend.
-        It is subtracted only in available_after_reserve.
-        """
-        from app.models import SavingsTarget
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            session.add(SavingsTarget(monthly_target=Decimal("1500")))
-            session.commit()
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
-
-        self.assertEqual(capacity["planning_mode"], "current_month")
-        self.assertEqual(capacity["reserve_reserved_total"], 1500.0)
-        # Reserve NOT in budget_available_to_spend.
-        self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
-        # available_after_reserve = 20300 - 1500 = 18800
-        self.assertEqual(capacity["available_after_reserve"], 18800.0)
-
     def test_future_month_no_installments_source_none(self):
         """Future month with no bill, no account_balance_due_month, no future
         transactions: source = 'none', obligation = 0.
@@ -2345,13 +2150,11 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         must be unchanged after adding the future-month branch.
         """
         from app.services.spending_capacity import spending_capacity_summary
-        from app.models import SavingsTarget
 
         with Session(self.engine) as session:
             session.add(Category(id=70, name="Mercado", color="#22c55e", sort_order=1))
             session.add(CategoryRule(pluggy_category="Food", category_id=70))
             session.add(Budget(category_id=70, monthly_target=Decimal("800")))
-            session.add(SavingsTarget(monthly_target=Decimal("500")))
             # Card purchase within the budget.
             session.add(
                 Transaction(
@@ -2384,16 +2187,14 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["planning_mode"], "current_month")
         # CreditCardBill NOT used for current-month open invoice.
         # No PENDING transactions → gap = 0.
-        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+        self.assertEqual(capacity["card_invoice_remaining_to_include"], 0.0)
         # future_card_obligation_total is 0 for current month.
         self.assertEqual(capacity["future_card_obligation_total"], 0.0)
         # variable_budget_reserved = consumed (600), not target (800).
         self.assertEqual(capacity["variable_budget_consumed"], 600.0)
         self.assertEqual(capacity["variable_budget_reserved"], 600.0)
-        # 20300 - 200 (fixed) - 600 (var consumed) - 0 (card gap) = 19500 (reserve excluded)
+        # 20300 - 200 (fixed) - 600 (var consumed) - 0 (card gap) = 19500
         self.assertEqual(capacity["budget_available_to_spend"], 19500.0)
-        # available_after_reserve = 19500 - 500 = 19000
-        self.assertEqual(capacity["available_after_reserve"], 19000.0)
 
 
 class CurrentOpenCardInvoiceTest(unittest.TestCase):

@@ -43,7 +43,8 @@ class PageSmokeTest(unittest.TestCase):
             self.assertIn(key, body)
         self.assertIn("total", body["bank"])
         self.assertIn("used", body["credit"])
-        self.assertIn("reserve_total", body["investments"])
+        self.assertIn("total", body["investments"])
+        self.assertNotIn("reserve_total", body["investments"])
 
     def test_index_overview_loads(self):
         response = self.client.get("/")
@@ -65,6 +66,15 @@ class PageSmokeTest(unittest.TestCase):
         response = self.client.get("/custos-fixos")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
+
+    def test_removed_reserve_savings_routes_return_404(self):
+        for path in (
+            "/savings-target",
+            "/savings-target/months/2026-06",
+            "/emergency-reserve/monthly",
+        ):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 404, path)
 
     def test_historico_loads(self):
         response = self.client.get("/historico")

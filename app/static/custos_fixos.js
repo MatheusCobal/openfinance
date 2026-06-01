@@ -190,7 +190,6 @@ function normalizePlanningOverview(planning) {
     variable_budget_overage: planning?.variable_budgets?.overage ?? rawCapacity.variable_budget_overage ?? 0,
     available_to_spend: planning?.capacity?.available_to_spend ?? rawCapacity.available_to_spend ?? rawCapacity.budget_available_to_spend ?? 0,
     budget_available_to_spend: planning?.capacity?.available_to_spend ?? rawCapacity.budget_available_to_spend ?? rawCapacity.available_to_spend ?? 0,
-    available_after_reserve: planning?.capacity?.available_after_reserve ?? rawCapacity.available_after_reserve ?? 0,
     daily_discretionary_remaining: planning?.capacity?.daily_discretionary_remaining ?? rawCapacity.daily_discretionary_remaining ?? 0,
     days_remaining_in_month: planning?.capacity?.days_remaining_in_month ?? rawCapacity.days_remaining_in_month ?? 0,
     plan_status: planning?.capacity?.plan_status ?? rawCapacity.plan_status,
@@ -204,7 +203,7 @@ function invoiceIncludedAmount(capacity) {
   const isFuture = (capacity.planning_mode || (capacity.is_future_month ? 'future_month' : 'current_month')) === 'future_month';
   return isFuture
     ? asMoneyNumber(capacity.future_card_obligation_total)
-    : asMoneyNumber(capacity.card_invoice_remaining_to_reserve);
+    : asMoneyNumber(capacity.card_invoice_remaining_to_include);
 }
 
 function transactionCountLabel(count) {
@@ -344,9 +343,6 @@ function renderCapacityFlow(capacity) {
   const varConsumed   = capacity.variable_budget_consumed  || 0;
   const varOverage    = capacity.variable_budget_overage   || 0;
   const unbudgeted    = capacity.unbudgeted_variable_spent        || 0;
-  const reserve       = isFuture
-    ? (capacity.reserve_target_total       || 0)
-    : (capacity.reserve_reserved_total     || 0);
   const ccRemaining         = invoiceIncludedAmount(capacity);
   const futureCardObligation= invoiceIncludedAmount(capacity);
   const varBudgetTotal= capacity.variable_budget_total            || 0;
@@ -365,15 +361,14 @@ function renderCapacityFlow(capacity) {
 
   // ── Progress bar ──
   // unbudgeted is NOT part of the formula — informational only, shown separately.
-  // For future months: fixedPlanned, varBudgetTotal, futureCardObligation, reserveTarget.
-  // For current/past: fixedReserved, consumed+overage, ccRemaining, reserveReserved.
+  // For future months: fixedPlanned, varBudgetTotal, futureCardObligation.
+  // For current/past: fixedReserved, consumed+overage, ccRemaining.
   const fixedBarAmt  = isFuture ? fixedPlanned  : fixedReserved;
   const cardBarAmt   = isFuture ? futureCardObligation : ccRemaining;
   const fixedPct     = income > 0 ? Math.min(100, (fixedBarAmt   / income) * 100) : 0;
   const varConsPct   = income > 0 ? Math.min(100, (varConsumed   / income) * 100) : 0;
   const varOverPct   = income > 0 ? Math.min(100, (varOverage    / income) * 100) : 0;
   const varResPct    = income > 0 ? Math.min(100, (varReserved   / income) * 100) : 0;
-  const reservePct   = income > 0 ? Math.min(100, (reserve       / income) * 100) : 0;
   const ccRemPct     = income > 0 ? Math.min(100, (cardBarAmt    / income) * 100) : 0;
   const freePct      = Math.max(0, 100 - fixedPct - varResPct - ccRemPct);
   const varTotalPct  = isFuture ? varResPct : varConsPct + varOverPct;
@@ -744,40 +739,6 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
             ${renderInvoicePaymentTransactions(paymentTxs)}
           </div>
         </div>
-      </div>
-    `;
-  }
-
-  if (key === 'reserva') {
-    const target  = capacity.reserve_target_total    || 0;
-    const applied = capacity.reserve_applied_total   || 0;
-    const pending = capacity.reserve_pending_total   || 0;
-    const over    = capacity.reserve_over_applied_total || 0;
-    return `
-      <div class="space-y-2 pt-1">
-        <div class="flex items-baseline gap-3">
-          <span class="w-4"></span>
-          <span class="flex-1 text-xs text-slate-500">Meta mensal</span>
-          <span class="text-sm tabular text-slate-700">${currency.format(target)}</span>
-        </div>
-        <div class="flex items-baseline gap-3">
-          <span class="w-4"></span>
-          <span class="flex-1 text-xs text-slate-500">Aplicado no mês</span>
-          <span class="text-sm tabular text-slate-700">${currency.format(applied)}</span>
-        </div>
-        ${pending > 0 ? `<div class="flex items-baseline gap-3">
-          <span class="w-4"></span>
-          <span class="flex-1 text-xs text-amber-600">Falta aplicar</span>
-          <span class="text-sm tabular text-amber-700">${currency.format(pending)}</span>
-        </div>` : ''}
-        ${over > 0 ? `<div class="flex items-baseline gap-3">
-          <span class="w-4"></span>
-          <span class="flex-1 text-xs text-indigo-600">Aplicado além da meta</span>
-          <span class="text-sm tabular text-indigo-700">${currency.format(over)}</span>
-        </div>` : ''}
-        <p class="text-[11px] text-slate-400 pt-1 border-t border-slate-100 mt-1">
-          Reserva não é despesa, mas reduz o dinheiro livre porque é um compromisso planejado.
-        </p>
       </div>
     `;
   }

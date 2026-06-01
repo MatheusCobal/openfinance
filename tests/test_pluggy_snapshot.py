@@ -16,7 +16,6 @@ from app.models import (
 )
 from app.services import sync as sync_service
 from app.services.pluggy_snapshot import account_snapshot_summary
-from app.services.reserve import emergency_reserve_monthly_summary
 
 
 def _http_404(path: str) -> httpx.HTTPStatusError:
@@ -324,9 +323,9 @@ class DashboardSnapshotTest(_SyncTestBase):
 
             # Investments total = sum(Investment.balance) (CDB + stock)
             self.assertEqual(summary["investments"]["total"], 13700.0)
-            # Reserve total = only reserve-eligible (FIXED_INCOME CDB)
-            self.assertEqual(summary["investments"]["reserve_total"], 10500.0)
-            self.assertEqual(summary["investments"]["reserve_investment_count"], 1)
+            self.assertEqual(summary["investments"]["investment_count"], 2)
+            self.assertNotIn("reserve_total", summary["investments"])
+            self.assertNotIn("reserve_investment_count", summary["investments"])
 
 
 class CreditCardBillVsReconstructedTest(_SyncTestBase):
@@ -377,57 +376,6 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
 
 
-class ReserveSourceTest(_SyncTestBase):
-    def test_reserve_uses_investment_snapshot_when_available(self):
-        with Session(self.engine) as session:
-            self._seed_item(session)
-            sync_service.sync_item("item-1", session)
-
-            summary = emergency_reserve_monthly_summary(
-                session, months=6, today=self.today
-            )
-            self.assertEqual(summary["source"], "pluggy")
-            # Current reserve balance straight from Investment.balance (CDB)
-            self.assertEqual(summary["current_reserve_balance"], 10500.0)
-
-            may = next(m for m in summary["months"] if m["year_month"] == "2026-05")
-            # BUY 1000, SELL 300, TAX 30
-            self.assertEqual(may["applications_total"], 1000.0)
-            self.assertEqual(may["rescues_total"], 300.0)
-            self.assertEqual(may["taxes_total"], 30.0)
-            self.assertEqual(may["net_total"], 700.0)
-            self.assertEqual(may["application_count"], 1)
-            self.assertEqual(may["rescue_count"], 1)
-            self.assertEqual(may["tax_count"], 1)
-
-    def test_reserve_falls_back_to_transactions_without_investments(self):
-        with Session(self.engine) as session:
-            self._seed_item(session)
-            # Bank account + a "Fixed income" CDB application transaction,
-            # but NO investments persisted.
-            session.add(
-                Account(id="bank-1", item_id="item-1", name="Bank", type="BANK")
-            )
-            session.add(
-                Transaction(
-                    id="tx-cdb",
-                    account_id="bank-1",
-                    date=date(2026, 5, 6),
-                    amount=Decimal("-2000"),
-                    description="Aplicacao CDB",
-                    category="Fixed income",
-                )
-            )
-            session.commit()
-
-            summary = emergency_reserve_monthly_summary(
-                session, months=6, today=self.today
-            )
-            self.assertEqual(summary["source"], "transactions")
-            may = next(m for m in summary["months"] if m["year_month"] == "2026-05")
-            self.assertEqual(may["applications_total"], 2000.0)
-
-
 class GracefulDegradationTest(_SyncTestBase):
     def test_sync_continues_when_bills_and_investments_unavailable(self):
         self.fake_pluggy.bills_supported = False
@@ -455,11 +403,7 @@ class GracefulDegradationTest(_SyncTestBase):
             # Account balances still persisted (they come from list_accounts)
             self.assertEqual(session.get(Account, "bank-1").balance, Decimal("5000.0000000000"))
 
-            # No investment rows, so reserve falls back to transactions
-            summary = emergency_reserve_monthly_summary(
-                session, months=6, today=self.today
-            )
-            self.assertEqual(summary["source"], "transactions")
+            self.assertEqual(session.exec(select(Investment)).all(), [])
 
 
 class PlanningInvoiceForMonthTest(_SyncTestBase):
@@ -655,7 +599,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
             "future_card_obligation_total",
             "future_card_obligation_source",
             "future_card_obligation_display_month",
-            "card_invoice_remaining_to_reserve",
+            "card_invoice_remaining_to_include",
             "credit_card_due_dates",
         ):
             self.assertIn(field, capacity, f"missing compat field: {field}")
@@ -717,7 +661,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
         # No future card transactions exist → gross = 0, official = 0, gap = 0
         self.assertEqual(capacity["card_invoice_gross_total"], 0.0)
         self.assertEqual(capacity["card_invoice_official_total"], 0.0)
-        self.assertEqual(capacity["card_invoice_remaining_to_reserve"], 0.0)
+        self.assertEqual(capacity["card_invoice_remaining_to_include"], 0.0)
 
 
 class TransactionBillInstallmentTest(unittest.TestCase):

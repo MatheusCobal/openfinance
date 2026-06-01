@@ -41,7 +41,6 @@ const HISTORY_TABS = [
   { key: 'invoices', label: 'Faturas cartão' },
   { key: 'income', label: 'Receitas' },
   { key: 'cashflow', label: 'Entradas e saídas' },
-  { key: 'reserve', label: 'Reserva' },
 ];
 
 let activeTab = 'categories';
@@ -49,7 +48,6 @@ let categoryHistory = null;
 let invoiceHistory = null;
 let incomeHistory = null;
 let cashflowData = null;
-let reserveData = null;
 let exclusionRules = null;
 let cashflowRules = null;
 
@@ -1290,145 +1288,8 @@ function renderCashflow() {
   bindCashflowRulesEvents(section);
 }
 
-function renderReserve() {
-  const data = reserveData;
-  const section = document.getElementById('reserve-tab');
-  const subtitle = document.getElementById('subtitle');
-
-  destroyCharts();
-  hideAllTabSections();
-  section.classList.remove('hidden');
-
-  const months = data?.months || [];
-  if (months.length === 0) {
-    section.innerHTML = '';
-    renderEmpty(
-      'Nenhuma movimentação de reserva encontrada.',
-      'Aplicações e resgates em CDB (categoria Fixed income) vão aparecer aqui.',
-    );
-    subtitle.textContent = 'Sem reserva';
-    return;
-  }
-  hideEmpty();
-
-  const summary = data.summary || {};
-  const netColor = summary.net_total >= 0 ? 'text-indigo-700' : 'text-amber-700';
-  const netSign = summary.net_total >= 0 ? '+' : '−';
-
-  const monthsAsc = [...months];
-  const rows = [...months].reverse().map((m) => {
-    const net = Number(m.net_total || 0);
-    const netRowColor = net >= 0 ? 'text-indigo-700' : 'text-amber-700';
-    const netRowSign = net >= 0 ? '+' : '−';
-    const txRows = (m.transactions || []).map((tx) => {
-      const isApp = tx.direction === 'application';
-      const sign = isApp ? '−' : '+';
-      const color = isApp ? 'text-amber-700' : 'text-indigo-700';
-      const label = isApp ? 'Aplicação' : 'Resgate';
-      return `
-        <tr class="border-t border-slate-100">
-          <td class="px-4 py-2 text-sm text-slate-700 whitespace-nowrap">${escapeHtml(tx.date)}</td>
-          <td class="px-4 py-2 text-xs text-slate-500">${escapeHtml(label)}</td>
-          <td class="px-4 py-2 text-sm text-slate-700">${escapeHtml(tx.description)}</td>
-          <td class="px-4 py-2 text-right text-sm tabular font-medium ${color}">${sign}${currency.format(Math.abs(tx.amount))}</td>
-        </tr>
-      `;
-    }).join('');
-
-    return `
-      <details class="border-t border-slate-100 group" ${m.month === monthsAsc[monthsAsc.length-1].month ? 'open' : ''}>
-        <summary class="flex items-center justify-between px-5 py-3.5 cursor-pointer hover:bg-slate-50 select-none">
-          <div class="flex items-center gap-3 min-w-0">
-            <span class="text-sm font-semibold text-slate-900">${escapeHtml(formatMonthLong(m.month))}</span>
-            <span class="text-xs text-slate-400">${m.application_count} aplic · ${m.rescue_count} resg</span>
-          </div>
-          <div class="flex items-center gap-6 shrink-0 text-sm tabular">
-            <span class="text-slate-500">Aplicado <span class="font-medium text-amber-700">${currency.format(m.applications_total)}</span></span>
-            <span class="text-slate-500">Resgatado <span class="font-medium text-indigo-700">${currency.format(m.rescues_total)}</span></span>
-            <span class="font-semibold ${netRowColor}">${netRowSign}${currency.format(Math.abs(net))}</span>
-          </div>
-        </summary>
-        ${txRows ? `
-          <div class="px-5 pb-5 bg-slate-50/50">
-            <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-              <table class="w-full">
-                <thead>
-                  <tr class="text-xs uppercase tracking-wider text-slate-400 bg-slate-50">
-                    <th class="px-4 py-2 text-left font-medium">Data</th>
-                    <th class="px-4 py-2 text-left font-medium">Tipo</th>
-                    <th class="px-4 py-2 text-left font-medium">Descrição</th>
-                    <th class="px-4 py-2 text-right font-medium">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>${txRows}</tbody>
-              </table>
-            </div>
-          </div>
-        ` : `
-          <div class="px-5 pb-4 text-xs text-slate-400">Sem movimentações no mês.</div>
-        `}
-      </details>
-    `;
-  }).join('');
-
-  subtitle.textContent = `Reserva de emergência · ${pluralMeses(months.length)}`;
-
-  // Source of truth for the headline: the REAL invested balance reported by
-  // Pluggy (Investment.balance), not the cumulative sum of movements.
-  const isPluggy = data.source === 'pluggy';
-  const currentBalance = Number(
-    data.current_reserve_balance ?? summary.current_reserve_balance ?? 0,
-  );
-  const banner = isPluggy
-    ? `Reserva atual lida diretamente dos investimentos (Pluggy <code>Investment.balance</code>).
-       As movimentações abaixo (aplicações/resgates) são apenas o histórico do período — o valor da reserva é o saldo real investido, não a soma das aplicações.`
-    : `<span class="font-semibold">Aproximação (fallback):</span> ainda não há dados de investimentos sincronizados,
-       então a reserva está sendo estimada pelas movimentações de CDB (Pluggy <code>Fixed income</code>) nas transações.
-       Sincronize os investimentos para ver o saldo real investido.`;
-  const bannerCls = isPluggy
-    ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
-    : 'bg-amber-50 border-amber-200 text-amber-800';
-
-  section.innerHTML = `
-    <div class="border ${bannerCls} rounded-xl px-5 py-3 text-sm mb-2">
-      ${banner}
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
-      <div class="bg-white rounded-2xl border-2 border-indigo-200 p-6 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-indigo-500 font-medium">Reserva atual</p>
-        <p class="mt-2 text-2xl font-bold tabular text-indigo-700">${currency.format(currentBalance)}</p>
-        <p class="text-xs text-slate-500 mt-2">${isPluggy ? 'Saldo real investido' : 'Estimado por movimentações'}</p>
-      </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Aplicado (período)</p>
-        <p class="mt-2 text-2xl font-bold tabular text-amber-700">${currency.format(summary.applications_total || 0)}</p>
-        <p class="text-xs text-slate-500 mt-2">Movimentações de entrada · ${pluralMeses(months.length)}</p>
-      </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Resgatado (período)</p>
-        <p class="mt-2 text-2xl font-bold tabular text-indigo-700">${currency.format(summary.rescues_total || 0)}</p>
-        <p class="text-xs text-slate-500 mt-2">Saiu do CDB</p>
-      </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Líquido (período)</p>
-        <p class="mt-2 text-2xl font-bold tabular ${netColor}">${netSign}${currency.format(Math.abs(summary.net_total || 0))}</p>
-        <p class="text-xs text-slate-500 mt-2">Aplicado − Resgatado</p>
-      </div>
-    </div>
-
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-100">
-        <h2 class="font-semibold text-slate-900">Movimentações por mês</h2>
-      </div>
-      ${rows}
-    </div>
-  `;
-}
-
-
 function hideAllTabSections() {
-  ['cards', 'invoices', 'income-tab', 'cashflow-tab', 'planning-tab', 'reserve-tab'].forEach((id) => {
+  ['cards', 'invoices', 'income-tab', 'cashflow-tab', 'planning-tab'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
       el.classList.add('hidden');
@@ -1472,15 +1333,6 @@ function renderActiveTab() {
       return;
     }
     renderCashflow();
-  } else if (activeTab === 'reserve') {
-    if (!reserveData) {
-      renderUnavailable(
-        'Não foi possível carregar a reserva.',
-        'Tente atualizar novamente em alguns segundos.',
-      );
-      return;
-    }
-    renderReserve();
   } else {
     if (!categoryHistory) {
       renderUnavailable(
@@ -1507,7 +1359,6 @@ async function loadData() {
     ['rules', fetchJson('/bank-income/exclusion-rules')],
     ['cashflow', fetchJson('/bank-cashflow/monthly?months=12')],
     ['cashflowRules', fetchJson('/bank-cashflow/exclusion-rules')],
-    ['reserve', fetchJson('/emergency-reserve/monthly?months=6')],
   ];
   const results = await Promise.allSettled(requests.map(([, request]) => request));
   const failures = [];
@@ -1525,14 +1376,13 @@ async function loadData() {
     if (key === 'rules') exclusionRules = result.value;
     if (key === 'cashflow') cashflowData = result.value;
     if (key === 'cashflowRules') cashflowRules = result.value;
-    if (key === 'reserve') reserveData = result.value;
   });
 
   if (!exclusionRules) exclusionRules = [];
   if (!cashflowRules) cashflowRules = [];
   if (
     !categoryHistory && !invoiceHistory && !incomeHistory &&
-    !cashflowData && !reserveData
+    !cashflowData
   ) {
     throw new Error('Falha ao carregar histórico');
   }

@@ -16,15 +16,11 @@ from app.services.fixed_costs import (
     _shift_year_month,
     monthly_breakdown,
 )
-from app.services.reserve import reserve_applied_in_month
-from app.services.savings import effective_target as savings_effective_target
 from app.services.transaction_reports import invoice_summary
 from app.services.transactions import (
     bank_income_transactions,
     bank_inflow_transactions,
     bank_outflow_transactions,
-    investment_application_transactions,
-    investment_rescue_transactions,
 )
 
 
@@ -144,34 +140,6 @@ def spending_capacity_summary(
         (abs(tx.amount) for tx in bank_outflow_txs),
         Decimal("0"),
     )
-    reserva_application_txs = investment_application_transactions(
-        session, first_day, min(last_day, today)
-    )
-    reserva_application_total = sum(
-        (abs(tx.amount) for tx in reserva_application_txs),
-        Decimal("0"),
-    )
-    reserva_rescue_txs = investment_rescue_transactions(
-        session, first_day, min(last_day, today)
-    )
-    reserva_rescue_total = sum(
-        (tx.amount for tx in reserva_rescue_txs),
-        Decimal("0"),
-    )
-    reserva_net_total = reserva_application_total - reserva_rescue_total
-
-    reserve_applied_total = reserve_applied_in_month(
-        session, first_day, min(last_day, today), today
-    )
-    reserve_target = savings_effective_target(session, year_month)
-    reserve_reserved_total = max(reserve_target, reserve_applied_total)
-    reserve_target_total = reserve_target
-    reserve_pending_total = max(reserve_target - reserve_applied_total, Decimal("0"))
-    reserve_over_applied_total = max(
-        reserve_applied_total - reserve_target, Decimal("0")
-    )
-    reserve_planning_source = "savings_target"
-
     income_to_receive = max(
         expected_income_total - received_income_total,
         Decimal("0"),
@@ -212,7 +180,7 @@ def spending_capacity_summary(
     else:
         card_invoice_official_total = card_invoice_gross_total
 
-    card_invoice_remaining_to_reserve = max(
+    card_invoice_remaining_to_include = max(
         card_invoice_official_total - card_invoice_gross_total,
         Decimal("0"),
     )
@@ -294,13 +262,9 @@ def spending_capacity_summary(
             expected_income_total
             - fixed_cost_reserved_total
             - variable_budget_reserved
-            - card_invoice_remaining_to_reserve
+            - card_invoice_remaining_to_include
         )
 
-    if planning_mode == "future_month":
-        available_after_reserve = budget_available_to_spend - reserve_target_total
-    else:
-        available_after_reserve = budget_available_to_spend - reserve_reserved_total
     available_to_spend = budget_available_to_spend
     discretionary_available = budget_available_to_spend
     received_based_available_to_spend = (
@@ -352,18 +316,6 @@ def spending_capacity_summary(
         "received_income_count": len(received_income_transactions),
         "bank_inflows_total": float(bank_inflows_total),
         "bank_outflows_total": float(bank_outflows_total),
-        "reserva_application_total": float(reserva_application_total),
-        "reserva_rescue_total": float(reserva_rescue_total),
-        "reserva_net_total": float(reserva_net_total),
-        "reserva_application_count": len(reserva_application_txs),
-        "reserva_rescue_count": len(reserva_rescue_txs),
-        "reserve_applied_total": float(reserve_applied_total),
-        "reserve_target": float(reserve_target),
-        "reserve_reserved_total": float(reserve_reserved_total),
-        "reserve_target_total": float(reserve_target_total),
-        "reserve_pending_total": float(reserve_pending_total),
-        "reserve_over_applied_total": float(reserve_over_applied_total),
-        "reserve_planning_source": reserve_planning_source,
         "income_to_receive": float(income_to_receive),
         "receita_a_receber": float(income_to_receive),
         "income_over_expected": float(income_over_expected),
@@ -395,7 +347,6 @@ def spending_capacity_summary(
         "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
         "discretionary_available": float(discretionary_available),
         "budget_available_to_spend": float(budget_available_to_spend),
-        "available_after_reserve": float(available_after_reserve),
         "projected_cash_available": projected_cash_available,
         "daily_discretionary_remaining": float(daily_discretionary_remaining),
         "days_remaining_in_month": days_remaining_in_month,
@@ -408,7 +359,7 @@ def spending_capacity_summary(
         ),
         "card_invoice_fixed_cost_total": float(card_invoice_fixed_cost_total),
         "card_invoice_official_total": float(card_invoice_official_total),
-        "card_invoice_remaining_to_reserve": float(card_invoice_remaining_to_reserve),
+        "card_invoice_remaining_to_include": float(card_invoice_remaining_to_include),
         "future_card_obligation_total": float(future_card_obligation_total),
         "future_card_obligation_source": future_card_obligation_source,
         "future_card_obligation_count": future_card_obligation_count,
@@ -470,9 +421,6 @@ def spending_capacity_monthly_summary(
         "income_to_receive": Decimal("0"),
         "bank_inflows_total": Decimal("0"),
         "bank_outflows_total": Decimal("0"),
-        "reserva_application_total": Decimal("0"),
-        "reserva_rescue_total": Decimal("0"),
-        "reserva_net_total": Decimal("0"),
         "fixed_cost_total": Decimal("0"),
         "fixed_cost_planned_total": Decimal("0"),
         "fixed_cost_actual_total": Decimal("0"),
@@ -487,14 +435,9 @@ def spending_capacity_monthly_summary(
         "card_invoice_gross_total": Decimal("0"),
         "card_invoice_discretionary_total": Decimal("0"),
         "card_invoice_fixed_cost_total": Decimal("0"),
-        "card_invoice_remaining_to_reserve": Decimal("0"),
+        "card_invoice_remaining_to_include": Decimal("0"),
         "budget_available_to_spend": Decimal("0"),
         "discretionary_available": Decimal("0"),
-        "reserve_target_total": Decimal("0"),
-        "reserve_applied_total": Decimal("0"),
-        "reserve_reserved_total": Decimal("0"),
-        "reserve_pending_total": Decimal("0"),
-        "reserve_over_applied_total": Decimal("0"),
     }
     for offset in range(months):
         year_month = _shift_year_month(start_month, offset)
@@ -507,9 +450,6 @@ def spending_capacity_monthly_summary(
             "income_to_receive": capacity["income_to_receive"],
             "bank_inflows_total": capacity["bank_inflows_total"],
             "bank_outflows_total": capacity["bank_outflows_total"],
-            "reserva_application_total": capacity["reserva_application_total"],
-            "reserva_rescue_total": capacity["reserva_rescue_total"],
-            "reserva_net_total": capacity["reserva_net_total"],
             "fixed_cost_total": capacity["fixed_cost_total"],
             "fixed_cost_planned_total": capacity["fixed_cost_planned_total"],
             "fixed_cost_actual_total": capacity["fixed_cost_actual_total"],
@@ -528,17 +468,11 @@ def spending_capacity_monthly_summary(
             "card_invoice_fixed_cost_total": capacity[
                 "card_invoice_fixed_cost_total"
             ],
-            "card_invoice_remaining_to_reserve": capacity[
-                "card_invoice_remaining_to_reserve"
+            "card_invoice_remaining_to_include": capacity[
+                "card_invoice_remaining_to_include"
             ],
             "budget_available_to_spend": capacity["budget_available_to_spend"],
             "discretionary_available": capacity["discretionary_available"],
-            "reserve_target_total": capacity["reserve_target_total"],
-            "reserve_applied_total": capacity["reserve_applied_total"],
-            "reserve_reserved_total": capacity["reserve_reserved_total"],
-            "reserve_pending_total": capacity["reserve_pending_total"],
-            "reserve_over_applied_total": capacity["reserve_over_applied_total"],
-            "reserve_planning_source": capacity["reserve_planning_source"],
             "projected_cash_available": capacity["projected_cash_available"],
             "daily_discretionary_remaining": capacity[
                 "daily_discretionary_remaining"

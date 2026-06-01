@@ -459,14 +459,6 @@ function renderMonthlyFlow(cashflowData, balanceData, capacityData, selectedMont
       higherIsBetter: false,
     }),
     flowCard({
-      label: 'Reserva',
-      icon: '🏦',
-      value: capacityData.savings_target_total || 0,
-      countLabel: capacityData.savings_target?.scope === 'month' ? 'ajuste do mês' : 'meta padrão',
-      tint: 'slate',
-      higherIsBetter: true,
-    }),
-    flowCard({
       label: 'Pode gastar',
       icon: '📌',
       value: discretionaryAvailable,
@@ -1104,15 +1096,6 @@ function renderSnapshot(section, data) {
       'text-indigo-700',
     ),
   );
-  cards.push(
-    card(
-      'Reserva',
-      investments.has_investments ? currency.format(investments.reserve_total) : '—',
-      `${investments.reserve_investment_count || 0} elegíve${(investments.reserve_investment_count || 0) === 1 ? 'l' : 'is'}`,
-      'text-indigo-700',
-    ),
-  );
-
   document.getElementById('snapshot-cards').innerHTML = cards.join('');
   section.classList.remove('hidden');
 }

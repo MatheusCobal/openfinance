@@ -31,8 +31,6 @@ CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS = tuple(
 # INVESTMENT_NOISE so they:
 #   - Don't show as outflows/inflows in the Entradas e Saídas tab
 #   - Are excluded from bank_inflows_total / bank_outflows_total in Planejado
-#   - Are tracked separately as "Reserva" via investment_application_transactions
-#     and investment_rescue_transactions (see app/services/transactions.py)
 # Pluggy uses "Fixed income" for CDB applications/rescues — the main use
 # case here. Extend this set if other investment categories appear.
 INVESTMENT_NOISE_CATEGORIES: set[str] = {"Fixed income"}

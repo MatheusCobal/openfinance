@@ -15,9 +15,7 @@ from app.routes import (
     pages,
     planning,
     pluggy_webhooks,
-    reserve,
     rules,
-    savings,
     sync,
     transactions,
 )
@@ -44,7 +42,5 @@ app.include_router(history.router)
 app.include_router(expected_income.router)
 app.include_router(fixed_costs.router)
 app.include_router(planning.router)
-app.include_router(savings.router)
-app.include_router(reserve.router)
 app.include_router(dashboard.router)
 app.include_router(credit_card.router)
