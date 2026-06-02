@@ -222,6 +222,20 @@ O endpoint trata `item/created` e `item/updated`.
 
 ---
 
+## Sync Pluggy
+
+O backend expõe um endpoint de status de sincronização:
+
+```text
+GET /sync/status
+```
+
+Ele mostra um resumo de itens, contas, transações, faturas e a melhor estimativa disponível da última sincronização.
+
+Como o app não mantém uma tabela dedicada de execuções de sync, `last_sync_status` é calculado a partir dos timestamps e erros persistidos em `Item` e `AccountSync`. Quando não há dados suficientes, o status retorna `unknown` com `last_sync_status_source` igual a `not_tracked`.
+
+---
+
 ## Histórico recente
 
 - A Dashboard antiga foi removida

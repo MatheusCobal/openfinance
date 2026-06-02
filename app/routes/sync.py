@@ -16,6 +16,7 @@ from app.services.sync import (
     sync_item as run_sync_item,
     upsert_item,
 )
+from app.services.sync_status import get_sync_status
 
 logger = logging.getLogger("openfinance")
 
@@ -105,6 +106,11 @@ def sync_health(session: Session = Depends(get_session)):
             }
         )
     return health
+
+
+@router.get("/sync/status")
+def sync_status(session: Session = Depends(get_session)):
+    return get_sync_status(session)
 
 
 @router.post("/sync/items/{item_id}/deactivate")
