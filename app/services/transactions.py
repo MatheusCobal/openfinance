@@ -19,6 +19,17 @@ from app.services.classification import (
 )
 
 
+_BANK_INVOICE_PAYMENT_DESCRIPTION_PATTERNS = tuple(
+    normalize_description(pattern)
+    for pattern in (
+        "pagamento de boleto itau unibanco",
+        "itau unibanco holding",
+    )
+)
+_INVOICE_PAYMENT_AMOUNT_TOLERANCE = 1
+_INVOICE_PAYMENT_DATE_TOLERANCE_DAYS = 5
+
+
 def month_key(value: date) -> str:
     return value.strftime("%Y-%m")
 
@@ -93,6 +104,34 @@ def filter_transactions_by_account_type(
     return [tx for tx in transactions if tx.account_id in account_ids]
 
 
+def _is_bank_invoice_payment_fallback(
+    tx: Transaction,
+    active_bank_account_ids: set[str],
+) -> bool:
+    if tx.account_id not in active_bank_account_ids:
+        return False
+    if tx.amount >= 0:
+        return False
+    normalized_description = normalize_description(tx.description)
+    return any(
+        pattern in normalized_description
+        for pattern in _BANK_INVOICE_PAYMENT_DESCRIPTION_PATTERNS
+        if pattern
+    )
+
+
+def _has_matching_credit_invoice_payment(
+    bank_tx: Transaction,
+    credit_payments: list[Transaction],
+) -> bool:
+    return any(
+        abs(abs(bank_tx.amount) - abs(credit_tx.amount))
+        <= _INVOICE_PAYMENT_AMOUNT_TOLERANCE
+        and abs((bank_tx.date - credit_tx.date).days)
+        <= _INVOICE_PAYMENT_DATE_TOLERANCE_DAYS
+        for credit_tx in credit_payments
+    )
+
 
 def credit_card_payment_transactions(
     session: Session,
@@ -100,12 +139,34 @@ def credit_card_payment_transactions(
     end_date: date,
 ) -> list[Transaction]:
     classifier = TransactionClassifier.from_session(session)
+    active_bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
     transactions = session.exec(
         select(Transaction)
         .where(Transaction.date >= start_date, Transaction.date <= end_date)
         .order_by(Transaction.date.asc())
     ).all()
-    return [tx for tx in transactions if classifier.is_invoice_payment(tx)]
+    classifier_payments = [
+        tx for tx in transactions if classifier.is_invoice_payment(tx)
+    ]
+    credit_payments = [
+        tx
+        for tx in classifier_payments
+        if classifier.accounts_by_id.get(tx.account_id)
+        and classifier.accounts_by_id[tx.account_id].type == "CREDIT"
+    ]
+
+    output: list[Transaction] = []
+    classifier_payment_ids = {tx.id for tx in classifier_payments}
+    for tx in transactions:
+        if tx.id in classifier_payment_ids:
+            output.append(tx)
+            continue
+        if not _is_bank_invoice_payment_fallback(tx, active_bank_account_ids):
+            continue
+        if _has_matching_credit_invoice_payment(tx, credit_payments):
+            continue
+        output.append(tx)
+    return output
 
 
 def bank_income_exclusion_rules(

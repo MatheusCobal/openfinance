@@ -23,10 +23,12 @@ from app.services.history import (
     credit_card_payments_monthly_summary,
     invoice_month_from_payment,
 )
+from app.services.transactions import credit_card_payment_transactions
 
 
 ITEM_ID = "item-hist-test"
 CC_ACCOUNT_ID = "cc-hist-test"
+BANK_ACCOUNT_ID = "bank-hist-test"
 
 
 def _make_engine():
@@ -86,6 +88,43 @@ def _add_payment(
     session.commit()
 
 
+def _add_bank_account(session: Session) -> None:
+    session.add(
+        Account(
+            id=BANK_ACCOUNT_ID,
+            item_id=ITEM_ID,
+            name="itau",
+            type="BANK",
+            currency_code="BRL",
+            is_active=True,
+            balance=Decimal("0"),
+        )
+    )
+    session.commit()
+
+
+def _add_bank_transaction(
+    session: Session,
+    *,
+    tx_id: str,
+    payment_date: datetime.date,
+    amount: Decimal,
+    description: str,
+    category: str,
+) -> None:
+    session.add(
+        Transaction(
+            id=tx_id,
+            account_id=BANK_ACCOUNT_ID,
+            date=payment_date,
+            amount=-abs(amount),
+            description=description,
+            category=category,
+        )
+    )
+    session.commit()
+
+
 class TestInvoiceMonthFromPayment(unittest.TestCase):
     """A. invoice_month_from_payment helper."""
 
@@ -118,6 +157,10 @@ class TestInvoiceMonthFromPayment(unittest.TestCase):
         # Payment on May 1, due_day=6 → candidate May 6 ≥ May 1 → 2026-05
         result = invoice_month_from_payment(datetime.date(2026, 5, 1), due_day=6)
         self.assertEqual(result, "2026-05")
+
+    def test_payment_after_due_day_6_maps_to_june(self):
+        result = invoice_month_from_payment(datetime.date(2026, 5, 30), due_day=6)
+        self.assertEqual(result, "2026-06")
 
 
 class TestCreditCardPaymentsMonthly(unittest.TestCase):
@@ -212,6 +255,111 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
         self.assertEqual(result["total"], 0.0)
         for m in result["months"]:
             self.assertEqual(m["count"], 0)
+
+    def test_bank_itau_boleto_payment_is_included(self):
+        with Session(self.engine) as session:
+            _seed_base(session)
+            _add_bank_account(session)
+            _add_bank_transaction(
+                session,
+                tx_id="bank-itau-boleto",
+                payment_date=datetime.date(2026, 5, 30),
+                amount=Decimal("17131.28"),
+                description="Pagamento de boleto ITAU UNIBANCO HOLDING S.A.",
+                category="Investments",
+            )
+            payments = credit_card_payment_transactions(
+                session,
+                datetime.date(2026, 5, 1),
+                datetime.date(2026, 5, 31),
+            )
+
+        self.assertEqual([tx.id for tx in payments], ["bank-itau-boleto"])
+
+    def test_bank_claro_pix_payment_is_not_included(self):
+        with Session(self.engine) as session:
+            _seed_base(session)
+            _add_bank_account(session)
+            _add_bank_transaction(
+                session,
+                tx_id="bank-claro-pix",
+                payment_date=datetime.date(2026, 5, 30),
+                amount=Decimal("30.50"),
+                description="Pagamento de Pix QR Code CLARO",
+                category="Telecommunications",
+            )
+            payments = credit_card_payment_transactions(
+                session,
+                datetime.date(2026, 5, 1),
+                datetime.date(2026, 5, 31),
+            )
+
+        self.assertEqual(payments, [])
+
+    def test_bank_itau_boleto_payment_appears_in_june_summary(self):
+        with Session(self.engine) as session:
+            _seed_base(session)
+            _add_bank_account(session)
+            _add_bank_transaction(
+                session,
+                tx_id="bank-itau-june",
+                payment_date=datetime.date(2026, 5, 30),
+                amount=Decimal("17131.28"),
+                description="Pagamento de boleto ITAU UNIBANCO HOLDING S.A.",
+                category="Investments",
+            )
+            result = credit_card_payments_monthly_summary(session, months=12)
+
+        months_by_key = {m["month"]: m for m in result["months"]}
+        june = months_by_key.get("2026-06")
+        self.assertIsNotNone(june, "2026-06 must be in the result")
+        self.assertEqual(june["count"], 1)
+        self.assertAlmostEqual(june["total"], 17131.28, places=2)
+        self.assertEqual(june["transactions"][0]["id"], "bank-itau-june")
+        self.assertEqual(june["transactions"][0]["invoice_month"], "2026-06")
+
+    def test_bank_fallback_is_deduped_when_credit_payment_exists(self):
+        with Session(self.engine) as session:
+            _seed_base(session)
+            _add_bank_account(session)
+            _add_bank_transaction(
+                session,
+                tx_id="bank-itau-duplicate",
+                payment_date=datetime.date(2026, 5, 30),
+                amount=Decimal("17131.28"),
+                description="Pagamento de boleto ITAU UNIBANCO HOLDING S.A.",
+                category="Investments",
+            )
+            _add_payment(
+                session,
+                tx_id="credit-itau-duplicate",
+                payment_date=datetime.date(2026, 6, 2),
+                amount=Decimal("17131.28"),
+            )
+            payments = credit_card_payment_transactions(
+                session,
+                datetime.date(2026, 5, 1),
+                datetime.date(2026, 6, 30),
+            )
+
+        self.assertEqual([tx.id for tx in payments], ["credit-itau-duplicate"])
+
+    def test_existing_credit_invoice_payment_still_works(self):
+        with Session(self.engine) as session:
+            _seed_base(session)
+            _add_payment(
+                session,
+                tx_id="credit-payment",
+                payment_date=datetime.date(2026, 5, 30),
+                amount=Decimal("1234.56"),
+            )
+            payments = credit_card_payment_transactions(
+                session,
+                datetime.date(2026, 5, 1),
+                datetime.date(2026, 5, 31),
+            )
+
+        self.assertEqual([tx.id for tx in payments], ["credit-payment"])
 
 
 class TestHistoricoPageLoads(unittest.TestCase):
