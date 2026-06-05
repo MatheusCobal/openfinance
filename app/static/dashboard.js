@@ -35,6 +35,12 @@ function prevYearMonth(ym) {
   return `${y}-${String(m - 1).padStart(2, '0')}`;
 }
 
+function nextYearMonth(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  if (m === 12) return `${y + 1}-01`;
+  return `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
 function monthLabel(ym) {
   const [y, m] = ym.split('-').map(Number);
   const label = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(new Date(y, m - 1, 1));
@@ -85,6 +91,7 @@ function categoryIcon(name) {
 
 let currentData = null;
 let prevData = null;
+let nextMonthData = null;
 let statsData = null;
 let currentYM = null;
 
@@ -97,15 +104,17 @@ async function fetchJson(url, options) {
 async function loadData() {
   currentYM = currentYearMonth();
   const prevYM = prevYearMonth(currentYM);
+  const nextYM = nextYearMonth(currentYM);
 
   setLoading(true);
   setError(false);
   showContent(false);
 
   try {
-    [currentData, prevData, statsData] = await Promise.all([
+    [currentData, prevData, nextMonthData, statsData] = await Promise.all([
       fetchJson(`/planning/month/${currentYM}`),
       fetchJson(`/planning/month/${prevYM}`).catch(() => null),
+      fetchJson(`/planning/month/${nextYM}`).catch(() => null),
       fetchJson('/stats/monthly').catch(() => null),
     ]);
     renderDashboard();
@@ -136,7 +145,6 @@ function renderDashboard() {
   const income = d.income ?? {};
   const fixed = d.fixed_costs ?? {};
   const variable = d.variable_budgets ?? {};
-  const invoice = d.credit_card_invoice ?? {};
   const raw = d.raw?.spending_capacity ?? {};
 
   const prevIncome = prevData?.income ?? null;
@@ -144,10 +152,15 @@ function renderDashboard() {
   const prevVariable = prevData?.variable_budgets ?? null;
   const prevRaw = prevData?.raw?.spending_capacity ?? null;
 
+  // Invoice always shows next month (the upcoming bill to pay)
+  const nextYM = nextYearMonth(currentYM);
+  const nextInvoice = nextMonthData?.credit_card_invoice ?? null;
+  const nextRaw = nextMonthData?.raw?.spending_capacity ?? {};
+
   document.getElementById('header-date').textContent = headerDateLabel(currentYM);
 
   renderHero(cap);
-  renderInvoiceCard(invoice, raw);
+  renderInvoiceCard(nextInvoice, nextRaw, nextYM);
   document.getElementById('month-compact').textContent = monthLabelCompact(currentYM);
   renderSummaryCards({ income, fixed, variable, raw, prevIncome, prevRaw });
   renderCategories();
@@ -174,20 +187,27 @@ function renderHero(cap) {
   `;
 }
 
-function renderInvoiceCard(invoice, raw) {
-  const amount = invoice?.amount ?? raw?.card_invoice_official_total ?? raw?.card_invoice_total ?? 0;
+function renderInvoiceCard(invoice, raw, invoiceYM) {
+  const amount = invoice?.amount ?? 0;
+  const sourceLabel = invoice?.source_label ?? null;
   const discretionary = raw?.card_invoice_discretionary_total ?? 0;
   const fixedCost = raw?.card_invoice_fixed_cost_total ?? 0;
+
+  // Show the split only when both values are meaningful (future months rarely have real splits)
+  const hasSplit = discretionary > 0 || fixedCost > 0;
+  const splitHtml = hasSplit
+    ? `<span>&nbsp;·&nbsp;</span>
+       <span>discricionária ${escapeHtml(fmt(discretionary))}</span>
+       <span>&nbsp;·&nbsp;</span>
+       <span>custos fixos ${escapeHtml(fmt(fixedCost))}</span>`
+    : (sourceLabel ? `<span>&nbsp;·&nbsp;</span><span class="italic">${escapeHtml(sourceLabel)}</span>` : '');
 
   document.getElementById('invoice-card-content').innerHTML = `
     <p class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Fatura do cartão</p>
     <p class="text-4xl font-bold tabular text-slate-900 mb-3">${escapeHtml(fmt(amount))}</p>
     <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
-      <span>${escapeHtml(monthLabel(currentYM))}</span>
-      <span>&nbsp;·&nbsp;</span>
-      <span>discricionária ${escapeHtml(fmt(discretionary))}</span>
-      <span>&nbsp;·&nbsp;</span>
-      <span>custos fixos ${escapeHtml(fmt(fixedCost))}</span>
+      <span>${escapeHtml(monthLabel(invoiceYM))}</span>
+      ${splitHtml}
     </div>
   `;
 }
