@@ -52,6 +52,8 @@ class PageSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
         self.assertIn("dashboard.js", response.text)
+        # Dashboard must reuse the shared planning helpers, not its own logic.
+        self.assertIn("planning_common.js", response.text)
 
     def test_planejamento_route_serves_page(self):
         response = self.client.get("/planejamento")
@@ -60,6 +62,8 @@ class PageSmokeTest(unittest.TestCase):
         # Must load the renamed JS bundle, not the old custos_fixos.js
         self.assertIn("planejamento.js", response.text)
         self.assertNotIn("custos_fixos.js", response.text)
+        # Shared planning helpers must load before the page bundle.
+        self.assertIn("planning_common.js", response.text)
         # Must not expose a "Criar custo recorrente" tab button
         self.assertNotIn("Criar custo recorrente", response.text)
 

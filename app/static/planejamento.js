@@ -1,9 +1,10 @@
 'use strict';
 
-const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+// currency, MONTH_LABELS and the month/normalization helpers live in
+// planning_common.js (loaded before this file) so the Dashboard reuses the
+// exact same financial logic.
 const MONTH_WINDOW = 6;
 const MAX_CUSTOM_CATEGORIES = 5;
-const MONTH_LABELS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 // ── Description matching helpers (mirrors backend _token_set / normalize_description) ──
 
@@ -112,98 +113,10 @@ function setPlanningTab(tabName, updateUrl = true) {
   }
 }
 
-function currentYearMonth() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function getDefaultPlanningMonth() {
-  return shiftYearMonth(currentYearMonth(), 1);
-}
-
-function shiftYearMonth(ym, offset) {
-  const [year, month] = ym.split('-').map(Number);
-  const zeroBased = year * 12 + (month - 1) + offset;
-  return `${String(Math.floor(zeroBased / 12)).padStart(4, '0')}-${String((zeroBased % 12) + 1).padStart(2, '0')}`;
-}
-
-function formatMonthShort(ym) {
-  const [year, month] = ym.split('-').map(Number);
-  return `${MONTH_LABELS[month - 1]}/${String(year).slice(2)}`;
-}
-
 function formatDate(iso) {
   const [year, month, day] = String(iso).split('-');
   if (!year || !month || !day) return iso;
   return `${day}/${month}`;
-}
-
-function asMoneyNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function normalizePlanningOverview(planning) {
-  const rawCapacity = planning?.raw?.spending_capacity || {};
-  const invoice = planning?.credit_card_invoice || rawCapacity.planning_invoice || {};
-  const fixed = rawCapacity.fixed_costs || {
-    year_month: planning?.year_month,
-    total: planning?.fixed_costs?.planned || 0,
-    planned_total: planning?.fixed_costs?.planned || 0,
-    actual_total: planning?.fixed_costs?.actual || 0,
-    pending_total: planning?.fixed_costs?.pending || 0,
-    reserved_or_actual_total: planning?.fixed_costs?.reserved_or_actual || 0,
-    categories: [],
-    entries: planning?.fixed_costs?.entries || [],
-  };
-  const expectedIncome = rawCapacity.expected_income || {
-    year_month: planning?.year_month,
-    total: planning?.income?.expected || 0,
-    entries: planning?.income?.entries || [],
-  };
-  const variableBudgets = rawCapacity.variable_budgets || {
-    year_month: planning?.year_month,
-    summary: {
-      target: planning?.variable_budgets?.planned || 0,
-      target_consumed: planning?.variable_budgets?.consumed || 0,
-      target_remaining: planning?.variable_budgets?.remaining || 0,
-      target_overage: planning?.variable_budgets?.overage || 0,
-    },
-    items: planning?.variable_budgets?.items || [],
-  };
-
-  return {
-    ...rawCapacity,
-    year_month: planning?.year_month || rawCapacity.year_month,
-    planning_invoice: invoice,
-    credit_card_invoice: invoice,
-    expected_income_total: planning?.income?.expected ?? rawCapacity.expected_income_total ?? 0,
-    received_income_total: planning?.income?.received ?? rawCapacity.received_income_total ?? 0,
-    income_to_receive: planning?.income?.to_receive ?? rawCapacity.income_to_receive ?? 0,
-    fixed_cost_planned_total: planning?.fixed_costs?.planned ?? rawCapacity.fixed_cost_planned_total ?? fixed.planned_total ?? 0,
-    fixed_cost_actual_total: planning?.fixed_costs?.actual ?? rawCapacity.fixed_cost_actual_total ?? fixed.actual_total ?? 0,
-    fixed_cost_pending_total: planning?.fixed_costs?.pending ?? rawCapacity.fixed_cost_pending_total ?? fixed.pending_total ?? 0,
-    fixed_cost_reserved_total: planning?.fixed_costs?.reserved_or_actual ?? rawCapacity.fixed_cost_reserved_total ?? fixed.reserved_or_actual_total ?? 0,
-    variable_budget_total: planning?.variable_budgets?.planned ?? rawCapacity.variable_budget_total ?? 0,
-    variable_budget_consumed: planning?.variable_budgets?.consumed ?? rawCapacity.variable_budget_consumed ?? 0,
-    variable_budget_remaining: planning?.variable_budgets?.remaining ?? rawCapacity.variable_budget_remaining ?? 0,
-    variable_budget_overage: planning?.variable_budgets?.overage ?? rawCapacity.variable_budget_overage ?? 0,
-    available_to_spend: planning?.capacity?.available_to_spend ?? rawCapacity.available_to_spend ?? rawCapacity.budget_available_to_spend ?? 0,
-    budget_available_to_spend: planning?.capacity?.available_to_spend ?? rawCapacity.budget_available_to_spend ?? rawCapacity.available_to_spend ?? 0,
-    daily_discretionary_remaining: planning?.capacity?.daily_discretionary_remaining ?? rawCapacity.daily_discretionary_remaining ?? 0,
-    days_remaining_in_month: planning?.capacity?.days_remaining_in_month ?? rawCapacity.days_remaining_in_month ?? 0,
-    plan_status: planning?.capacity?.plan_status ?? rawCapacity.plan_status,
-    fixed_costs: fixed,
-    expected_income: expectedIncome,
-    variable_budgets: variableBudgets,
-  };
-}
-
-function invoiceIncludedAmount(capacity) {
-  const isFuture = (capacity.planning_mode || (capacity.is_future_month ? 'future_month' : 'current_month')) === 'future_month';
-  return isFuture
-    ? asMoneyNumber(capacity.future_card_obligation_total)
-    : asMoneyNumber(capacity.card_invoice_remaining_to_include);
 }
 
 function transactionCountLabel(count) {
