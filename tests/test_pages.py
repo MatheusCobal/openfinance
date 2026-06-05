@@ -9,20 +9,18 @@ from app.main import app
 
 
 class PageSmokeTest(unittest.TestCase):
-    """Routing/navigation smoke tests for the simplified UI.
+    """Routing/navigation smoke tests.
 
+    Main landing page: /dashboard (executive summary)
     Primary planning route: /planejamento (serves planejamento.html)
     Legacy aliases:
-    - GET /  → 302 redirect to /planejamento
+    - GET /  → 302 redirect to /dashboard
     - GET /custos-fixos → 302 redirect to /planejamento
     - GET /orcamento → 307 redirect to /planejamento
     Other screens:
     - GET /historico → Histórico HTML
     - GET /proximos → Próximos HTML
     - GET /regras → Regras HTML
-    Removed routes:
-    - Dashboard routes (/dashboard/*) → 404
-    - Reserve/savings routes → 404
     """
 
     def setUp(self):
@@ -44,10 +42,16 @@ class PageSmokeTest(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def test_root_redirects_to_planejamento(self):
+    def test_root_redirects_to_dashboard(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["location"], "/planejamento")
+        self.assertEqual(response.headers["location"], "/dashboard")
+
+    def test_dashboard_loads(self):
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+        self.assertIn("dashboard.js", response.text)
 
     def test_planejamento_route_serves_page(self):
         response = self.client.get("/planejamento")
@@ -84,7 +88,7 @@ class PageSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 307)
         self.assertEqual(response.headers["location"], "/planejamento")
 
-    def test_dashboard_routes_return_404(self):
+    def test_dashboard_sub_routes_return_404(self):
         for path in (
             "/dashboard/snapshot",
             "/dashboard/credit-card-diagnostics?year_month=2026-06",
@@ -101,12 +105,12 @@ class PageSmokeTest(unittest.TestCase):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 404, path)
 
-    def test_sidebar_has_no_dashboard_link(self):
-        # Primary pages must not show a Dashboard nav item.
-        for path in ("/historico", "/planejamento", "/regras", "/proximos"):
+    def test_sidebar_has_dashboard_link(self):
+        # All pages must show a Dashboard nav item after its reintroduction.
+        for path in ("/dashboard", "/historico", "/planejamento", "/regras", "/proximos"):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
-            self.assertNotIn("Dashboard", response.text, path)
+            self.assertIn("Dashboard", response.text, path)
             self.assertNotIn('href="/orcamento"', response.text, path)
             self.assertNotIn('href="/custos-fixos"', response.text, path)
 

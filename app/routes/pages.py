@@ -10,7 +10,12 @@ router = APIRouter()
 
 @router.get("/", include_in_schema=False)
 def index():
-    return RedirectResponse(url="/planejamento", status_code=302)
+    return RedirectResponse(url="/dashboard", status_code=302)
+
+
+@router.get("/dashboard", include_in_schema=False)
+def dashboard():
+    return FileResponse(STATIC_DIR / "dashboard.html")
 
 
 @router.get("/planejamento", include_in_schema=False)
