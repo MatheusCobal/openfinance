@@ -389,12 +389,22 @@ class CurrentCardInvoiceTest(unittest.TestCase):
                     category="Food",
                     is_duplicate=True,
                 ),
+                # Excluded by text pattern ("canc parcela")
                 Transaction(
-                    id="refund-row",
+                    id="refund-text-row",
                     account_id="credit-1",
                     date=date(2026, 6, 8),
                     amount=Decimal("-80"),
                     description="CANC PARCELA SEM J",
+                    category="Food",
+                ),
+                # Excluded by negative amount alone — no text pattern matches
+                Transaction(
+                    id="refund-negative-row",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("-52.50"),
+                    description="Reducao Mensalidade Plano",
                     category="Food",
                 ),
             ]
@@ -409,6 +419,62 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(
             [tx["id"] for tx in summary["categories"][0]["transactions"]],
             ["valid-current"],
+        )
+        # Both refund rows must be absent from categories
+        all_cat_ids = [tx["id"] for cat in summary["categories"] for tx in cat["transactions"]]
+        self.assertNotIn("refund-text-row", all_cat_ids)
+        self.assertNotIn("refund-negative-row", all_cat_ids)
+
+    def test_negative_amount_without_text_pattern_is_excluded_from_categories(self):
+        """A credit-card transaction with amount < 0 and no refund keyword in its
+        description must not appear in categories or contribute to category_total,
+        even though _looks_like_refund_text() returns False for it."""
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("1000"))
+            session.add(Category(id=1, name="Outros", color="#94a3b8", sort_order=99))
+            rows = [
+                # Normal purchase — must appear in categories
+                Transaction(
+                    id="purchase-1",
+                    account_id="credit-1",
+                    date=date(2026, 6, 5),
+                    amount=Decimal("200"),
+                    description="Loja XYZ",
+                    category="Shopping",
+                ),
+                # Negative amount, neutral description — the bug that was reported
+                Transaction(
+                    id="credit-neutral-desc",
+                    account_id="credit-1",
+                    date=date(2026, 6, 6),
+                    amount=Decimal("-52.50"),
+                    description="Reducao Mensalidade Plano",
+                    category="Services",
+                ),
+            ]
+            session.add_all(rows)
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
+
+        all_cat_ids = [tx["id"] for cat in summary["categories"] for tx in cat["transactions"]]
+        self.assertIn("purchase-1", all_cat_ids, "normal purchase must be in categories")
+        self.assertNotIn(
+            "credit-neutral-desc",
+            all_cat_ids,
+            "negative-amount tx must be excluded from categories even without a refund keyword",
+        )
+        # category_total must only count the positive purchase
+        self.assertAlmostEqual(summary["category_total"], 200.0, places=2)
+        self.assertEqual(summary["category_count"], 1)
+        # The negative tx must surface in possible_refund_transactions
+        refund_ids = [tx["id"] for tx in summary["possible_refund_transactions"]]
+        self.assertIn(
+            "credit-neutral-desc",
+            refund_ids,
+            "negative-amount tx must appear in possible_refund_transactions",
         )
 
     def test_endpoint_returns_current_invoice_summary(self):

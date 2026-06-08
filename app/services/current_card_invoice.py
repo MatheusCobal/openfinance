@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from app.categorization import normalize_description
+from app.categorization import CategoryResolver, normalize_description
 from app.models import Account, CreditCardBill, Item, Transaction
 from app.services.transactions import (
     _non_duplicate_clause,
@@ -159,6 +159,10 @@ def _matching_invoice_payments(
 def _looks_like_refund(tx: Transaction) -> bool:
     if tx.amount < 0:
         return True
+    return _looks_like_refund_text(tx)
+
+
+def _looks_like_refund_text(tx: Transaction) -> bool:
     normalized_description = normalize_description(tx.description)
     if any(pattern in normalized_description for pattern in REFUND_DESCRIPTION_PATTERNS):
         return True
@@ -207,6 +211,127 @@ def _possible_refunds(
     ]
 
 
+def _category_window_start(
+    account: Account,
+    latest_bill: Optional[CreditCardBill],
+    today: datetime.date,
+) -> datetime.date:
+    if account.credit_balance_close_date is not None:
+        from app.services.credit_card_invoice import _forming_billing_cycle
+
+        cycle_start, _ = _forming_billing_cycle(
+            account.credit_balance_close_date,
+            today,
+        )
+        return cycle_start
+    if latest_bill is not None and latest_bill.due_date is not None:
+        month_start = today.replace(day=1)
+        return min(month_start, latest_bill.due_date)
+    return today.replace(day=1)
+
+
+def _serialize_category_transaction(
+    tx: Transaction,
+    custom_category_name: str,
+) -> dict[str, Any]:
+    return {
+        "id": tx.id,
+        "date": tx.date.isoformat(),
+        "description": tx.description,
+        "amount": float(abs(tx.amount)),
+        "signed_amount": float(tx.amount),
+        "category": tx.category,
+        "custom_category_name": custom_category_name,
+        "status": tx.status,
+        "bill_id": tx.bill_id,
+        "installment_number": tx.installment_number,
+        "total_installments": tx.total_installments,
+    }
+
+
+def _current_invoice_category_transactions(
+    session: Session,
+    account: Account,
+    latest_bill: Optional[CreditCardBill],
+    today: datetime.date,
+) -> list[Transaction]:
+    from app.services.classification import TransactionClassifier
+
+    start = _category_window_start(account, latest_bill, today)
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id == account.id,
+            Transaction.date >= start,
+            Transaction.date <= today,
+            _non_duplicate_clause(),
+        )
+        .order_by(Transaction.date.asc(), Transaction.description.asc())
+    ).all()
+
+    classifier = TransactionClassifier.from_session(session)
+    latest_bill_id = latest_bill.id if latest_bill is not None else None
+    return [
+        tx
+        for tx in rows
+        if not classifier.is_invoice_payment(tx)
+        and not classifier.is_ignored(tx)
+        and (latest_bill_id is None or tx.bill_id != latest_bill_id)
+        and not _looks_like_refund(tx)
+    ]
+
+
+def _append_category_transactions(
+    grouped: dict[int, dict[str, Any]],
+    resolver: CategoryResolver,
+    transactions: list[Transaction],
+) -> None:
+    for tx in transactions:
+        category = resolver.display_category(
+            resolver.resolve(tx.category, tx.description)
+        )
+        if category.id not in grouped:
+            grouped[category.id] = {
+                "id": category.id,
+                "name": category.name,
+                "color": category.color,
+                "sort_order": category.sort_order,
+                "total": Decimal("0"),
+                "count": 0,
+                "transactions": [],
+            }
+        row = grouped[category.id]
+        amount = abs(Decimal(tx.amount))
+        row["total"] += amount
+        row["count"] += 1
+        row["transactions"].append(
+            _serialize_category_transaction(tx, category.name)
+        )
+
+
+def _serialize_categories(
+    grouped: dict[int, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], Decimal, int]:
+    categories = []
+    category_total = Decimal("0")
+    category_count = 0
+    for row in grouped.values():
+        category_total += row["total"]
+        category_count += row["count"]
+        categories.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "color": row["color"],
+                "total": float(row["total"]),
+                "count": row["count"],
+                "transactions": row["transactions"],
+            }
+        )
+    categories.sort(key=lambda category: category["total"], reverse=True)
+    return categories, category_total, category_count
+
+
 def current_card_invoice_summary(
     session: Session,
     today: Optional[datetime.date] = None,
@@ -222,6 +347,8 @@ def current_card_invoice_summary(
 
     cards: list[dict[str, Any]] = []
     all_possible_refunds: list[dict[str, Any]] = []
+    grouped_categories: dict[int, dict[str, Any]] = {}
+    resolver = CategoryResolver(session)
     raw_total = Decimal("0")
     adjusted_total = Decimal("0")
     adjusted_any = False
@@ -263,6 +390,17 @@ def current_card_invoice_summary(
         possible_refunds = _possible_refunds(session, account, latest, today)
         serialized_refunds = [_serialize_refund(tx) for tx in possible_refunds]
         all_possible_refunds.extend(serialized_refunds)
+        category_transactions = _current_invoice_category_transactions(
+            session,
+            account,
+            latest,
+            today,
+        )
+        _append_category_transactions(
+            grouped_categories,
+            resolver,
+            category_transactions,
+        )
 
         adjusted_total += adjusted_balance
         cards.append(
@@ -311,6 +449,9 @@ def current_card_invoice_summary(
         (Decimal(str(tx["signed_amount"])) for tx in all_possible_refunds),
         Decimal("0"),
     )
+    categories, category_total, category_count = _serialize_categories(
+        grouped_categories
+    )
 
     return {
         "amount": float(adjusted_total),
@@ -325,6 +466,9 @@ def current_card_invoice_summary(
         "confidence": confidence,
         "account_count": len(cards),
         "cards": cards,
+        "categories": categories,
+        "category_total": float(category_total),
+        "category_count": category_count,
         "possible_refunds_total": float(possible_refunds_total),
         "possible_refund_transactions": all_possible_refunds,
         "source_detail": {
