@@ -12,6 +12,7 @@ from app.models import (
     FixedCostTransactionMatch,
     Transaction,
 )
+from app.services.transactions import _non_duplicate_clause
 from app.services.fixed_cost_defaults import (
     DEFAULT_FIXED_COST_CATEGORIES,
     FIXED_COST_TEMPLATES,
@@ -640,6 +641,7 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
         select(Transaction).where(
             Transaction.date >= first_day,
             Transaction.date <= last_day,
+            _non_duplicate_clause(),
         )
     ).all()
     manual_matches = _matches_for_month(session, year_month)

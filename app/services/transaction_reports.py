@@ -11,8 +11,10 @@ from app.services.classification import TransactionClassifier
 from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
     TRACKED_ACCOUNT_TYPES,
+    _non_duplicate_clause,
     account_ids_by_type,
     filter_ignored_transactions,
+    filter_non_duplicate_transactions,
     filter_transactions_by_account_type,
     ignored_description_patterns,
     is_ignored_transaction,
@@ -24,8 +26,11 @@ def _transaction_list_query(
     from_date: Optional[date],
     to_date: Optional[date],
     include_future: bool,
+    include_duplicates: bool = False,
 ):
     query = select(Transaction).order_by(Transaction.date.desc())
+    if not include_duplicates:
+        query = query.where(_non_duplicate_clause())
     if account_id is not None:
         query = query.where(Transaction.account_id == account_id)
     if from_date is not None:
@@ -71,6 +76,7 @@ def enriched_transactions(
     to_date: Optional[date] = None,
     include_future: bool = False,
     include_ignored: bool = False,
+    include_duplicates: bool = False,
 ) -> list[Dict[str, Any]]:
     resolver = CategoryResolver(session)
     query = _transaction_list_query(
@@ -78,6 +84,7 @@ def enriched_transactions(
         from_date,
         to_date,
         include_future,
+        include_duplicates=include_duplicates,
     )
     query, should_return_empty = _apply_account_type_filter(
         query,
@@ -122,7 +129,7 @@ def upcoming_summary(
     today = date.today()
     future_txs = session.exec(
         select(Transaction)
-        .where(Transaction.date > today)
+        .where(Transaction.date > today, _non_duplicate_clause())
         .order_by(Transaction.date)
     ).all()
     future_txs = filter_transactions_by_account_type(
@@ -201,7 +208,9 @@ def monthly_stats_summary(
 ) -> Dict[str, Any]:
     resolver = CategoryResolver(session)
     today = date.today()
-    transactions = session.exec(select(Transaction)).all()
+    transactions = session.exec(
+        select(Transaction).where(_non_duplicate_clause())
+    ).all()
     past_transactions = [tx for tx in transactions if tx.date <= today]
     past_transactions = filter_transactions_by_account_type(
         past_transactions,
@@ -288,7 +297,10 @@ def invoice_summary(
         account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
     )
     all_up_to = session.exec(
-        select(Transaction).where(Transaction.date <= effective_to)
+        select(Transaction).where(
+            Transaction.date <= effective_to,
+            _non_duplicate_clause(),
+        )
     ).all()
 
     payments = [
@@ -410,7 +422,7 @@ def stats_summary(
     today = date.today()
     effective_to = to_date if to_date is not None else today
 
-    query = select(Transaction)
+    query = select(Transaction).where(_non_duplicate_clause())
     if from_date is not None:
         query = query.where(Transaction.date >= from_date)
     query = query.where(Transaction.date <= effective_to)
@@ -429,7 +441,7 @@ def stats_summary(
     future_count = 0
     if to_date is None:
         future_transactions = session.exec(
-            select(Transaction).where(Transaction.date > today)
+            select(Transaction).where(Transaction.date > today, _non_duplicate_clause())
         ).all()
         future_transactions = filter_transactions_by_account_type(
             future_transactions,

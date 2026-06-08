@@ -42,6 +42,7 @@ from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.models import Account, CreditCardBill, Transaction
+from app.services.transactions import _non_duplicate_clause
 
 
 PAYMENT_MATCH_TOLERANCE = Decimal("1.00")
@@ -213,6 +214,7 @@ def _find_invoice_payment_transactions(
             Transaction.account_id.in_(active_credit_ids),
             Transaction.date >= start_date,
             Transaction.date <= end_date,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
@@ -460,6 +462,7 @@ def scheduled_installments_for_month(
             Transaction.account_id.in_(credit_account_ids),
             Transaction.date >= window_start,
             Transaction.date <= last_day,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
@@ -538,6 +541,7 @@ def _current_month_invoice(
                 Transaction.date >= cycle_start,
                 Transaction.date <= cycle_end,
                 or_(Transaction.bill_id.is_(None), Transaction.bill_id == ""),
+                _non_duplicate_clause(),
             )
         ).all()
 
@@ -568,6 +572,7 @@ def _current_month_invoice(
             Transaction.date >= month_start,
             Transaction.date <= effective_end,
             or_(Transaction.bill_id.is_(None), Transaction.bill_id == ""),
+            _non_duplicate_clause(),
         )
     ).all()
 
@@ -728,6 +733,7 @@ def _vigente_forming_invoice(
             Transaction.account_id.in_(credit_account_ids),
             Transaction.date >= cycle_start,
             Transaction.date <= cycle_end,
+            _non_duplicate_clause(),
         )
     ).all()
 

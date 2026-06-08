@@ -190,6 +190,17 @@ def main() -> None:
         session.commit()
         print(f"Concluído: {marked_count} transações marcadas como is_duplicate=True.")
         print()
+
+        # --- refresh monthly snapshots so aggregated views are corrected ---
+        print("Recalculando snapshots mensais...")
+        from app.services.snapshots import refresh_monthly_balance_snapshots
+        refreshed_income, refreshed_invoice, refreshed_balance = (
+            refresh_monthly_balance_snapshots(session)
+        )
+        print(f"  refreshed_income_months:  {refreshed_income}")
+        print(f"  refreshed_invoice_months: {refreshed_invoice}")
+        print(f"  refreshed_balance_months: {refreshed_balance}")
+        print()
         print(
             "NOTA: as transações originais NÃO foram deletadas. "
             "Para removê-las fisicamente (somente após verificação),\n"

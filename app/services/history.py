@@ -21,6 +21,7 @@ from app.services.snapshots import (
 )
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
+    _non_duplicate_clause,
     account_ids_by_type,
     bank_cashflow_exclusion_rules,
     bank_income_transactions,
@@ -65,7 +66,7 @@ def ignored_transactions_monthly_summary(session: Session):
     ignored_patterns = ignored_description_patterns(session)
     transactions = session.exec(
         select(Transaction)
-        .where(Transaction.date <= today)
+        .where(Transaction.date <= today, _non_duplicate_clause())
         .order_by(Transaction.date.desc())
     ).all()
     ignored_transactions = [
@@ -310,7 +311,11 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
     classifier = TransactionClassifier.from_session(session)
     transactions = session.exec(
         select(Transaction)
-        .where(Transaction.date >= start_date, Transaction.date <= today)
+        .where(
+            Transaction.date >= start_date,
+            Transaction.date <= today,
+            _non_duplicate_clause(),
+        )
         .order_by(Transaction.date.desc())
     ).all()
     bank_transactions = [

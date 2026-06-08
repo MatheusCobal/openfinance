@@ -1,5 +1,6 @@
 from datetime import date
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.categorization import normalize_description
@@ -29,6 +30,39 @@ _BANK_INVOICE_PAYMENT_DESCRIPTION_PATTERNS = tuple(
 _INVOICE_PAYMENT_AMOUNT_TOLERANCE = 1
 _INVOICE_PAYMENT_DATE_TOLERANCE_DAYS = 5
 
+
+# ---------------------------------------------------------------------------
+# Deduplication helpers
+# ---------------------------------------------------------------------------
+
+def _non_duplicate_clause():
+    """SQLAlchemy WHERE clause that excludes marked-duplicate transactions.
+
+    Uses OR(is_duplicate IS FALSE, is_duplicate IS NULL) so rows that
+    pre-date the migration (NULL values) are treated as non-duplicate.
+    """
+    return or_(
+        Transaction.is_duplicate.is_(False),
+        Transaction.is_duplicate.is_(None),
+    )
+
+
+def filter_non_duplicate_transactions(
+    transactions: list[Transaction],
+    include_duplicates: bool = False,
+) -> list[Transaction]:
+    """In-memory filter: removes transactions where is_duplicate=True.
+
+    Always a no-op when include_duplicates=True (e.g. debug endpoints).
+    """
+    if include_duplicates:
+        return transactions
+    return [tx for tx in transactions if not tx.is_duplicate]
+
+
+# ---------------------------------------------------------------------------
+# Misc helpers
+# ---------------------------------------------------------------------------
 
 def month_key(value: date) -> str:
     return value.strftime("%Y-%m")
@@ -142,7 +176,11 @@ def credit_card_payment_transactions(
     active_bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
     transactions = session.exec(
         select(Transaction)
-        .where(Transaction.date >= start_date, Transaction.date <= end_date)
+        .where(
+            Transaction.date >= start_date,
+            Transaction.date <= end_date,
+            _non_duplicate_clause(),
+        )
         .order_by(Transaction.date.asc())
     ).all()
     classifier_payments = [
@@ -211,7 +249,9 @@ def count_bank_cashflow_exclusion_matches(
     session: Session,
 ) -> int:
     transactions = filter_transactions_by_account_type(
-        session.exec(select(Transaction)).all(),
+        session.exec(
+            select(Transaction).where(_non_duplicate_clause())
+        ).all(),
         session,
         BANK_ACCOUNT_TYPES,
     )
@@ -257,6 +297,7 @@ def bank_income_transactions(
             Transaction.account_id.in_(bank_account_ids),
             Transaction.date >= start_date,
             Transaction.date <= end_date,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc())
     ).all()
@@ -278,6 +319,7 @@ def credit_card_spend_transactions(
             Transaction.account_id.in_(credit_account_ids),
             Transaction.date >= start_date,
             Transaction.date <= end_date,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc())
     ).all()
@@ -311,6 +353,7 @@ def _investment_transactions(
             Transaction.date >= start_date,
             Transaction.date <= end_date,
             amount_cond,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc())
     ).all()
@@ -370,6 +413,7 @@ def bank_inflow_transactions(
             Transaction.date >= start_date,
             Transaction.date <= end_date,
             Transaction.amount > 0,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc())
     ).all()
@@ -407,6 +451,7 @@ def bank_outflow_transactions(
             Transaction.account_id.in_(bank_account_ids),
             Transaction.date >= start_date,
             Transaction.date <= end_date,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc())
     ).all()
@@ -459,6 +504,7 @@ def discretionary_spend_transactions(
             Transaction.account_id.in_(tracked_account_ids),
             Transaction.date >= start_date,
             Transaction.date <= end_date,
+            _non_duplicate_clause(),
         )
         .order_by(Transaction.date.asc())
     ).all()
@@ -493,6 +539,7 @@ def count_bank_income_exclusion_matches(
         select(Transaction).where(
             Transaction.account_id.in_(bank_account_ids),
             Transaction.amount > 0,
+            _non_duplicate_clause(),
         )
     ).all()
     return sum(

@@ -15,6 +15,7 @@ from app.models import (
     IgnoredDescriptionRule,
     Transaction,
 )
+from app.services.transactions import _non_duplicate_clause
 from app.services.transactions import count_bank_income_exclusion_matches
 from app.services.transactions import count_bank_cashflow_exclusion_matches
 from app.services.transactions import discretionary_spend_transactions
@@ -38,7 +39,9 @@ def count_description_rule_matches(
 ) -> int:
     return sum(
         1
-        for tx in session.exec(select(Transaction)).all()
+        for tx in session.exec(
+            select(Transaction).where(_non_duplicate_clause())
+        ).all()
         if pattern_normalized in normalize_description(tx.description)
     )
 
