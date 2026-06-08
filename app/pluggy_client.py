@@ -52,7 +52,9 @@ class PluggyClient:
             body["clientUserId"] = client_user_id
         if item_id is not None:
             body["itemId"] = item_id
-        response = self._request("POST", "/connect_token", json=body or None)
+        # Always send a JSON body (even empty {}) so httpx includes
+        # Content-Type: application/json — required by Pluggy's API.
+        response = self._request("POST", "/connect_token", json=body)
         return response.json()["accessToken"]
 
     def list_items(self) -> List[Dict[str, Any]]:

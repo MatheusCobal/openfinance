@@ -61,7 +61,16 @@ let statsData = null;      // category stats (secondary, informational only)
 
 async function fetchJson(url, options) {
   const r = await fetch(url, options);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) {
+    let detail = '';
+    try {
+      const body = await r.json();
+      detail = body?.detail ?? body?.message ?? JSON.stringify(body);
+    } catch {
+      try { detail = await r.text(); } catch { /* ignore */ }
+    }
+    throw new Error(`HTTP ${r.status}${detail ? ': ' + detail : ''}`);
+  }
   return r.json();
 }
 
@@ -311,35 +320,67 @@ async function ensurePluggyConnectSdkLoaded() {
 async function connectBank() {
   const btn = document.getElementById('btn-connect');
   btn.disabled = true;
+  console.log('[Pluggy] connectBank: botão clicado');
   try {
+    // ── 1. Garantir que o SDK está carregado ANTES de chamar o backend ──
+    console.log('[Pluggy] connectBank: carregando SDK…');
     await ensurePluggyConnectSdkLoaded();
+    console.log('[Pluggy] connectBank: SDK pronto, typeof window.PluggyConnect =', typeof window.PluggyConnect);
+
+    // ── 2. Gerar connect token no backend ──
+    console.log('[Pluggy] connectBank: solicitando connect token…');
     const res = await fetchJson('/connect-token', { method: 'POST' });
+    console.log('[Pluggy] connectBank: token recebido, tem accessToken =', !!res.accessToken);
     if (!res.accessToken) throw new Error('connect-token não retornou accessToken.');
+
+    // ── 3. Abrir o widget Pluggy Connect ──
+    console.log('[Pluggy] connectBank: abrindo widget Pluggy Connect…');
     new window.PluggyConnect({
       connectToken: res.accessToken,
       includeSandbox: false,
       language: 'pt',
       countries: ['BR'],
       connectorIds: [200],
-      onSuccess: async ({ itemId }) => {
+      onSuccess: async (data) => {
+        // Pluggy SDK pode retornar { itemId } ou { item: { id } } — suportamos ambos.
+        const itemId = data?.itemId ?? data?.item?.id;
+        console.log('[Pluggy] onSuccess payload:', JSON.stringify(data), '→ itemId:', itemId);
+        if (!itemId) {
+          console.error('[Pluggy] onSuccess: payload sem itemId', data);
+          showToast('Banco conectado, mas o widget não retornou o ID do item. Verifique o console.', 'error');
+          return;
+        }
         try {
           await fetchJson(`/items/${itemId}`, { method: 'POST' });
-          await fetchJson(`/items/${itemId}/sync`, { method: 'POST' });
+          console.log('[Pluggy] item registrado localmente:', itemId);
+          try {
+            await fetchJson(`/items/${itemId}/sync`, { method: 'POST' });
+            console.log('[Pluggy] sync disparado para:', itemId);
+          } catch (syncErr) {
+            // 409 = sync já em andamento (não é erro crítico)
+            if (syncErr.message?.includes('409')) {
+              console.warn('[Pluggy] sync já em andamento para:', itemId);
+            } else {
+              throw syncErr;
+            }
+          }
           showToast('Banco conectado! Sincronizando dados…', 'success');
           loadData();
         } catch (err) {
-          console.error('Erro ao registrar/sincronizar item Pluggy:', err);
-          showToast('Banco conectado, mas houve um erro ao sincronizar. Tente Atualizar.', 'error');
+          console.error('[Pluggy] erro ao registrar/sincronizar item:', err);
+          showToast(`Erro ao sincronizar banco: ${err.message}`, 'error');
         }
       },
       onError: (err) => {
-        console.error('Pluggy Connect error:', err);
-        showToast(`Erro ao conectar banco: ${err?.message ?? err}`, 'error');
+        console.error('[Pluggy] widget error:', err);
+        showToast(`Erro ao conectar banco: ${err?.message ?? JSON.stringify(err)}`, 'error');
       },
-      onClose: () => {},
+      onClose: () => {
+        console.log('[Pluggy] widget fechado pelo usuário');
+      },
     }).init();
   } catch (err) {
-    console.error('connectBank error:', err);
+    console.error('[Pluggy] connectBank erro:', err);
     showToast(err?.message ?? 'Não foi possível conectar ao Pluggy. Verifique as configurações.', 'error');
   } finally {
     btn.disabled = false;

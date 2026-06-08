@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -119,6 +121,38 @@ class PageSmokeTest(unittest.TestCase):
         token_pos = js.index("connect-token")
         self.assertLess(sdk_pos, token_pos, "SDK loader must be defined before connect-token call")
 
+    def test_dashboard_js_onsuccess_is_defensive_about_item_id(self):
+        # onSuccess must handle both data.itemId and data?.item?.id payloads.
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertIn(
+            "data?.itemId ?? data?.item?.id",
+            js,
+            "onSuccess must extract itemId defensively from both payload shapes",
+        )
+
+    def test_dashboard_js_fetchjson_extracts_error_detail(self):
+        # fetchJson must attempt to read the JSON body detail on error responses.
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertIn(
+            "body?.detail",
+            js,
+            "fetchJson must extract detail from error response body",
+        )
+
+    def test_dashboard_js_has_no_stale_sdk_error_message(self):
+        # The old fallback message that appeared when SDK wasn't loaded must be gone.
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(
+            "SDK Pluggy Connect não carregado",
+            response.text,
+            "Old stale error message must be removed from dashboard.js",
+        )
+
     def test_dashboard_sub_routes_return_404(self):
         for path in (
             "/dashboard/snapshot",
@@ -144,6 +178,100 @@ class PageSmokeTest(unittest.TestCase):
             self.assertIn("Dashboard", response.text, path)
             self.assertNotIn('href="/orcamento"', response.text, path)
             self.assertNotIn('href="/custos-fixos"', response.text, path)
+
+
+class ConnectTokenEndpointTest(unittest.TestCase):
+    """Tests for POST /connect-token with mocked Pluggy client.
+
+    We never call the real Pluggy API in tests — all HTTP traffic is patched.
+    """
+
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        def override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
+    def test_connect_token_returns_access_token(self):
+        with patch(
+            "app.routes.sync.pluggy.create_connect_token",
+            return_value="fake-token-xyz",
+        ):
+            response = self.client.post(
+                "/connect-token",
+                json={},
+                headers={"content-type": "application/json"},
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("accessToken", data, "Response must contain 'accessToken'")
+        self.assertEqual(data["accessToken"], "fake-token-xyz")
+
+    def test_connect_token_passes_item_id_to_pluggy(self):
+        """itemId in request body must be forwarded to pluggy.create_connect_token."""
+        calls = []
+
+        def fake_create(client_user_id=None, item_id=None):
+            calls.append({"client_user_id": client_user_id, "item_id": item_id})
+            return "token-with-item"
+
+        with patch("app.routes.sync.pluggy.create_connect_token", side_effect=fake_create):
+            response = self.client.post(
+                "/connect-token",
+                json={"itemId": "item-abc123"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(calls[0]["item_id"], "item-abc123")
+
+    def test_connect_token_returns_401_on_pluggy_credential_error(self):
+        """A 401/403 from Pluggy must surface as 401 with a helpful message."""
+        mock_response = httpx.Response(401, text="Unauthorized")
+        exc = httpx.HTTPStatusError(
+            "401 Unauthorized", request=httpx.Request("POST", "/"), response=mock_response
+        )
+        with patch(
+            "app.routes.sync.pluggy.create_connect_token",
+            side_effect=exc,
+        ):
+            response = self.client.post("/connect-token", json={})
+        self.assertEqual(response.status_code, 401)
+        body = response.json()
+        self.assertIn("PLUGGY_CLIENT_ID", body.get("detail", ""))
+
+    def test_connect_token_returns_502_on_pluggy_server_error(self):
+        """A 5xx from Pluggy must surface as 502."""
+        mock_response = httpx.Response(503, text="Service Unavailable")
+        exc = httpx.HTTPStatusError(
+            "503", request=httpx.Request("POST", "/"), response=mock_response
+        )
+        with patch(
+            "app.routes.sync.pluggy.create_connect_token",
+            side_effect=exc,
+        ):
+            response = self.client.post("/connect-token", json={})
+        self.assertEqual(response.status_code, 502)
+
+    def test_connect_token_no_body_still_works(self):
+        """Calling without any body must not crash — defaults are applied."""
+        with patch(
+            "app.routes.sync.pluggy.create_connect_token",
+            return_value="token-no-body",
+        ):
+            response = self.client.post("/connect-token")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["accessToken"], "token-no-body")
 
 
 if __name__ == "__main__":

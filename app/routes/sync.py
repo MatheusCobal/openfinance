@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.database import get_session
 from app.models import Account, AccountSync, Item
 from app.pluggy_client import pluggy
@@ -31,20 +32,39 @@ class ConnectTokenRequest(BaseModel):
 @router.post("/connect-token")
 def connect_token(body: Optional[ConnectTokenRequest] = None):
     body = body or ConnectTokenRequest()
+    # Log enough to diagnose credential/environment problems without leaking secrets.
+    _masked_id = (
+        (settings.pluggy_client_id[:4] + "…") if settings.pluggy_client_id else "<not set>"
+    )
+    logger.info(
+        "connect-token request base_url=%s client_id=%s item_id=%s",
+        settings.pluggy_base_url,
+        _masked_id,
+        body.itemId,
+    )
     try:
         token = pluggy.create_connect_token(
             client_user_id=body.clientUserId, item_id=body.itemId
         )
     except httpx.HTTPStatusError as exc:
+        logger.error(
+            "connect-token Pluggy error status=%s body=%.500s",
+            exc.response.status_code,
+            exc.response.text,
+        )
         if exc.response.status_code in (401, 403):
             raise HTTPException(
                 401,
-                "Pluggy rejected the credentials. Check PLUGGY_CLIENT_ID and "
-                "PLUGGY_CLIENT_SECRET in your .env file.",
+                "Pluggy rejeitou as credenciais. Verifique PLUGGY_CLIENT_ID e "
+                "PLUGGY_CLIENT_SECRET no arquivo .env.",
             )
         raise HTTPException(
-            502, f"Pluggy returned {exc.response.status_code}: {exc.response.text}"
+            502, f"Pluggy retornou {exc.response.status_code}: {exc.response.text}"
         )
+    except Exception as exc:
+        logger.exception("connect-token unexpected error: %s", exc)
+        raise HTTPException(500, f"Erro interno ao gerar token de conexão: {exc}") from exc
+    logger.info("connect-token issued successfully")
     return {"accessToken": token}
 
 
