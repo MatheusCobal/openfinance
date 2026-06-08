@@ -70,6 +70,50 @@ def _billing_cycle_for_close_date(
     return cycle_start, cycle_end
 
 
+def _next_close_date(close_date: datetime.date) -> datetime.date:
+    """Return the next occurrence of the same close-date day, one month later.
+
+    Handles month-length differences (e.g. close on the 31st → 28/29 in Feb).
+    """
+    if close_date.month == 12:
+        next_year, next_month = close_date.year + 1, 1
+    else:
+        next_year, next_month = close_date.year, close_date.month + 1
+    max_day = calendar.monthrange(next_year, next_month)[1]
+    return datetime.date(next_year, next_month, min(close_date.day, max_day))
+
+
+def _forming_billing_cycle(
+    close_date: datetime.date,
+    today: datetime.date,
+) -> tuple[datetime.date, datetime.date]:
+    """Return the billing cycle that is currently OPEN (forming) as of today.
+
+    While today is on/before close_date the cycle ending on close_date is still
+    forming.  Once today passes close_date that cycle has closed and the NEXT
+    cycle (ending on the following close date) is the one accumulating new
+    purchases.
+
+    Example (close_date=2026-06-04):
+      today=2026-06-01 → (2026-05-05, 2026-06-04)   [still forming]
+      today=2026-06-08 → (2026-06-05, 2026-07-04)   [next cycle opened]
+    """
+    if today <= close_date:
+        return _billing_cycle_for_close_date(close_date)
+    return _billing_cycle_for_close_date(_next_close_date(close_date))
+
+
+def _next_calendar_month(today: datetime.date) -> str:
+    """The ``YYYY-MM`` of the month immediately after ``today``'s month.
+
+    This is the "fatura vigente" month: the dashboard's default planning month
+    (getDefaultPlanningMonth in planning_common.js) is always currentMonth + 1.
+    """
+    if today.month == 12:
+        return f"{today.year + 1:04d}-01"
+    return f"{today.year:04d}-{today.month + 1:02d}"
+
+
 def _active_item_ids(session: Session) -> set:
     from app.models import Item
     return {item.id for item in session.exec(select(Item)).all() if item.is_active}
@@ -635,6 +679,86 @@ def _current_month_invoice(
     return {**none_r, **_stale_ab_fields}
 
 
+def _vigente_forming_invoice(
+    session: Session,
+    year_month: str,
+    today: datetime.date,
+    credit_accounts: list[Account],
+) -> Optional[Dict[str, Any]]:
+    """The "fatura vigente": invoice currently FORMING, due next month.
+
+    This is the ONLY part of the future-month flow that is transaction-driven.
+    It applies strictly to the vigente month (the calendar month immediately
+    after ``today`` — the dashboard's default planning month) so that months
+    further out keep using the official-bill / installments tiers unchanged.
+
+    Why it's needed: when today is past the card's close_date, recent purchases
+    land in the freshly-opened cycle that will be due next month. The old future
+    tiers showed either a stale Account.balance snapshot (frozen between syncs)
+    or a premature/empty official bill, so the value appeared "frozen". Here we
+    sum the actual transactions of the forming cycle instead.
+
+    Returns None (caller falls through to the official-bill tiers) when:
+      * year_month is not the vigente month, or
+      * no account exposes credit_balance_close_date, or
+      * the forming cycle has no qualifying transactions yet.
+
+    Sign convention: purchases are negative in Pluggy, so sum(-tx.amount) turns
+    them positive; refunds (positive) reduce the total. Invoice payments are
+    excluded via the TransactionClassifier.
+    """
+    if year_month != _next_calendar_month(today):
+        return None
+
+    accounts_with_close = [a for a in credit_accounts if a.credit_balance_close_date]
+    if not accounts_with_close:
+        return None
+
+    all_starts, all_ends = [], []
+    for a in accounts_with_close:
+        cs, ce = _forming_billing_cycle(a.credit_balance_close_date, today)
+        all_starts.append(cs)
+        all_ends.append(ce)
+    cycle_start = min(all_starts)
+    cycle_end = max(all_ends)
+
+    credit_account_ids = {a.id for a in credit_accounts}
+    cycle_txs = session.exec(
+        select(Transaction).where(
+            Transaction.account_id.in_(credit_account_ids),
+            Transaction.date >= cycle_start,
+            Transaction.date <= cycle_end,
+        )
+    ).all()
+
+    from app.services.classification import TransactionClassifier
+
+    classifier = TransactionClassifier.from_session(session)
+    qualifying_txs = [tx for tx in cycle_txs if not classifier.is_invoice_payment(tx)]
+    if not qualifying_txs:
+        return None
+
+    raw_total = sum((-tx.amount for tx in qualifying_txs), Decimal("0"))
+    total = max(raw_total, Decimal("0"))
+
+    return {
+        "year_month": year_month,
+        "planning_mode": "future_month",
+        "amount": float(total),
+        "source": "active_open_invoice_transactions",
+        "source_label": "Fatura vigente em formação",
+        "is_estimated": True,
+        "due_dates": [],
+        "cards": [],
+        "transaction_count": len(qualifying_txs),
+        "bill_count": 0,
+        "account_count": len(accounts_with_close),
+        "cycle_start": cycle_start.isoformat(),
+        "cycle_end": cycle_end.isoformat(),
+        "account_balance_total": float(_account_balance_total(credit_accounts)),
+    }
+
+
 def _future_month_invoice(
     session: Session,
     year_month: str,
@@ -643,6 +767,9 @@ def _future_month_invoice(
 ) -> Dict[str, Any]:
     """Invoice estimate for a future month.
 
+    Tier 0: fatura vigente — forming-cycle transactions, vigente month only
+            (see _vigente_forming_invoice). Months beyond the vigente month
+            skip this tier entirely.
     Tier 1: official CreditCardBill with due_date in year_month.
     Tier 2: Account.balance where credit_balance_due_date falls in year_month.
     Tier 3: scheduled future installments in year_month.
@@ -661,6 +788,11 @@ def _future_month_invoice(
 
     if not credit_accounts:
         return _none_result(year_month, "future_month", 0, float(bal_total))
+
+    # ---- Tier 0: fatura vigente (forming-cycle transactions, vigente month) ----
+    forming = _vigente_forming_invoice(session, year_month, today, credit_accounts)
+    if forming is not None:
+        return forming
 
     # ---- Tier 1: official CreditCardBill ----
     bills = session.exec(select(CreditCardBill)).all()

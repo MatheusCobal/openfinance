@@ -171,6 +171,7 @@ def spending_capacity_summary(
     if planning_inv["source"] in (
         "official_bill",
         "open_invoice",
+        "active_open_invoice_transactions",
         "account_balance",
         "account_balance_due_month",
     ):
@@ -230,7 +231,11 @@ def spending_capacity_summary(
                 future_card_obligation_total = Decimal("0")
                 future_card_obligation_source = "none"
                 future_card_obligation_count = 0
-        elif planning_inv["source"] in ("official_bill", "account_balance_due_month"):
+        elif planning_inv["source"] in (
+            "official_bill",
+            "account_balance_due_month",
+            "active_open_invoice_transactions",
+        ):
             future_card_obligation_total = planning_inv_amount
         else:
             future_card_obligation_total = Decimal("0")

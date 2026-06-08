@@ -640,8 +640,13 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
             )
 
     def test_spending_capacity_future_month_not_contaminated_by_account_balance(self):
-        """spending_capacity_summary for a future month must not carry the
-        current Account.balance into card_invoice_official_total / remaining."""
+        """spending_capacity_summary for a NON-vigente future month must not carry
+        the current Account.balance into card_invoice_official_total / remaining.
+
+        Queries 2026-07 (today=2026-05-28 → vigente month is 2026-06, so July is
+        a plain future month). The forming-cycle "fatura vigente" logic only
+        applies to the vigente month, so July keeps the pure future-tier
+        behaviour: no bill, no July-dated transactions → source = "none"."""
         from app.services.spending_capacity import spending_capacity_summary
 
         self.fake_pluggy.bills_supported = False
@@ -651,17 +656,77 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
             acc = session.get(Account, "credit-1")
             balance = float(acc.balance)
 
-            capacity = spending_capacity_summary(session, "2026-06", today=self.today)
+            capacity = spending_capacity_summary(session, "2026-07", today=self.today)
 
-        # The synced account's due_date is 2026-05-17 (not in 2026-06) and there
-        # are no future transactions → no valid source → "none".
+        # July is not the vigente month and has no bill/transactions → "none".
         self.assertEqual(capacity["card_invoice_source"], "none")
         # The official total must NOT equal Account.balance
         self.assertNotEqual(capacity["card_invoice_official_total"], balance)
-        # No future card transactions exist → gross = 0, official = 0, gap = 0
+        # No July card transactions exist → gross = 0, official = 0, gap = 0
         self.assertEqual(capacity["card_invoice_gross_total"], 0.0)
         self.assertEqual(capacity["card_invoice_official_total"], 0.0)
         self.assertEqual(capacity["card_invoice_remaining_to_include"], 0.0)
+
+    def test_vigente_month_uses_forming_cycle_transactions(self):
+        """The vigente month (next calendar month) reflects the forming-cycle
+        invoice computed from real transactions, not a frozen Account.balance
+        snapshot or a premature official bill.
+
+        today=2026-05-28, close_date=2026-05-10 → today is past close, so the
+        forming cycle is 2026-05-11 – 2026-06-10 (due in June, the vigente
+        month). The synced credit-buy (2026-05-28, -1500) is inside that cycle
+        and is counted; source = "active_open_invoice_transactions"."""
+        from app.services.spending_capacity import spending_capacity_summary
+
+        # No official bill so we prove the value comes from transactions.
+        self.fake_pluggy.bills_supported = False
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+
+            capacity = spending_capacity_summary(session, "2026-06", today=self.today)
+
+        self.assertEqual(capacity["planning_mode"], "future_month")
+        self.assertEqual(
+            capacity["card_invoice_source"], "active_open_invoice_transactions"
+        )
+        # The -1500 purchase in the forming cycle → +1500 invoice.
+        self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
+        self.assertEqual(capacity["future_card_obligation_total"], 1500.0)
+
+    def test_vigente_forming_invoice_overrides_stale_account_balance(self):
+        """Regression for the "frozen for 2 weeks" bug: when today is past the
+        close_date, recent purchases in the newly-opened cycle must be reflected
+        in the vigente invoice instead of the stale Account.balance snapshot."""
+        from app.services.spending_capacity import spending_capacity_summary
+
+        self.fake_pluggy.bills_supported = False
+        with Session(self.engine) as session:
+            self._seed_item(session)
+            sync_service.sync_item("item-1", session)
+            # Simulate a fresh purchase in the newly-opened cycle (after close).
+            session.add(
+                Transaction(
+                    id="fresh-buy",
+                    account_id="credit-1",
+                    date=date(2026, 5, 29),
+                    amount=Decimal("-200"),
+                    description="Compra recente",
+                    category="Shopping",
+                )
+            )
+            session.commit()
+            balance = float(session.get(Account, "credit-1").balance)
+
+            capacity = spending_capacity_summary(session, "2026-06", today=self.today)
+
+        # Forming cycle (2026-05-11 – 2026-06-10) holds credit-buy (1500) and
+        # fresh-buy (200) → 1700, which differs from the frozen balance (1500).
+        self.assertEqual(
+            capacity["card_invoice_source"], "active_open_invoice_transactions"
+        )
+        self.assertEqual(capacity["card_invoice_official_total"], 1700.0)
+        self.assertNotEqual(capacity["card_invoice_official_total"], balance)
 
 
 class TransactionBillInstallmentTest(unittest.TestCase):
