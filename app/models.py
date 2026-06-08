@@ -138,6 +138,13 @@ class Transaction(SQLModel, table=True):
     installment_number: Optional[int] = None
     total_installments: Optional[int] = None
     total_amount: Optional[Decimal] = None
+    # Deduplication fields (populated by mark_duplicate_transactions.py)
+    # ``dedupe_key`` is a stable hash of the natural key so duplicate detection
+    # works even when Pluggy assigns a new transaction ID after re-authentication.
+    dedupe_key: Optional[str] = Field(default=None, index=True)
+    is_duplicate: bool = Field(default=False, index=True)
+    # ID of the "canonical" transaction this row duplicates (informational).
+    duplicate_of_id: Optional[str] = Field(default=None)
 
 
 class Category(SQLModel, table=True):

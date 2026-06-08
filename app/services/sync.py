@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -6,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import or_, update
 from sqlmodel import Session, select
 
+from app.categorization import normalize_description
 from app.models import Account, AccountSync, Item, Transaction
 from app.pluggy_client import pluggy
 from app.services.pluggy_snapshot import (
@@ -19,6 +21,31 @@ from app.services.transactions import TRACKED_ACCOUNT_TYPES
 SYNC_LOOKBACK_DAYS = 7
 SYNC_STALE_LOCK_MINUTES = 10
 ERROR_MESSAGE_MAX_LEN = 500
+
+
+def compute_dedupe_key(
+    account_type: str,
+    description: str,
+    tx_date: date,
+    amount: Decimal,
+    installment_number: Optional[int],
+    total_installments: Optional[int],
+) -> str:
+    """Stable hash of the transaction's natural key.
+
+    Used to detect the same real-world purchase even when Pluggy assigns a new
+    transaction ID after an item re-authentication.  The key does NOT include
+    the account_id so duplicates across old/new accounts are still recognised.
+    """
+    raw = "|".join([
+        account_type.upper(),
+        normalize_description(description),
+        tx_date.isoformat(),
+        f"{abs(amount):.2f}",
+        str(installment_number or 0),
+        str(total_installments or 0),
+    ])
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 class SyncAlreadyRunning(Exception):
@@ -114,22 +141,35 @@ def upsert_transaction(
     raw_tx: Dict[str, Any],
     account_id: str,
     session: Session,
+    account_type: str = "CREDIT",
 ) -> tuple[bool, bool, date]:
     tx_date = date.fromisoformat(raw_tx["date"][:10])
     amount = Decimal(str(raw_tx["amount"]))
     raw_total = raw_tx.get("totalAmount")
+    description = raw_tx.get("description") or ""
+    installment_number = raw_tx.get("installmentNumber")
+    total_installments = raw_tx.get("totalInstallments")
+    dedupe_key = compute_dedupe_key(
+        account_type,
+        description,
+        tx_date,
+        amount,
+        installment_number,
+        total_installments,
+    )
     values = {
         "account_id": account_id,
         "date": tx_date,
         "amount": amount,
-        "description": raw_tx.get("description") or "",
+        "description": description,
         "category": raw_tx.get("category"),
         "currency_code": raw_tx.get("currencyCode") or "BRL",
         "status": raw_tx.get("status"),
         "bill_id": raw_tx.get("billId"),
-        "installment_number": raw_tx.get("installmentNumber"),
-        "total_installments": raw_tx.get("totalInstallments"),
+        "installment_number": installment_number,
+        "total_installments": total_installments,
         "total_amount": Decimal(str(raw_total)) if raw_total is not None else None,
+        "dedupe_key": dedupe_key,
     }
     existing = session.get(Transaction, raw_tx["id"])
     if existing is None:
@@ -171,6 +211,7 @@ def sync_account_transactions(
     account_id: str,
     sync_state: AccountSync,
     session: Session,
+    account_type: str = "CREDIT",
 ) -> AccountSyncResult:
     result = AccountSyncResult()
     max_past_tx_date = sync_state.last_transaction_date
@@ -183,6 +224,7 @@ def sync_account_transactions(
             raw_tx,
             account_id,
             session,
+            account_type=account_type,
         )
         if is_new:
             result.new_transactions += 1
@@ -242,9 +284,10 @@ def _sync_one_account(
     session: Session,
 ) -> AccountSyncResult:
     account_id = raw_account["id"]
+    account_type = raw_account.get("type", "CREDIT")
     upsert_account(raw_account, item_id, session)
     sync_state = get_or_create_sync_state(account_id, session)
-    result = sync_account_transactions(account_id, sync_state, session)
+    result = sync_account_transactions(account_id, sync_state, session, account_type=account_type)
     sync_state.last_error = None
     sync_state.last_error_at = None
     session.add(sync_state)
@@ -397,7 +440,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
                         ):
                             bill_transactions_fetched += 1
                             is_new, is_updated, _ = upsert_transaction(
-                                raw_tx, account_id, session
+                                raw_tx, account_id, session, account_type=account_type
                             )
                             if is_new:
                                 bill_transactions_new += 1

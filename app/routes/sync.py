@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
@@ -9,10 +10,11 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import get_session
-from app.models import Account, AccountSync, Item
+from app.models import Account, AccountSync, Item, Transaction
 from app.pluggy_client import pluggy
 from app.services.sync import (
     SyncAlreadyRunning,
+    compute_dedupe_key,
     reconcile_active_items,
     sync_item as run_sync_item,
     upsert_item,
@@ -163,3 +165,124 @@ def reconcile_items(session: Session = Depends(get_session)):
 @router.get("/accounts")
 def list_accounts(session: Session = Depends(get_session)):
     return session.exec(select(Account)).all()
+
+
+@router.get("/debug/duplicate-transactions")
+def debug_duplicate_transactions(session: Session = Depends(get_session)):
+    """Read-only diagnostic: find transactions that look like re-auth duplicates.
+
+    Groups all transactions by their natural key (account_type + description +
+    date + |amount| + installment fields).  Groups with 2+ transactions are
+    candidates for deduplication.
+
+    Returns:
+      - summary: counts and totals
+      - duplicate_groups: each group with active/inactive account breakdowns
+      - inactive_accounts: list of deactivated accounts still holding transactions
+    """
+    # --- load accounts and items ---
+    all_accounts: dict[str, Account] = {
+        a.id: a for a in session.exec(select(Account)).all()
+    }
+    active_item_ids = {
+        item.id for item in session.exec(select(Item)).all() if item.is_active
+    }
+
+    def _is_account_active(account: Account) -> bool:
+        return bool(account.is_active and account.item_id in active_item_ids)
+
+    # --- load all transactions ---
+    all_txs = session.exec(select(Transaction)).all()
+
+    # --- group by natural key ---
+    by_key: dict[str, list[Transaction]] = defaultdict(list)
+    for tx in all_txs:
+        account = all_accounts.get(tx.account_id)
+        account_type = account.type if account else "UNKNOWN"
+        key = tx.dedupe_key or compute_dedupe_key(
+            account_type,
+            tx.description,
+            tx.date,
+            tx.amount,
+            tx.installment_number,
+            tx.total_installments,
+        )
+        by_key[key].append(tx)
+
+    # --- identify duplicate groups ---
+    duplicate_groups = []
+    total_duplicate_txs = 0
+    confirmed_duplicate_amount = 0.0
+
+    for key, txs in by_key.items():
+        if len(txs) < 2:
+            continue
+        active_txs = [tx for tx in txs if _is_account_active(all_accounts.get(tx.account_id))]
+        inactive_txs = [tx for tx in txs if not _is_account_active(all_accounts.get(tx.account_id))]
+        total_duplicate_txs += len(inactive_txs)
+        confirmed_duplicate_amount += sum(abs(float(tx.amount)) for tx in inactive_txs)
+        duplicate_groups.append({
+            "dedupe_key": key,
+            "total_in_group": len(txs),
+            "active_count": len(active_txs),
+            "inactive_count": len(inactive_txs),
+            "active_transactions": [
+                {
+                    "id": tx.id,
+                    "date": tx.date.isoformat(),
+                    "amount": float(tx.amount),
+                    "description": tx.description,
+                    "account_id": tx.account_id,
+                    "is_duplicate": tx.is_duplicate,
+                }
+                for tx in active_txs
+            ],
+            "inactive_transactions": [
+                {
+                    "id": tx.id,
+                    "date": tx.date.isoformat(),
+                    "amount": float(tx.amount),
+                    "description": tx.description,
+                    "account_id": tx.account_id,
+                    "is_duplicate": tx.is_duplicate,
+                }
+                for tx in inactive_txs
+            ],
+        })
+
+    # Sort by inactive_count desc so worst offenders appear first
+    duplicate_groups.sort(key=lambda g: g["inactive_count"], reverse=True)
+
+    # --- inactive accounts still holding transactions ---
+    tx_count_by_account: dict[str, int] = defaultdict(int)
+    for tx in all_txs:
+        tx_count_by_account[tx.account_id] += 1
+
+    inactive_accounts = [
+        {
+            "account_id": a.id,
+            "item_id": a.item_id,
+            "name": a.name,
+            "type": a.type,
+            "is_active": a.is_active,
+            "item_active": a.item_id in active_item_ids,
+            "deactivated_at": a.deactivated_at.isoformat() if a.deactivated_at else None,
+            "transaction_count": tx_count_by_account.get(a.id, 0),
+        }
+        for a in all_accounts.values()
+        if not _is_account_active(a) and tx_count_by_account.get(a.id, 0) > 0
+    ]
+
+    already_marked = sum(1 for tx in all_txs if tx.is_duplicate)
+    return {
+        "summary": {
+            "total_transactions": len(all_txs),
+            "already_marked_duplicate": already_marked,
+            "duplicate_groups_found": len(duplicate_groups),
+            "transactions_in_duplicate_groups": sum(g["total_in_group"] for g in duplicate_groups),
+            "inactive_duplicates_found": total_duplicate_txs,
+            "inactive_duplicate_amount": round(confirmed_duplicate_amount, 2),
+        },
+        "inactive_accounts_with_transactions": inactive_accounts,
+        "duplicate_groups": duplicate_groups,
+    }

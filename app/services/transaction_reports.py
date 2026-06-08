@@ -281,19 +281,25 @@ def invoice_summary(
     skip_ids: set[str] = exclude_transaction_ids or set()
 
     classifier = TransactionClassifier.from_session(session)
+    # Restrict to active credit accounts from the start so that deactivated
+    # accounts (e.g. after Pluggy re-authentication) never inflate totals or
+    # shift last_payment_date via stale duplicate transactions.
+    credit_account_ids = set(
+        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
+    )
     all_up_to = session.exec(
         select(Transaction).where(Transaction.date <= effective_to)
     ).all()
 
-    payments = [tx for tx in all_up_to if classifier.is_invoice_payment(tx)]
+    payments = [
+        tx for tx in all_up_to
+        if tx.account_id in credit_account_ids and classifier.is_invoice_payment(tx)
+    ]
 
     last_payment_date = max((tx.date for tx in payments), default=None)
     lower = last_payment_date if last_payment_date is not None else date.min
     if from_date is not None and from_date > lower:
         lower = from_date
-    credit_account_ids = set(
-        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
-    )
 
     def calculate(skip: set[str]) -> Dict[str, Any]:
         skipped_purchase_total = sum(
