@@ -189,14 +189,17 @@ class PageSmokeTest(unittest.TestCase):
             "/dashboard HTML must contain a <script> tag for the Pluggy CDN",
         )
 
-    def test_dashboard_html_uses_v11_or_newer(self):
+    def test_dashboard_html_uses_v12_or_newer(self):
         # Ensure the browser busts the cache for the updated dashboard.js.
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(
-            "dashboard.js?v=11",
-            response.text,
-            "/dashboard HTML must reference dashboard.js?v=11 (or newer)",
+        import re
+        match = re.search(r'dashboard\.js\?v=(\d+)', response.text)
+        self.assertIsNotNone(match, "/dashboard HTML must reference dashboard.js?v=<N>")
+        self.assertGreaterEqual(
+            int(match.group(1)),
+            12,
+            "/dashboard HTML must reference dashboard.js?v=12 (or newer)",
         )
 
     def test_dashboard_js_uses_current_card_invoice_endpoint_for_invoice_card(self):
@@ -206,6 +209,9 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn("fetchJson('/credit-card/current-invoice')", js)
         self.assertIn("currentCardInvoice", js)
         self.assertIn("const invoice = currentCardInvoice || {}", js)
+        self.assertIn("currentCardInvoice?.categories", js)
+        self.assertNotIn("fetchJson('/stats/monthly')", js)
+        self.assertNotIn("cat.by_month?.[planningYM]", js)
         self.assertNotIn(
             "const invoice = capacity.credit_card_invoice || capacity.planning_invoice || {}",
             js,

@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
-from app.models import Account, CreditCardBill, Item, Transaction
+from app.models import Account, Category, CategoryRule, CreditCardBill, IgnoredDescriptionRule, Item, Transaction
 from app.services.credit_card_invoice import planning_invoice_for_month
 from app.services.current_card_invoice import current_card_invoice_summary
 
@@ -298,16 +298,195 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["possible_refund_transactions"][0]["id"], "refund-1")
         self.assertTrue(summary["source_detail"]["refunds_are_diagnostic_only"])
 
+    def test_categories_use_current_invoice_transactions_not_future_planning_month(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("28619.60"))
+            self._add_bill(session)
+            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Food", category_id=1))
+            session.add(
+                Transaction(
+                    id="market-1",
+                    account_id="credit-1",
+                    date=date(2026, 6, 5),
+                    amount=Decimal("100.25"),
+                    description="Supermercado",
+                    category="Food",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="market-2",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("50.75"),
+                    description="Padaria",
+                    category="Food",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="future-market",
+                    account_id="credit-1",
+                    date=date(2026, 7, 5),
+                    amount=Decimal("999"),
+                    description="Compra futura",
+                    category="Food",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
+
+        self.assertEqual(summary["category_total"], 151.0)
+        self.assertEqual(summary["category_count"], 2)
+        self.assertEqual(len(summary["categories"]), 1)
+        self.assertEqual(summary["categories"][0]["name"], "Mercado")
+        self.assertEqual(summary["categories"][0]["count"], 2)
+        self.assertEqual(summary["categories"][0]["transactions"][0]["custom_category_name"], "Mercado")
+
+    def test_categories_skip_payments_duplicates_refunds_and_latest_bill_rows(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("28619.60"))
+            self._add_bill(session)
+            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Food", category_id=1))
+            rows = [
+                Transaction(
+                    id="valid-current",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("100"),
+                    description="Supermercado",
+                    category="Food",
+                ),
+                Transaction(
+                    id="latest-bill-row",
+                    account_id="credit-1",
+                    date=date(2026, 6, 5),
+                    amount=Decimal("900"),
+                    description="Compra fatura anterior",
+                    category="Food",
+                    bill_id="bill-1",
+                ),
+                Transaction(
+                    id="payment-row",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("-17131.28"),
+                    description="Pagamento recebido",
+                    category="Card payments",
+                ),
+                Transaction(
+                    id="duplicate-row",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("500"),
+                    description="Compra duplicada",
+                    category="Food",
+                    is_duplicate=True,
+                ),
+                Transaction(
+                    id="refund-row",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("-80"),
+                    description="CANC PARCELA SEM J",
+                    category="Food",
+                ),
+            ]
+            session.add_all(rows)
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
+
+        self.assertEqual(summary["category_total"], 100.0)
+        self.assertEqual(summary["category_count"], 1)
+        self.assertEqual(
+            [tx["id"] for tx in summary["categories"][0]["transactions"]],
+            ["valid-current"],
+        )
+
     def test_endpoint_returns_current_invoice_summary(self):
         with Session(self.engine) as session:
             self._add_item(session)
             self._add_credit_account(session, balance=Decimal("1000"))
+            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Food", category_id=1))
+            session.add(
+                Transaction(
+                    id="market-1",
+                    account_id="credit-1",
+                    date=date.today(),
+                    amount=Decimal("100"),
+                    description="Supermercado",
+                    category="Food",
+                )
+            )
             session.commit()
 
         response = self.client.get("/credit-card/current-invoice")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["amount"], 1000.0)
+        self.assertEqual(response.json()["category_total"], 100.0)
+        self.assertEqual(response.json()["categories"][0]["name"], "Mercado")
+
+    def test_ignored_description_rule_excludes_transaction_from_categories(self):
+        """IgnoredDescriptionRule must suppress matching transactions from
+        categories, category_total, category_count, and categories[].transactions."""
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("1000"))
+            session.add(Category(id=1, name="Digital", color="#6366f1", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Digital services", category_id=1))
+            # Ignored subscription instalment — pattern must match this
+            session.add(
+                Transaction(
+                    id="ignored-sub",
+                    account_id="credit-1",
+                    date=date(2026, 6, 5),
+                    amount=Decimal("103.11"),
+                    description="IG*edzkaiserplSoro02/12",
+                    category="Digital services",
+                )
+            )
+            # Legitimate digital purchase — must NOT be excluded
+            session.add(
+                Transaction(
+                    id="legit-digital",
+                    account_id="credit-1",
+                    date=date(2026, 6, 6),
+                    amount=Decimal("49.90"),
+                    description="Netflix Subscription",
+                    category="Digital services",
+                )
+            )
+            # Ignore rule stored in the database (configurable, not hardcoded)
+            session.add(
+                IgnoredDescriptionRule(
+                    pattern="edzkaiserplSoro",
+                    pattern_normalized="edzkaiserplsoro",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
+
+        category_tx_ids = [
+            tx["id"]
+            for cat in summary["categories"]
+            for tx in cat["transactions"]
+        ]
+        self.assertNotIn("ignored-sub", category_tx_ids, "ignored tx must not appear in categories[].transactions")
+        self.assertIn("legit-digital", category_tx_ids, "legitimate tx must still appear")
+        self.assertEqual(summary["category_count"], 1, "only the legitimate tx should be counted")
+        self.assertAlmostEqual(summary["category_total"], 49.90, places=2)
 
     def test_future_planning_month_can_still_use_scheduled_installments(self):
         with Session(self.engine) as session:
