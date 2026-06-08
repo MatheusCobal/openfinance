@@ -2,7 +2,7 @@
 
 // Version marker — change this whenever dashboard.js is modified so the
 // DevTools console confirms the new file is actually executing.
-const DASHBOARD_JS_VERSION = 'dashboard-visual-cleanup-v15';
+const DASHBOARD_JS_VERSION = 'dashboard-hero-reorder-v16';
 window.DASHBOARD_JS_VERSION = DASHBOARD_JS_VERSION;
 console.log('[Dashboard] JS carregado:', DASHBOARD_JS_VERSION);
 
@@ -314,7 +314,7 @@ function renderBankBalance() {
       <div class="flex h-full min-h-[142px] flex-col justify-between gap-5">
         <p class="text-sm font-medium text-slate-500">Saldo em banco</p>
         <div>
-          <p class="text-3xl font-semibold tabular text-slate-900">--</p>
+          <p class="text-2xl font-semibold tabular text-slate-900">--</p>
           <p class="mt-2 text-sm text-slate-500">Contas bancárias ativas</p>
           <p class="mt-1 text-xs text-slate-400">Indisponível no momento</p>
         </div>
@@ -341,7 +341,7 @@ function renderBankBalance() {
     <div class="flex h-full min-h-[142px] flex-col justify-between gap-5">
       <div>
         <p class="text-sm font-medium text-slate-500">Saldo em banco</p>
-        <p class="mt-3 text-3xl font-semibold tabular text-slate-900">${escapeHtml(fmt(total))}</p>
+        <p class="mt-3 text-2xl font-semibold tabular text-slate-900">${escapeHtml(fmt(total))}</p>
       </div>
       <div>
         <p class="text-sm text-slate-600">Contas bancárias ativas</p>

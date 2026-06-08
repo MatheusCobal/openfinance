@@ -190,11 +190,11 @@ class PageSmokeTest(unittest.TestCase):
             "/dashboard HTML must contain a <script> tag for the Pluggy CDN",
         )
 
-    def test_dashboard_html_uses_v15(self):
+    def test_dashboard_html_uses_v16(self):
         # Ensure the browser busts the cache for the updated dashboard.js.
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("dashboard.js?v=15", response.text)
+        self.assertIn("dashboard.js?v=16", response.text)
 
     def test_dashboard_js_uses_current_card_invoice_endpoint_for_invoice_card(self):
         response = self.client.get("/static/dashboard.js")
@@ -216,9 +216,21 @@ class PageSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="bank-balance-card"', response.text)
 
+    def test_dashboard_html_has_hero_and_secondary_card_layout(self):
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="dashboard-primary-grid"', response.text)
+        self.assertIn('id="hero-card"', response.text)
+        self.assertIn('id="dashboard-secondary-grid"', response.text)
+        self.assertLess(
+            response.text.index('id="hero-card"'),
+            response.text.index('id="bank-balance-card"'),
+        )
+
     def test_dashboard_html_has_invoice_reconciliation_container(self):
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
+        self.assertIn('id="invoice-card-content"', response.text)
         self.assertIn('id="invoice-reconciliation"', response.text)
 
     def test_dashboard_html_has_category_containers(self):

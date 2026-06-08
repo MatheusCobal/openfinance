@@ -92,16 +92,19 @@
         <!-- Dashboard content -->
         <div id="dashboard-content" class="hidden space-y-8">
 
-          <!-- A. Primary cards -->
-          <section id="dashboard-primary-grid" class="grid grid-cols-1 xl:grid-cols-3 gap-4 items-stretch">
-            <div id="bank-balance-card" class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm min-h-[190px]"></div>
+          <!-- A. Primary card -->
+          <section id="dashboard-primary-grid">
+            <div id="hero-card" class="bg-slate-900 rounded-lg p-6 text-white min-h-[210px]"></div>
+          </section>
 
-            <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm min-h-[190px]">
+          <!-- B. Secondary cards -->
+          <section id="dashboard-secondary-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            <div id="bank-balance-card" class="bg-white rounded-lg border border-slate-200 p-6 min-h-[190px]"></div>
+
+            <div class="bg-white rounded-lg border border-slate-200 p-6 min-h-[190px]">
               <div id="invoice-card-content"></div>
-              <div id="invoice-reconciliation" class="hidden mt-5 rounded-xl border border-slate-100 bg-slate-50/80 p-4"></div>
+              <div id="invoice-reconciliation" class="hidden mt-5 rounded-lg border border-slate-100 bg-slate-50/80 p-4"></div>
             </div>
-
-            <div id="hero-card" class="bg-slate-900 rounded-2xl p-6 text-white shadow-sm min-h-[190px]"></div>
           </section>
 
           <!-- C & D. Resumo do mês + summary cards -->
@@ -146,6 +149,6 @@
          antes de dashboard.js executar. O loader dinâmico em dashboard.js serve de
          fallback caso esta tag seja bloqueada por CSP ou adblocker. -->
     <script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
-    <script src="/static/dashboard.js?v=15"></script>
+    <script src="/static/dashboard.js?v=16"></script>
   </body>
 </html>
