@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -189,18 +190,11 @@ class PageSmokeTest(unittest.TestCase):
             "/dashboard HTML must contain a <script> tag for the Pluggy CDN",
         )
 
-    def test_dashboard_html_uses_v12_or_newer(self):
+    def test_dashboard_html_uses_v15(self):
         # Ensure the browser busts the cache for the updated dashboard.js.
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        import re
-        match = re.search(r'dashboard\.js\?v=(\d+)', response.text)
-        self.assertIsNotNone(match, "/dashboard HTML must reference dashboard.js?v=<N>")
-        self.assertGreaterEqual(
-            int(match.group(1)),
-            12,
-            "/dashboard HTML must reference dashboard.js?v=12 (or newer)",
-        )
+        self.assertIn("dashboard.js?v=15", response.text)
 
     def test_dashboard_js_uses_current_card_invoice_endpoint_for_invoice_card(self):
         response = self.client.get("/static/dashboard.js")
@@ -227,6 +221,13 @@ class PageSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="invoice-reconciliation"', response.text)
 
+    def test_dashboard_html_has_category_containers(self):
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="categories-grid"', response.text)
+        self.assertIn('id="category-modal"', response.text)
+        self.assertIn('id="modal-transactions-list"', response.text)
+
     def test_dashboard_js_has_render_invoice_reconciliation(self):
         response = self.client.get("/static/dashboard.js")
         self.assertEqual(response.status_code, 200)
@@ -248,6 +249,15 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn("bankBalance", js)
         # Bank balance widget must not use CREDIT data
         self.assertNotIn("currentCardInvoice.amount", js.split("renderBankBalance")[1].split("function ")[0])
+
+    def test_static_files_do_not_use_indigo_classes(self):
+        static_dir = Path("app/static")
+        offenders = []
+        for path in static_dir.iterdir():
+            if path.is_file() and path.suffix in {".html", ".js", ".css"}:
+                if "indigo" in path.read_text(encoding="utf-8"):
+                    offenders.append(str(path))
+        self.assertEqual(offenders, [], "app/static must not contain indigo classes")
 
     def test_bank_balance_endpoint_exists(self):
         response = self.client.get("/bank/balance-summary")

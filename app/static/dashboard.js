@@ -2,7 +2,7 @@
 
 // Version marker — change this whenever dashboard.js is modified so the
 // DevTools console confirms the new file is actually executing.
-const DASHBOARD_JS_VERSION = 'bank-balance-reconciliation-v14';
+const DASHBOARD_JS_VERSION = 'dashboard-visual-cleanup-v15';
 window.DASHBOARD_JS_VERSION = DASHBOARD_JS_VERSION;
 console.log('[Dashboard] JS carregado:', DASHBOARD_JS_VERSION);
 
@@ -23,7 +23,7 @@ function escapeHtml(str) {
 function showToast(message, variant = 'info') {
   const toast = document.getElementById('toast');
   toast.textContent = message;
-  toast.className = 'fixed top-4 right-4 z-50 max-w-sm rounded-xl text-white text-sm px-4 py-3 shadow-lg ' +
+  toast.className = 'fixed top-4 right-4 z-50 max-w-sm rounded-md text-white text-sm px-4 py-3 shadow-lg ' +
     (variant === 'error' ? 'bg-red-600' : variant === 'success' ? 'bg-emerald-600' : 'bg-slate-800');
   toast.classList.remove('hidden');
   clearTimeout(showToast._t);
@@ -135,17 +135,19 @@ function renderHero() {
   const days = capacity.days_remaining_in_month ?? 0;
 
   document.getElementById('hero-card').innerHTML = `
-    <div class="flex items-center gap-2 mb-3">
-      <p class="text-xs font-bold uppercase tracking-widest text-indigo-200">Disponível para gastar</p>
-      ${planStatusBadge(status)}
-    </div>
-    <p class="text-5xl font-bold tabular leading-tight mb-5">${escapeHtml(fmt(sobra))}</p>
-    <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-indigo-200">
-      <span>${escapeHtml(monthLabelLong(planningYM))}</span>
-      <span>&nbsp;·&nbsp;</span>
-      <span>${days} dias restantes</span>
-      <span>&nbsp;·&nbsp;</span>
-      <span>plano em <a href="/planejamento" class="text-white font-semibold hover:underline">Planejamento</a></span>
+    <div class="flex h-full flex-col justify-between gap-5">
+      <div class="flex items-center gap-2">
+        <p class="text-sm font-medium text-slate-300">Disponível para gastar</p>
+        ${planStatusBadge(status)}
+      </div>
+      <div>
+        <p class="text-3xl font-semibold tabular leading-tight">${escapeHtml(fmt(sobra))}</p>
+        <div class="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-400">
+          <span>${escapeHtml(monthLabelLong(planningYM))}</span>
+          <span>${days} dias restantes</span>
+        </div>
+      </div>
+      <p class="text-sm text-slate-400">Plano em <a href="/planejamento" class="text-white font-medium hover:underline">Planejamento</a></p>
     </div>
   `;
 }
@@ -157,18 +159,20 @@ function renderInvoiceCard() {
   const includedAmount = invoiceIncludedAmount(capacity);
   const adjustedCard = (invoice.cards || []).find(card => (card.adjustments || []).length > 0);
   const subtitle = adjustedCard
-    ? `saldo Pluggy ${fmt(adjustedCard.raw_balance)} - fatura anterior ${fmt(adjustedCard.latest_bill_amount)}`
-    : 'saldo Pluggy sem ajuste aplicado';
+    ? `Saldo Pluggy ajustado: ${fmt(adjustedCard.raw_balance)} - fatura anterior ${fmt(adjustedCard.latest_bill_amount)}`
+    : 'Saldo Pluggy ajustado';
 
   document.getElementById('invoice-card-content').innerHTML = `
-    <p class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Fatura do cartão</p>
-    <p class="text-4xl font-bold tabular text-slate-900 mb-3">${escapeHtml(fmt(invoiceAmount))}</p>
-    <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
-      <span>${escapeHtml(invoice.source_label || 'Fatura vigente ajustada')}</span>
-      <span>&nbsp;·&nbsp;</span>
-      <span>${escapeHtml(subtitle)}</span>
-      <span>&nbsp;·&nbsp;</span>
-      <span>no cálculo ${escapeHtml(fmt(includedAmount))}</span>
+    <div class="flex min-h-[150px] flex-col justify-between gap-5">
+      <div>
+        <p class="text-sm font-medium text-slate-500">Fatura do cartão</p>
+        <p class="mt-3 text-3xl font-semibold tabular text-slate-900">${escapeHtml(fmt(invoiceAmount))}</p>
+      </div>
+      <div class="space-y-1">
+        <p class="text-sm text-slate-600">${escapeHtml(invoice.source_label || 'Fatura vigente ajustada')}</p>
+        <p class="text-xs leading-relaxed text-slate-500">${escapeHtml(subtitle)}</p>
+        <p class="text-xs text-slate-400">No cálculo: <span class="font-medium text-slate-600">${escapeHtml(fmt(includedAmount))}</span></p>
+      </div>
     </div>
   `;
 }
@@ -238,12 +242,12 @@ function renderSummaryCards() {
   ];
 
   document.getElementById('summary-cards').innerHTML = cards.map(card => `
-    <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
       <div class="flex items-center justify-between mb-3">
         <p class="text-xs font-bold uppercase tracking-wider text-slate-500">${escapeHtml(card.label)}</p>
         <span class="size-8 rounded-full ${card.iconBg} flex items-center justify-center text-base leading-none">${card.iconEmoji}</span>
       </div>
-      <p class="text-3xl font-bold tabular ${card.amountCls} mb-1">${escapeHtml(fmt(card.amount))}</p>
+      <p class="text-2xl font-semibold tabular ${card.amountCls} mb-1">${escapeHtml(fmt(card.amount))}</p>
       <p class="text-xs text-slate-500">${escapeHtml(card.subtitle)}</p>
     </div>
   `).join('');
@@ -278,26 +282,26 @@ function renderInvoiceReconciliation() {
 
   el.classList.remove('hidden');
   el.innerHTML = `
-    <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Reconciliação da fatura</p>
+    <p class="text-sm font-medium text-slate-700 mb-3">Reconciliação da fatura</p>
     <div class="space-y-2 text-sm">
-      <div class="flex items-center justify-between">
-        <span class="text-slate-500">Fatura vigente <span class="text-slate-400">(${escapeHtml(rec.source_label)})</span></span>
-        <span class="tabular font-semibold text-slate-900">${escapeHtml(fmt(rec.amount))}</span>
+      <div class="flex items-center justify-between gap-4">
+        <span class="text-slate-500">Fatura vigente</span>
+        <span class="tabular font-medium text-slate-900">${escapeHtml(fmt(rec.amount))}</span>
       </div>
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between gap-4">
         <span class="text-slate-500">Compras detalhadas</span>
-        <span class="tabular font-semibold text-slate-900">${escapeHtml(fmt(rec.category_total))}</span>
+        <span class="tabular font-medium text-slate-900">${escapeHtml(fmt(rec.category_total))}</span>
       </div>
-      <div class="flex items-center justify-between">
-        <span class="text-slate-500">Reembolsos / estornos detectados</span>
-        <span class="tabular font-semibold text-emerald-600">− ${escapeHtml(fmt(rec.refund_abs_total))}</span>
+      <div class="flex items-center justify-between gap-4">
+        <span class="text-slate-500">Reembolsos/estornos detectados</span>
+        <span class="tabular font-medium text-emerald-600">- ${escapeHtml(fmt(rec.refund_abs_total))}</span>
       </div>
-      <div class="flex items-center justify-between pt-2 border-t border-slate-100">
-        <span class="text-slate-400 text-xs">Diferença contra saldo Pluggy</span>
-        <span class="tabular text-xs font-medium text-slate-400">${escapeHtml(fmt(rec.amount_minus_category_total))}</span>
+      <div class="flex items-center justify-between gap-4 pt-2 border-t border-slate-200">
+        <span class="text-slate-500">Diferença contra saldo Pluggy</span>
+        <span class="tabular font-medium text-slate-700">${escapeHtml(fmt(rec.amount_minus_category_total))}</span>
       </div>
     </div>
-    <p class="text-xs text-slate-400 mt-3 leading-relaxed">A fatura vigente usa o saldo informado pela Pluggy. As categorias mostram apenas compras rastreadas; reembolsos são exibidos separadamente para evitar dupla subtração.</p>
+    <p class="text-xs text-slate-400 mt-3 leading-relaxed">A fatura usa o saldo Pluggy ajustado. As categorias mostram apenas compras rastreadas.</p>
   `;
 }
 
@@ -307,8 +311,14 @@ function renderBankBalance() {
 
   if (!bankBalance) {
     el.innerHTML = `
-      <p class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Saldo em banco</p>
-      <p class="text-sm text-slate-400">Indisponível</p>
+      <div class="flex h-full min-h-[142px] flex-col justify-between gap-5">
+        <p class="text-sm font-medium text-slate-500">Saldo em banco</p>
+        <div>
+          <p class="text-3xl font-semibold tabular text-slate-900">--</p>
+          <p class="mt-2 text-sm text-slate-500">Contas bancárias ativas</p>
+          <p class="mt-1 text-xs text-slate-400">Indisponível no momento</p>
+        </div>
+      </div>
     `;
     return;
   }
@@ -317,23 +327,28 @@ function renderBankBalance() {
   const accounts = bankBalance.accounts ?? [];
   const updatedAt = bankBalance.updated_at;
   const updatedLabel = updatedAt ? `Atualizado em ${formatDateTimePtBr(updatedAt)}` : '';
-  const accountLabel = accounts.length === 1
-    ? escapeHtml(accounts[0]?.name || 'Conta bancária')
-    : `${accounts.length} contas bancárias ativas`;
+  const accountCountLabel = accounts.length === 1 ? '1 conta ativa' : `${accounts.length} contas ativas`;
 
   const accountRows = accounts.length > 1
-    ? `<div class="mt-3 space-y-0 divide-y divide-slate-100">${accounts.map(a => `
-        <div class="flex items-center justify-between py-1.5">
+    ? `<div class="mt-4 rounded-xl bg-slate-50 px-3 py-2 divide-y divide-slate-100">${accounts.map(a => `
+        <div class="flex items-center justify-between gap-3 py-1.5">
           <span class="text-xs text-slate-500 truncate">${escapeHtml(a.name || 'Conta')}</span>
           <span class="text-xs tabular font-medium text-slate-700 ml-2 shrink-0">${escapeHtml(fmt(a.balance ?? 0))}</span>
         </div>`).join('')}</div>`
     : '';
 
   el.innerHTML = `
-    <p class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Saldo em banco</p>
-    <p class="text-4xl font-bold tabular text-slate-900 mb-1">${escapeHtml(fmt(total))}</p>
-    <p class="text-xs text-slate-500">${accountLabel}${updatedLabel ? ' · ' + escapeHtml(updatedLabel) : ''}</p>
-    ${accountRows}
+    <div class="flex h-full min-h-[142px] flex-col justify-between gap-5">
+      <div>
+        <p class="text-sm font-medium text-slate-500">Saldo em banco</p>
+        <p class="mt-3 text-3xl font-semibold tabular text-slate-900">${escapeHtml(fmt(total))}</p>
+      </div>
+      <div>
+        <p class="text-sm text-slate-600">Contas bancárias ativas</p>
+        <p class="mt-1 text-xs text-slate-400">${escapeHtml(accountCountLabel)}${updatedLabel ? ' · ' + escapeHtml(updatedLabel) : ''}</p>
+        ${accountRows}
+      </div>
+    </div>
   `;
 }
 
@@ -366,12 +381,12 @@ function renderCategoryTransactions(category) {
     if (tx.status) metaParts.push(escapeHtml(tx.status));
     const metaStr = metaParts.join(' · ');
     return `
-      <div class="flex items-start justify-between gap-3 py-2.5 border-b border-slate-100 last:border-0">
+      <div class="flex items-start justify-between gap-4 py-3 border-b border-slate-100 last:border-0">
         <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-900 truncate">${escapeHtml(tx.description)}</p>
-          <p class="text-xs text-slate-400">${escapeHtml(formatDatePtBr(tx.date))}${metaStr ? ' · ' + metaStr : ''}</p>
+          <p class="text-sm font-medium leading-snug text-slate-900 break-words">${escapeHtml(tx.description)}</p>
+          <p class="mt-1 text-xs leading-relaxed text-slate-400">${escapeHtml(formatDatePtBr(tx.date))}${metaStr ? ' · ' + metaStr : ''}</p>
         </div>
-        <p class="font-semibold tabular text-slate-900 text-sm shrink-0">${escapeHtml(fmt(tx.amount ?? 0))}</p>
+        <p class="font-semibold tabular text-slate-900 text-sm shrink-0 text-right">${escapeHtml(fmt(tx.amount ?? 0))}</p>
       </div>
     `;
   }).join('');
@@ -398,42 +413,45 @@ function _categoryModalKeyHandler(e) {
 
 function renderCategories() {
   const container = document.getElementById('categories-grid');
-  const emptyState = '<p class="text-sm text-slate-500 col-span-full">Nenhuma compra categorizada na fatura vigente.</p>';
-
+  const invoiceAmount = asMoneyNumber(currentCardInvoice?.amount);
   const categories = [...(currentCardInvoice?.categories || [])]
     .filter(cat => asMoneyNumber(cat.total) > 0)
     .sort((a, b) => asMoneyNumber(b.total) - asMoneyNumber(a.total));
 
   if (categories.length === 0) {
-    container.innerHTML = emptyState;
+    const message = invoiceAmount > 0
+      ? 'A fatura possui saldo, mas as compras detalhadas ainda não foram sincronizadas pela Pluggy.'
+      : 'Nenhuma compra encontrada para a fatura vigente.';
+    container.innerHTML = `<p class="text-sm text-slate-500 col-span-full rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-6">${escapeHtml(message)}</p>`;
     return;
   }
 
-  container.innerHTML = categories.map(cat => {
+  container.innerHTML = categories.map((cat, index) => {
     const amount = cat.total ?? 0;
     const count = cat.count ?? 0;
     const color = cat.color || '#64748b';
     const countLabel = count === 1 ? '1 compra' : `${count} compras`;
     return `
-      <button type="button" data-category-id="${escapeHtml(String(cat.id))}"
-        class="bg-white rounded-2xl border border-slate-200 px-5 py-4 flex items-center gap-4 shadow-sm w-full text-left cursor-pointer hover:bg-slate-50 hover:border-slate-300 transition-colors">
-        <span class="size-10 rounded-xl flex items-center justify-center text-xl shrink-0" style="background:${escapeHtml(color)}22">${categoryIcon(cat.name)}</span>
+      <button type="button" data-category-index="${index}"
+        class="group bg-white rounded-2xl border border-slate-200 px-4 py-4 flex items-center gap-3.5 w-full text-left cursor-pointer shadow-sm hover:bg-slate-50 hover:border-slate-300 hover:shadow transition">
+        <span class="size-10 rounded-xl flex items-center justify-center text-base shrink-0 ring-1 ring-inset ring-slate-900/5" style="background:${escapeHtml(color)}22">
+          <span class="size-2.5 rounded-full" style="background:${escapeHtml(color)}"></span>
+        </span>
         <div class="flex-1 min-w-0">
           <p class="font-semibold text-slate-900 text-sm truncate">${escapeHtml(cat.name)}</p>
-          <p class="text-xs text-slate-500">${escapeHtml(countLabel)}</p>
+          <p class="mt-0.5 text-xs text-slate-500">${escapeHtml(countLabel)}</p>
         </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <p class="font-bold tabular text-slate-900 text-sm">${escapeHtml(fmt(amount))}</p>
-          <span class="text-slate-400 text-sm">›</span>
+        <div class="flex items-center gap-2 shrink-0 text-right">
+          <p class="font-semibold tabular text-slate-900 text-sm">${escapeHtml(fmt(amount))}</p>
+          <span class="text-slate-300 group-hover:text-slate-500 text-lg leading-none" aria-hidden="true">›</span>
         </div>
       </button>
     `;
   }).join('');
 
-  container.querySelectorAll('button[data-category-id]').forEach(btn => {
+  container.querySelectorAll('button[data-category-index]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const catId = Number(btn.dataset.categoryId);
-      const category = (currentCardInvoice?.categories || []).find(c => c.id === catId);
+      const category = categories[Number(btn.dataset.categoryIndex)];
       if (category) openCategoryModal(category);
     });
   });
@@ -566,5 +584,7 @@ window.connectBank = connectBank;
 
 document.getElementById('btn-refresh').addEventListener('click', () => loadData());
 document.getElementById('btn-connect')?.addEventListener('click', window.connectBank);
+document.getElementById('modal-close-btn')?.addEventListener('click', closeCategoryModal);
+document.getElementById('category-modal-backdrop')?.addEventListener('click', closeCategoryModal);
 
 loadData();
