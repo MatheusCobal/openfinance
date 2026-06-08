@@ -23,6 +23,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     />
+    <link rel="stylesheet" href="/static/styles.css" />
     <style>
       body { font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
       .tabular { font-variant-numeric: tabular-nums; }
@@ -38,32 +39,32 @@
   <body class="bg-slate-50 text-slate-900 font-sans min-h-screen" style="color-scheme:light">
 
     <!-- ── Sidebar ──────────────────────────────────────────────── -->
-    <aside class="fixed inset-y-0 left-0 w-56 bg-white border-r border-slate-200 flex flex-col z-30">
-      <div class="px-5 h-16 flex items-center border-b border-slate-100 shrink-0">
-        <a href="/" class="flex items-center gap-3 min-w-0">
-          <span class="size-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-base select-none shrink-0">💳</span>
-          <span class="font-bold text-slate-900 text-sm truncate">OpenFinance</span>
+    <aside class="fixed inset-y-0 left-0 w-56 bg-slate-900 flex flex-col z-30">
+      <div class="px-5 h-16 flex items-center border-b border-white/10 shrink-0">
+        <a href="/" class="flex items-center gap-2.5 min-w-0">
+          <span class="size-7 bg-blue-600 rounded flex items-center justify-center text-white text-base leading-none select-none shrink-0">💳</span>
+          <span class="font-semibold text-white text-sm truncate">OpenFinance</span>
         </a>
       </div>
-      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <a href="/dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📊</span>
+      <nav class="sidebar-scroll flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <a href="/dashboard" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📊</span>
           Dashboard
         </a>
-        <a href="/planejamento" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📌</span>
+        <a href="/planejamento" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📌</span>
           Planejamento
         </a>
-        <a href="/proximos" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📅</span>
+        <a href="/proximos" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium bg-slate-800 text-white">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📅</span>
           Próximos
         </a>
-        <a href="/historico" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📚</span>
+        <a href="/historico" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📚</span>
           Histórico
         </a>
-        <a href="/regras" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">⚙️</span>
+        <a href="/regras" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">⚙️</span>
           Regras
         </a>
       </nav>
@@ -94,29 +95,29 @@
       <main class="flex-1 px-8 py-6">
 
         <section id="overview" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div class="bg-white rounded-lg border border-slate-200 p-5">
             <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Próxima fatura</p>
             <p class="mt-2 text-2xl font-bold tabular" id="summary-next-total">—</p>
             <p class="text-xs text-slate-500 mt-1" id="summary-next-label">—</p>
           </div>
-          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div class="bg-white rounded-lg border border-slate-200 p-5">
             <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">3 meses</p>
             <p class="mt-2 text-2xl font-bold tabular" id="summary-quarter-total">—</p>
             <p class="text-xs text-slate-500 mt-1" id="summary-quarter-count">—</p>
           </div>
-          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div class="bg-white rounded-lg border border-slate-200 p-5">
             <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total futuro</p>
             <p class="mt-2 text-2xl font-bold tabular" id="summary-future-total">—</p>
             <p class="text-xs text-slate-500 mt-1" id="summary-future-count">—</p>
           </div>
-          <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div class="bg-white rounded-lg border border-slate-200 p-5">
             <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior fatura</p>
             <p class="mt-2 text-2xl font-bold tabular" id="summary-largest-total">—</p>
             <p class="text-xs text-slate-500 mt-1" id="summary-largest-label">—</p>
           </div>
         </section>
 
-        <section id="month-chart-panel" class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6">
+        <section id="month-chart-panel" class="bg-white rounded-lg border border-slate-200 p-6 mb-6">
           <h2 class="font-semibold text-slate-900 mb-4">Próximos meses</h2>
           <div class="relative h-64">
             <canvas id="month-chart"></canvas>
@@ -127,7 +128,7 @@
 
         <div
           id="month-summary"
-          class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm mb-6 hidden"
+          class="bg-white rounded-lg border border-slate-200 p-6 mb-6 hidden"
         >
           <div class="flex items-baseline justify-between">
             <div>

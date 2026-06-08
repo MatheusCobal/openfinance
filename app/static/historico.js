@@ -130,7 +130,7 @@ function renderTabs() {
     const base =
       'px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors';
     const cls = tab.key === activeTab
-      ? `${base} bg-indigo-600 text-white shadow-sm`
+      ? `${base} bg-blue-700 text-white`
       : `${base} bg-white border border-slate-200 text-slate-700 hover:bg-slate-100`;
     return `<button class="${cls}" data-tab="${tab.key}">${tab.label}</button>`;
   }).join('');
@@ -189,7 +189,7 @@ function renderCard(category, months) {
     : 'sem movimentação';
 
   return `
-    <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+    <div class="bg-white rounded-lg border border-slate-200 p-6">
       <div class="flex items-baseline justify-between mb-1">
         <div class="flex items-center gap-2 min-w-0">
           <span class="size-8 rounded-lg flex items-center justify-center shrink-0 text-base leading-none" style="background:${hexWithAlpha(color, 0.12)}">${categoryIcon(category.name)}</span>
@@ -562,7 +562,7 @@ function renderInvoiceHistory() {
           data-month="${item.month}"
           title="Ver pagamentos da fatura"
         >
-          <span class="block text-sm font-semibold tabular text-slate-900 group-hover:text-indigo-600">
+          <span class="block text-sm font-semibold tabular text-slate-900 group-hover:text-blue-700">
             ${currency.format(item.total)}
           </span>
         </button>
@@ -584,29 +584,29 @@ function renderInvoiceHistory() {
 
   invoices.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total pago</p>
         <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(data.total)}</p>
         <p class="text-xs text-slate-500 mt-2">${pluralFaturas(data.total_count)} em ${data.months.length} meses</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Média mensal</p>
         <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(average)}</p>
         <p class="text-xs text-slate-500 mt-2">Considerando meses sem pagamento</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior fatura</p>
         <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(largest.total)}</p>
         <p class="text-xs text-slate-500 mt-2">${escapeHtml(formatMonthLabel(largest.month))}</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-3">
+      <div class="bg-white rounded-lg border border-slate-200 p-6 lg:col-span-3">
         <h2 class="font-semibold text-slate-900 mb-4">Evolução dos pagamentos de fatura</h2>
         <div class="relative h-64">
           <canvas id="chart-invoices"></canvas>
         </div>
       </div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div class="px-5 py-4">
         <h2 class="font-semibold text-slate-900">Histórico de faturas</h2>
       </div>
@@ -745,7 +745,7 @@ function renderExclusionRulesPanel(rules) {
   }).join('');
 
   return `
-    <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <details class="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <summary class="px-5 py-4 flex items-center justify-between gap-3 select-none cursor-pointer hover:bg-slate-50">
         <div>
           <h2 class="font-semibold text-slate-900">Regras de exclusão de receitas</h2>
@@ -760,14 +760,14 @@ function renderExclusionRulesPanel(rules) {
       </summary>
       <div class="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
         <form id="rule-form" class="flex flex-col sm:flex-row gap-2 mb-1">
-          <select id="rule-kind" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">
+          <select id="rule-kind" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50">
             <option value="pluggy_category">Por categoria Pluggy</option>
             <option value="pattern">Por padrão de descrição</option>
           </select>
           <input id="rule-value" type="text" required placeholder="Ex: Transfer, Estorno, PIX recebido"
-            class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+            class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50" />
           <button type="submit"
-            class="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-4 py-2 shadow-sm whitespace-nowrap">Adicionar regra</button>
+            class="text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-lg px-4 py-2 whitespace-nowrap">Adicionar regra</button>
         </form>
         <p class="text-[11px] text-slate-400 mt-2">Ao salvar ou remover uma regra, receitas e balanço são recalculados na hora.</p>
       </div>
@@ -887,27 +887,27 @@ function renderIncomeHistory() {
 
   section.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total recebido</p>
         <p class="mt-2 text-2xl font-bold tabular text-emerald-700">${currency.format(data.total_income)}</p>
         <p class="text-xs text-slate-500 mt-2">${pluralRecebimentos(data.transaction_count)} em ${pluralMeses(data.months.length)}</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Média mensal</p>
         <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(average)}</p>
         <p class="text-xs text-slate-500 mt-2">Considerando todos os meses</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior mês</p>
         <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(largest.income)}</p>
         <p class="text-xs text-slate-500 mt-2">${escapeHtml(formatMonthLabel(largest.month))}</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm lg:col-span-3">
+      <div class="bg-white rounded-lg border border-slate-200 p-6 lg:col-span-3">
         <h2 class="font-semibold text-slate-900 mb-4">Evolução das receitas bancárias</h2>
         <div class="relative h-64"><canvas id="chart-income"></canvas></div>
       </div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div class="px-5 py-4">
         <h2 class="font-semibold text-slate-900">Histórico mensal</h2>
       </div>
@@ -1113,7 +1113,7 @@ function renderCashflowRulesPanel(rules) {
   }).join('');
 
   return `
-    <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <details class="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <summary class="px-5 py-4 flex items-center justify-between gap-3 select-none cursor-pointer hover:bg-slate-50">
         <div>
           <h2 class="font-semibold text-slate-900">Regras do fluxo de caixa</h2>
@@ -1128,19 +1128,19 @@ function renderCashflowRulesPanel(rules) {
       </summary>
       <div class="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
         <form id="cashflow-rule-form" class="flex flex-col lg:flex-row gap-2 mb-1">
-          <select id="cashflow-rule-direction" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">
+          <select id="cashflow-rule-direction" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50">
             <option value="ALL">Entradas e saídas</option>
             <option value="IN">Somente entradas</option>
             <option value="OUT">Somente saídas</option>
           </select>
-          <select id="cashflow-rule-kind" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">
+          <select id="cashflow-rule-kind" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50">
             <option value="pluggy_category">Por categoria Pluggy</option>
             <option value="pattern">Por padrão de descrição</option>
           </select>
           <input id="cashflow-rule-value" type="text" required placeholder="Ex: Fixed income, Resgate CDB, Same person transfer"
-            class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
+            class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50" />
           <button type="submit"
-            class="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-4 py-2 shadow-sm whitespace-nowrap">Adicionar regra</button>
+            class="text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-lg px-4 py-2 whitespace-nowrap">Adicionar regra</button>
         </form>
         <p class="text-[11px] text-slate-400 mt-2">Essas regras afetam apenas a aba Entradas e saídas.</p>
       </div>
@@ -1252,30 +1252,30 @@ function renderCashflow() {
 
   section.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total de entradas</p>
         <p class="mt-2 text-2xl font-bold tabular text-emerald-700">${currency.format(summary.total_entradas)}</p>
         <p class="text-xs text-slate-500 mt-2">${summary.total_entradas_count.toLocaleString('pt-BR')} ${summary.total_entradas_count === 1 ? 'crédito' : 'créditos'} em ${pluralMeses(summary.months.length)}</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Total de saídas</p>
         <p class="mt-2 text-2xl font-bold tabular text-red-700">${currency.format(summary.total_saidas)}</p>
         <p class="text-xs text-slate-500 mt-2">${summary.total_saidas_count.toLocaleString('pt-BR')} ${summary.total_saidas_count === 1 ? 'débito' : 'débitos'} (inclui pagamentos de fatura)</p>
       </div>
-      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Saldo (entradas − saídas)</p>
         <p class="mt-2 text-2xl font-bold tabular ${netColor}">${netSign}${currency.format(Math.abs(summary.net))}</p>
         <p class="text-xs text-slate-500 mt-2">Fluxo de caixa líquido no período</p>
       </div>
     </div>
 
-    <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+    <div class="bg-white rounded-lg border border-slate-200 p-6">
       <h2 class="font-semibold text-slate-900 mb-1">Entradas vs saídas por mês</h2>
       <p class="text-xs text-slate-500 mb-4">Clique numa barra para ver as transações do mês</p>
       <div class="relative h-72"><canvas id="chart-cashflow"></canvas></div>
     </div>
 
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
         <h2 class="font-semibold text-slate-900">Detalhamento mensal</h2>
         <p class="text-xs text-slate-500">Apenas movimentações bancárias — cartão de crédito aparece quando a fatura é paga</p>

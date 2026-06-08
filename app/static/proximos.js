@@ -157,7 +157,7 @@ function renderMonthChart() {
       datasets: [
         {
           data: allData.months.map((month) => month.total),
-          backgroundColor: '#4f46e5',
+          backgroundColor: '#1d4ed8',
           borderRadius: 6,
           maxBarThickness: 36,
         },
@@ -208,7 +208,7 @@ function renderChips() {
       const base =
         'shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors';
       const cls = isActive
-        ? `${base} bg-indigo-600 text-white shadow-sm`
+        ? `${base} bg-blue-700 text-white`
         : `${base} bg-white border border-slate-200 text-slate-700 hover:bg-slate-100`;
       return `
         <button class="${cls}" data-month="${month.month}">

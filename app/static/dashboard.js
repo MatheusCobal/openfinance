@@ -434,9 +434,7 @@ function renderCategories() {
     return `
       <button type="button" data-category-index="${index}"
         class="group bg-white rounded-2xl border border-slate-200 px-4 py-4 flex items-center gap-3.5 w-full text-left cursor-pointer shadow-sm hover:bg-slate-50 hover:border-slate-300 hover:shadow transition">
-        <span class="size-10 rounded-xl flex items-center justify-center text-base shrink-0 ring-1 ring-inset ring-slate-900/5" style="background:${escapeHtml(color)}22">
-          <span class="size-2.5 rounded-full" style="background:${escapeHtml(color)}"></span>
-        </span>
+        <span class="size-10 rounded-xl flex items-center justify-center text-xl shrink-0 ring-1 ring-inset ring-slate-900/5" style="background:${escapeHtml(color)}22">${categoryIcon(cat.name)}</span>
         <div class="flex-1 min-w-0">
           <p class="font-semibold text-slate-900 text-sm truncate">${escapeHtml(cat.name)}</p>
           <p class="mt-0.5 text-xs text-slate-500">${escapeHtml(countLabel)}</p>

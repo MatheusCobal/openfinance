@@ -120,11 +120,11 @@ async function loadDescCategorySuggestions() {
         </div>
         <div class="flex flex-col sm:flex-row gap-2 shrink-0">
           <select data-category
-            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white">
+            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white">
             ${categoryOptions(suggestion.current_category_id)}
           </select>
           <button type="button" data-action="create"
-            class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">
+            class="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg px-4 py-2">
             Criar regra
           </button>
         </div>

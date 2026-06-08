@@ -23,6 +23,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     />
+    <link rel="stylesheet" href="/static/styles.css" />
     <style>
       body { font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
       .tabular { font-variant-numeric: tabular-nums; }
@@ -35,32 +36,32 @@
   <body class="bg-slate-50 text-slate-900 font-sans min-h-screen" style="color-scheme:light">
 
     <!-- ── Sidebar ──────────────────────────────────────────────── -->
-    <aside class="fixed inset-y-0 left-0 w-56 bg-white border-r border-slate-200 flex flex-col z-30">
-      <div class="px-5 h-16 flex items-center border-b border-slate-100 shrink-0">
-        <a href="/" class="flex items-center gap-3 min-w-0">
-          <span class="size-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-base select-none shrink-0">💳</span>
-          <span class="font-bold text-slate-900 text-sm truncate">OpenFinance</span>
+    <aside class="fixed inset-y-0 left-0 w-56 bg-slate-900 flex flex-col z-30">
+      <div class="px-5 h-16 flex items-center border-b border-white/10 shrink-0">
+        <a href="/" class="flex items-center gap-2.5 min-w-0">
+          <span class="size-7 bg-blue-600 rounded flex items-center justify-center text-white text-base leading-none select-none shrink-0">💳</span>
+          <span class="font-semibold text-white text-sm truncate">OpenFinance</span>
         </a>
       </div>
-      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <a href="/dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📊</span>
+      <nav class="sidebar-scroll flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <a href="/dashboard" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📊</span>
           Dashboard
         </a>
-        <a href="/planejamento" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📌</span>
+        <a href="/planejamento" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📌</span>
           Planejamento
         </a>
-        <a href="/proximos" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📅</span>
+        <a href="/proximos" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📅</span>
           Próximos
         </a>
-        <a href="/historico" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📚</span>
+        <a href="/historico" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium bg-slate-800 text-white">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📚</span>
           Histórico
         </a>
-        <a href="/regras" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">⚙️</span>
+        <a href="/regras" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">⚙️</span>
           Regras
         </a>
       </nav>
@@ -90,7 +91,7 @@
       </header>
 
       <!-- Toast -->
-      <div id="toast" class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-xl text-white text-sm px-4 py-3 shadow-xl"></div>
+      <div id="toast" class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-md text-white text-sm px-4 py-3 shadow-lg"></div>
 
       <!-- Content -->
       <main class="flex-1 px-8 py-6">
@@ -117,21 +118,21 @@
       class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40"
     >
       <div
-        class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col"
+        class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col"
         role="dialog"
         aria-modal="true"
       >
-        <header class="flex items-start justify-between gap-4 p-6 border-b border-slate-100">
+        <header class="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-200">
           <div class="min-w-0">
-            <div class="flex items-center gap-2 mb-1">
-              <span id="drilldown-color" class="inline-block size-3 rounded-full shrink-0"></span>
-              <h2 id="drilldown-title" class="text-lg font-semibold text-slate-900 truncate"></h2>
+            <div class="flex items-center gap-2 mb-0.5">
+              <span id="drilldown-color" class="inline-block size-2.5 rounded-sm shrink-0"></span>
+              <h2 id="drilldown-title" class="text-base font-semibold text-slate-900 truncate"></h2>
             </div>
             <p id="drilldown-subtitle" class="text-sm text-slate-500"></p>
           </div>
           <button
             id="drilldown-close"
-            class="shrink-0 text-slate-400 hover:text-slate-900"
+            class="shrink-0 size-7 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
             aria-label="Fechar"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

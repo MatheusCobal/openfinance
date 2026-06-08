@@ -96,7 +96,7 @@ function setPlanningTab(tabName, updateUrl = true) {
     const active = button.dataset.tab === activeTab;
     button.className =
       'text-sm font-medium px-3 py-2 rounded-lg transition-colors ' +
-      (active ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100 hover:text-slate-900');
+      (active ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100 hover:text-slate-900');
   });
   const subtitles = {
     overview: 'Veja os principais números do planejamento mensal.',
@@ -226,7 +226,7 @@ function renderMonthStrip() {
     button.type = 'button';
     button.className =
       'shrink-0 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors ' +
-      (active ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
+      (active ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
     button.textContent = formatMonthShort(ym);
     button.addEventListener('click', () => {
       if (ym === selectedMonth) return;
@@ -495,7 +495,7 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
           <li class="flex items-center gap-3 py-2">
             <span class="inline-flex items-center justify-center size-7 rounded-lg bg-white border border-slate-200 text-xs font-bold tabular text-slate-600 shrink-0">${e.expected_day}</span>
             <span class="flex-1 min-w-0 text-sm text-slate-700 truncate">${escapeHtml(e.description)}</span>
-            ${e.is_override ? '<span class="text-[10px] text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full shrink-0">ajustado</span>' : ''}
+            ${e.is_override ? '<span class="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full shrink-0">ajustado</span>' : ''}
             <span class="text-sm font-semibold tabular text-emerald-700 shrink-0">${currency.format(e.amount)}</span>
           </li>
         `).join('')}
@@ -525,7 +525,7 @@ function buildOverviewPanelContent(key, capacity, sobra, sobraPositive) {
             <li class="flex items-center gap-3 py-1.5">
               <span class="inline-flex items-center justify-center size-6 rounded-md bg-white border border-slate-200 text-[11px] font-bold tabular text-slate-500 shrink-0">${e.due_day}</span>
               <span class="flex-1 text-sm text-slate-700 truncate">${escapeHtml(e.description)}</span>
-              ${e.is_override ? '<span class="text-[10px] text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full shrink-0">ajustado</span>' : ''}
+              ${e.is_override ? '<span class="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full shrink-0">ajustado</span>' : ''}
               <span class="text-sm font-semibold tabular text-slate-700 shrink-0">${currency.format(e.amount)}</span>
             </li>
           `).join('')}
@@ -854,10 +854,10 @@ function buildMonthRow(item) {
   li.className = 'bg-white transition-colors';
 
   const overrideBadge = item.is_override
-    ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">ajustado</span>`
+    ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full">ajustado</span>`
     : '';
   const baseHint = item.is_override
-    ? `<button type="button" data-action="revert" class="text-[10px] text-indigo-500 hover:text-indigo-700 underline">↩ reverter (${currency.format(item.base_amount)})</button>`
+    ? `<button type="button" data-action="revert" class="text-[10px] text-slate-500 hover:text-slate-700 underline">↩ reverter (${currency.format(item.base_amount)})</button>`
     : '';
 
   // ── Match section ──
@@ -887,7 +887,7 @@ function buildMonthRow(item) {
   } else {
     linkBtn = `
       <button type="button" data-action="link"
-        class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded transition-colors">
+        class="text-[10px] font-semibold text-blue-700 hover:text-blue-800 hover:bg-blue-50 border border-blue-100 px-2 py-0.5 rounded transition-colors">
         Vincular pagamento
       </button>
     `;
@@ -914,16 +914,16 @@ function buildMonthRow(item) {
       </div>
       <input
         type="number" step="0.01" min="0" data-action="edit"
-        class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 shrink-0"
+        class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 shrink-0"
         value="${Number(item.amount).toFixed(2)}"
       />
     </div>
     <!-- Inline transaction picker — shown when user clicks "Vincular pagamento" -->
     <div data-tx-picker class="hidden">
-      <div class="mx-3 mb-3 ml-14 rounded-xl border border-indigo-200 bg-indigo-50/50 px-3 pt-2 pb-3">
+      <div class="mx-3 mb-3 ml-14 rounded-lg border border-blue-100 bg-blue-50/30 px-3 pt-2 pb-3">
         <div class="flex items-center justify-between mb-2">
           <p class="text-xs font-semibold text-slate-700">
-            Vincular <span class="text-indigo-700">${escapeHtml(item.description)}</span> a qual transação?
+            Vincular <span class="text-blue-700">${escapeHtml(item.description)}</span> a qual transação?
           </p>
           <button type="button" data-action="cancel-link" class="text-[11px] text-slate-400 hover:text-slate-700 px-1">✕ fechar</button>
         </div>
@@ -1070,7 +1070,7 @@ async function openTransactionPicker(listEl, item) {
         </div>
         <span class="text-xs font-semibold tabular ${isGood ? 'text-emerald-700' : 'text-slate-700'} shrink-0">${currency.format(txAbs)}</span>
         <button type="button"
-          class="shrink-0 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
+          class="shrink-0 text-[11px] font-semibold text-white bg-blue-700 hover:bg-blue-800 active:bg-blue-900 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
           Vincular
         </button>
       `;
@@ -1140,7 +1140,7 @@ function buildCategoryCostGroup(category, costs) {
   const activeCostCount = costs.filter((c) => c.active).length;
   const customBadge = category.is_default
     ? ''
-    : '<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">personalizada</span>';
+    : '<span class="text-[10px] font-semibold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full">personalizada</span>';
   const deleteButton = category.is_default
     ? ''
     : '<button type="button" data-action="delete" class="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors">Excluir</button>';
@@ -1160,7 +1160,7 @@ function buildCategoryCostGroup(category, costs) {
       <div class="flex items-center gap-2 shrink-0">
         <span class="text-sm font-semibold tabular text-slate-700">${currency.format(activeTotal)}</span>
         <button type="button" data-action="toggle-add"
-          class="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">
+          class="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors">
           <span class="text-base leading-none" aria-hidden="true">＋</span> Adicionar
         </button>
         ${deleteButton}
@@ -1169,15 +1169,15 @@ function buildCategoryCostGroup(category, costs) {
 
     <!-- Collapsible body (hidden by default) -->
     <div data-body class="hidden">
-      <div data-add-form class="hidden px-4 py-3 bg-indigo-50/40 border-b border-indigo-100">
+      <div data-add-form class="hidden px-4 py-3 bg-blue-50/20 border-b border-blue-100">
         <form class="grid grid-cols-1 lg:grid-cols-[1fr_140px_90px_auto] gap-2" data-add-category="${category.id}">
           <input name="description" type="text" required value="${escapeHtml(category.name)}"
-            placeholder="Descrição" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+            placeholder="Descrição" class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
           <input name="amount" type="number" step="0.01" min="0.01" required placeholder="Valor (R$)"
-            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
           <input name="due_day" type="number" min="1" max="31" required placeholder="Dia"
-            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
-          <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
+            class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
+          <button type="submit" class="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
         </form>
       </div>
       <ul class="divide-y divide-slate-100 text-sm border-t border-slate-100"></ul>
@@ -1293,7 +1293,7 @@ async function loadTemplates() {
       const emoji = TEMPLATE_EMOJIS[template.label] || '📋';
       return `
         <button type="button" data-template="${escapeHtml(template.label)}"
-          class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+          class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 px-3 py-1.5 rounded-lg transition-colors shadow-sm">
           <span>${emoji}</span>${escapeHtml(template.label)}
         </button>
       `;
@@ -1340,7 +1340,7 @@ function buildCostRow(cost) {
     <p class="font-semibold tabular text-sm shrink-0 ${cost.active ? 'text-slate-900' : 'text-slate-400'}">${currency.format(cost.amount)}</p>
     <div class="flex items-center gap-1 shrink-0">
       <button type="button" data-action="edit"
-        class="text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">Editar</button>
+        class="text-xs text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors">Editar</button>
       <button type="button" data-action="toggle"
         class="text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors">${cost.active ? 'Desativar' : 'Reativar'}</button>
       <button type="button" data-action="delete"
@@ -1379,20 +1379,20 @@ function categoryOptions(selectedId) {
 }
 
 function renderCostEditRow(li, cost) {
-  li.className = 'py-3 px-4 bg-indigo-50/40';
+  li.className = 'py-3 px-4 bg-blue-50/20';
   li.innerHTML = `
     <form class="grid grid-cols-1 lg:grid-cols-[160px_1fr_140px_90px_auto_auto] gap-2 w-full">
       <select name="category_id" required
-        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white">
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white">
         ${categoryOptions(cost.category_id)}
       </select>
       <input name="description" type="text" required value="${escapeHtml(cost.description)}"
-        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
       <input name="amount" type="number" step="0.01" min="0.01" required value="${Number(cost.amount).toFixed(2)}"
-        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
       <input name="due_day" type="number" min="1" max="31" required value="${cost.due_day}"
-        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
-      <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-3 py-2">Salvar</button>
+        class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
+      <button type="submit" class="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg px-3 py-2">Salvar</button>
       <button type="button" data-action="cancel"
         class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100">Cancelar</button>
     </form>
@@ -1461,7 +1461,7 @@ function buildBudgetItem(item) {
   const projectedPct = hasTarget ? Math.min(100, item.progress_pct || 0) : 0;
   const cfg = BUDGET_STATUS_CFG[item.status] || BUDGET_STATUS_CFG.ok;
   const scopeBadge = item.target_scope === 'month'
-    ? '<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full ml-1">mês</span>'
+    ? '<span class="text-[10px] font-semibold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full ml-1">mês</span>'
     : '';
 
   const progressArea = hasTarget ? `
@@ -1486,9 +1486,9 @@ function buildBudgetItem(item) {
   const targetCell = hasTarget
     ? `<input type="number" step="0.01" min="0" data-target-input
          value="${Number(item.target).toFixed(2)}"
-         class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />`
+         class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />`
     : `<button type="button" data-action="set-target"
-         class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+         class="text-xs font-medium text-blue-700 hover:text-blue-800 hover:bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
          Definir meta
        </button>`;
 
@@ -1547,7 +1547,7 @@ function buildBudgetItem(item) {
       const cell = setTargetBtn.closest('div');
       cell.innerHTML = `
         <input type="number" step="0.01" min="0.01" placeholder="R$ meta"
-          class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-indigo-300 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+          class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-blue-200 px-2 py-1.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
       `;
       const input = cell.querySelector('input');
       input.focus();
@@ -1657,7 +1657,7 @@ function renderIncomeMonthStrip() {
     button.type = 'button';
     button.className =
       'shrink-0 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors ' +
-      (active ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
+      (active ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200');
     button.textContent = formatMonthShort(ym);
     button.addEventListener('click', () => {
       if (ym === incomeSelectedMonth) return;
@@ -1689,7 +1689,7 @@ function buildIncomeEntryRow(entry) {
       <p class="font-bold tabular text-sm shrink-0 ${entry.active ? 'text-emerald-700' : 'text-slate-400'}">${currency.format(entry.amount)}</p>
       <div class="flex items-center gap-1 shrink-0">
         <button type="button" data-action="edit"
-          class="text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">Editar</button>
+          class="text-xs text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors">Editar</button>
         <button type="button" data-action="toggle"
           class="text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors">${entry.active ? 'Desativar' : 'Reativar'}</button>
         <button type="button" data-action="delete"
@@ -1722,19 +1722,19 @@ function buildIncomeEntryRow(entry) {
 }
 
 function renderIncomeEntryEditRow(li, entry) {
-  li.className = 'rounded-xl border border-indigo-200 bg-indigo-50/40 overflow-hidden';
+  li.className = 'rounded-lg border border-blue-100 bg-blue-50/30 overflow-hidden';
   li.innerHTML = `
     <form class="flex flex-wrap gap-2 px-4 py-3 items-center">
       <input name="description" type="text" required value="${escapeHtml(entry.description)}"
         placeholder="Descrição"
-        class="flex-1 min-w-[140px] text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+        class="flex-1 min-w-[140px] text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
       <input name="amount" type="number" step="0.01" min="0.01" required value="${Number(entry.amount).toFixed(2)}"
         placeholder="Valor (R$)"
-        class="w-36 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
+        class="w-36 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
       <input name="expected_day" type="number" min="1" max="31" required value="${entry.expected_day}"
         placeholder="Dia"
-        class="w-20 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 bg-white" />
-      <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
+        class="w-20 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
+      <button type="submit" class="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg px-4 py-2">Salvar</button>
       <button type="button" data-action="cancel"
         class="text-sm font-medium text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg hover:bg-slate-100 transition-colors">Cancelar</button>
     </form>
@@ -1806,10 +1806,10 @@ function buildIncomeBreakdownRow(item) {
   const li = document.createElement('li');
   li.className = 'py-3 px-3 flex items-start gap-3 hover:bg-slate-50 transition-colors';
   const overrideBadge = item.is_override
-    ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full">ajustado</span>`
+    ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full">ajustado</span>`
     : '';
   const baseHint = item.is_override
-    ? `<button type="button" data-action="revert" class="text-[10px] text-indigo-500 hover:text-indigo-700 underline">↩ reverter (${currency.format(item.base_amount)})</button>`
+    ? `<button type="button" data-action="revert" class="text-[10px] text-slate-500 hover:text-slate-700 underline">↩ reverter (${currency.format(item.base_amount)})</button>`
     : '';
   li.innerHTML = `
     <div class="flex flex-col items-center shrink-0 pt-0.5">
@@ -1827,7 +1827,7 @@ function buildIncomeBreakdownRow(item) {
     </div>
     <input
       type="number" step="0.01" min="0" data-action="edit"
-      class="w-28 text-right text-sm font-bold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 shrink-0 text-emerald-700"
+      class="w-28 text-right text-sm font-bold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 shrink-0 text-emerald-700"
       value="${Number(item.amount).toFixed(2)}"
     />
   `;

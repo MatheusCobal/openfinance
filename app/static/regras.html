@@ -17,6 +17,7 @@
       };
     </script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+    <link rel="stylesheet" href="/static/styles.css" />
     <style>
       body { font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
       .tabular { font-variant-numeric: tabular-nums; }
@@ -24,32 +25,32 @@
   </head>
   <body class="bg-slate-50 text-slate-900 font-sans min-h-screen" style="color-scheme:light">
 
-    <aside class="fixed inset-y-0 left-0 w-56 bg-white border-r border-slate-200 flex flex-col z-30">
-      <div class="px-5 h-16 flex items-center border-b border-slate-100 shrink-0">
-        <a href="/" class="flex items-center gap-3 min-w-0">
-          <span class="size-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-base select-none shrink-0">💳</span>
-          <span class="font-bold text-slate-900 text-sm truncate">OpenFinance</span>
+    <aside class="fixed inset-y-0 left-0 w-56 bg-slate-900 flex flex-col z-30">
+      <div class="px-5 h-16 flex items-center border-b border-white/10 shrink-0">
+        <a href="/" class="flex items-center gap-2.5 min-w-0">
+          <span class="size-7 bg-blue-600 rounded flex items-center justify-center text-white text-base leading-none select-none shrink-0">💳</span>
+          <span class="font-semibold text-white text-sm truncate">OpenFinance</span>
         </a>
       </div>
-      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <a href="/dashboard" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📊</span>
+      <nav class="sidebar-scroll flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+        <a href="/dashboard" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📊</span>
           Dashboard
         </a>
-        <a href="/planejamento" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📌</span>
+        <a href="/planejamento" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📌</span>
           Planejamento
         </a>
-        <a href="/proximos" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📅</span>
+        <a href="/proximos" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📅</span>
           Próximos
         </a>
-        <a href="/historico" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">📚</span>
+        <a href="/historico" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">📚</span>
           Histórico
         </a>
-        <a href="/regras" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium bg-indigo-50 text-indigo-700">
-          <span class="size-5 inline-flex items-center justify-center text-lg leading-none">⚙️</span>
+        <a href="/regras" class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm font-medium bg-slate-800 text-white">
+          <span class="size-4 inline-flex items-center justify-center text-base leading-none shrink-0">⚙️</span>
           Regras
         </a>
       </nav>
@@ -63,12 +64,12 @@
         </div>
       </header>
 
-      <div id="toast" class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-xl text-white text-sm px-4 py-3 shadow-lg"></div>
+      <div id="toast" class="hidden fixed top-4 right-4 z-50 max-w-sm rounded-md text-white text-sm px-4 py-3 shadow-lg"></div>
 
       <main class="flex-1 px-8 py-6 space-y-6 max-w-5xl">
 
         <!-- Descrição → categoria -->
-        <section class="bg-white rounded-2xl border border-slate-200 p-6">
+        <section class="bg-white rounded-lg border border-slate-200 p-6">
           <div class="flex items-baseline justify-between mb-1">
             <h2 class="text-base font-semibold text-slate-900">Descrição → categoria</h2>
             <span class="text-xs text-slate-500" id="desc-cat-count">—</span>
@@ -76,12 +77,12 @@
           <p class="text-xs text-slate-500 mb-4">Quando a descrição da transação contém o padrão, ela é categorizada conforme a regra.</p>
 
           <form id="desc-cat-form" class="flex flex-col sm:flex-row gap-2 mb-4">
-            <input id="desc-cat-pattern" type="text" required placeholder="Padrão na descrição (ex: Uber)" class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" />
-            <select id="desc-cat-category" required class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"></select>
-            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg px-4 py-2">Adicionar</button>
+            <input id="desc-cat-pattern" type="text" required placeholder="Padrão na descrição (ex: Uber)" class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50" />
+            <select id="desc-cat-category" required class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50"></select>
+            <button type="submit" class="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg px-4 py-2">Adicionar</button>
           </form>
 
-          <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 mb-5">
+          <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 mb-5">
             <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
               <div>
                 <h3 class="text-sm font-semibold text-slate-900">Sugestões por repetição</h3>
