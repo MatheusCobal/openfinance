@@ -3,8 +3,17 @@ from sqlmodel import Session
 
 from app.database import get_session
 from app.services.credit_card_invoice import planning_invoice_for_month
+from app.services.current_card_invoice import current_card_invoice_summary
 
 router = APIRouter()
+
+
+@router.get("/credit-card/current-invoice")
+def current_card_invoice(
+    session: Session = Depends(get_session),
+):
+    """Dashboard-only current invoice based on adjusted Account.balance."""
+    return current_card_invoice_summary(session)
 
 
 @router.get("/credit-card/invoice/{year_month}")

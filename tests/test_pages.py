@@ -189,14 +189,26 @@ class PageSmokeTest(unittest.TestCase):
             "/dashboard HTML must contain a <script> tag for the Pluggy CDN",
         )
 
-    def test_dashboard_html_uses_v10_or_newer(self):
+    def test_dashboard_html_uses_v11_or_newer(self):
         # Ensure the browser busts the cache for the updated dashboard.js.
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
         self.assertIn(
-            "dashboard.js?v=10",
+            "dashboard.js?v=11",
             response.text,
-            "/dashboard HTML must reference dashboard.js?v=10 (or newer)",
+            "/dashboard HTML must reference dashboard.js?v=11 (or newer)",
+        )
+
+    def test_dashboard_js_uses_current_card_invoice_endpoint_for_invoice_card(self):
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertIn("fetchJson('/credit-card/current-invoice')", js)
+        self.assertIn("currentCardInvoice", js)
+        self.assertIn("const invoice = currentCardInvoice || {}", js)
+        self.assertNotIn(
+            "const invoice = capacity.credit_card_invoice || capacity.planning_invoice || {}",
+            js,
         )
 
     def test_dashboard_sub_routes_return_404(self):

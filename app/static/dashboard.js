@@ -2,15 +2,13 @@
 
 // Version marker — change this whenever dashboard.js is modified so the
 // DevTools console confirms the new file is actually executing.
-const DASHBOARD_JS_VERSION = 'pluggy-sdk-fix-v10';
+const DASHBOARD_JS_VERSION = 'current-card-invoice-v11';
 window.DASHBOARD_JS_VERSION = DASHBOARD_JS_VERSION;
 console.log('[Dashboard] JS carregado:', DASHBOARD_JS_VERSION);
 
 // The Dashboard is a READ-ONLY presentation of the Planejamento "Visão do mês"
-// numbers. All financial values come from normalizePlanningOverview() in
-// planning_common.js — the same function Planejamento uses. Do NOT add any
-// Dashboard-specific calculation of available-to-spend, invoice, income,
-// fixed-cost or variable-budget totals here.
+// numbers, except for the card invoice tile, which uses the dedicated
+// /credit-card/current-invoice source for the adjusted current balance.
 
 function fmt(v) {
   return currency.format(asMoneyNumber(v));
@@ -63,6 +61,7 @@ function categoryIcon(name) {
 // Selected month follows the SAME default logic as Planejamento.
 let planningYM = getDefaultPlanningMonth();
 let capacity = null;       // normalized planning overview (source of truth)
+let currentCardInvoice = null; // Dashboard-only current card balance
 let statsData = null;      // category stats (secondary, informational only)
 
 async function fetchJson(url, options) {
@@ -88,11 +87,13 @@ async function loadData() {
   showContent(false);
 
   try {
-    const [planning, stats] = await Promise.all([
+    const [planning, invoice, stats] = await Promise.all([
       fetchJson(`/planning/month/${planningYM}`),
+      fetchJson('/credit-card/current-invoice'),
       fetchJson('/stats/monthly').catch(() => null),
     ]);
     capacity = normalizePlanningOverview(planning);
+    currentCardInvoice = invoice;
     statsData = stats;
     renderDashboard();
     setLoading(false);
@@ -149,17 +150,22 @@ function renderHero() {
 }
 
 function renderInvoiceCard() {
-  // Full invoice/projection amount — same resolution as Planejamento's ccOfficial.
-  const invoice = capacity.credit_card_invoice || capacity.planning_invoice || {};
-  const invoiceAmount = invoice.amount ?? capacity.card_invoice_official_total ?? capacity.card_invoice_gross_total ?? 0;
+  const invoice = currentCardInvoice || {};
+  const invoiceAmount = invoice.amount ?? 0;
   // Amount actually subtracted in the available-to-spend calculation.
   const includedAmount = invoiceIncludedAmount(capacity);
+  const adjustedCard = (invoice.cards || []).find(card => (card.adjustments || []).length > 0);
+  const subtitle = adjustedCard
+    ? `saldo Pluggy ${fmt(adjustedCard.raw_balance)} - fatura anterior ${fmt(adjustedCard.latest_bill_amount)}`
+    : 'saldo Pluggy sem ajuste aplicado';
 
   document.getElementById('invoice-card-content').innerHTML = `
     <p class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Fatura do cartão</p>
     <p class="text-4xl font-bold tabular text-slate-900 mb-3">${escapeHtml(fmt(invoiceAmount))}</p>
     <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
-      <span>${escapeHtml(monthLabelLong(planningYM))}</span>
+      <span>${escapeHtml(invoice.source_label || 'Fatura vigente ajustada')}</span>
+      <span>&nbsp;·&nbsp;</span>
+      <span>${escapeHtml(subtitle)}</span>
       <span>&nbsp;·&nbsp;</span>
       <span>no cálculo ${escapeHtml(fmt(includedAmount))}</span>
     </div>
