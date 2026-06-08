@@ -1,58 +1,137 @@
 #!/usr/bin/env python3
 """Mark duplicate transactions after Pluggy re-authentication.
 
-Dry-run by default — pass --apply to actually write changes to the database.
-No transactions are ever deleted; this script only sets is_duplicate=True and
-duplicate_of_id on stale transactions from inactive accounts.
+Dry-run by default — pass --apply to write changes to the database.
+No transactions are ever deleted.
 
-Algorithm:
-  1. Group all transactions by natural key (account_type + normalized_description
-     + date + |amount| + installment_number + total_installments).
-  2. For each group with 2+ transactions:
-     - If there are transactions from BOTH active AND inactive accounts:
-       mark inactive-account transactions as is_duplicate=True (the active-
-       account copies are the canonical ones).
-     - If ALL transactions are from inactive accounts: skip (keep all, nothing
-       to choose from).
-     - If ALL transactions are from active accounts: skip (might be legitimate
-       recurring purchases, not duplicates).
-  3. Set duplicate_of_id to the ID of the active-account canonical transaction.
+Strategies
+----------
+EXACT (always applied with --apply):
+  Group all transactions by their dedupe_key
+  (account_type + normalized_description + date + |amount| + installments).
+  For each group that has BOTH active AND inactive copies, mark the inactive
+  copies as is_duplicate=True and point duplicate_of_id → active canonical.
+  Groups that are all-active or all-inactive are skipped automatically.
+
+RELAXED (opt-in with --include-relaxed):
+  For inactive transactions NOT matched by the exact strategy, look for active
+  transactions within ±1 day, ±R$0.01, and the same description prefix.
+  Installments must match when both sides supply them.
+  These matches are lower confidence and reported separately.
+  Active-vs-active conflicts are never auto-marked regardless of strategy.
 
 Usage:
     python scripts/mark_duplicate_transactions.py [--db PATH] [--apply]
+                                                   [--include-relaxed]
 
 Options:
-    --db PATH    Path to the SQLite database (default: openfinance.db)
-    --apply      Write changes to the database (default: dry-run only)
+    --db PATH           Path to the SQLite database (default: openfinance.db)
+    --apply             Write changes to the database (default: dry-run)
+    --include-relaxed   Also mark relaxed-match duplicates (lower confidence)
 """
 import argparse
 import sys
 from collections import defaultdict
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-# Ensure the project root is on sys.path so app imports work when run directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlmodel import Session, create_engine, select
 
+from app.categorization import normalize_description
 from app.models import Account, Item, Transaction
 from app.services.sync import compute_dedupe_key
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _is_active(account: Optional[Account], active_item_ids: set) -> bool:
+    if account is None:
+        return False
+    return bool(account.is_active and account.item_id in active_item_ids)
+
+
+def _desc_prefix(description: Optional[str], length: int = 12) -> str:
+    return normalize_description(description)[:length]
+
+
+def _build_active_index(
+    all_txs: List[Transaction],
+    all_accounts: Dict[str, Account],
+    active_item_ids: set,
+) -> Dict[Tuple, List[Transaction]]:
+    """Index of active transactions by (account_type, date) for relaxed lookup."""
+    index: Dict[Tuple, List[Transaction]] = defaultdict(list)
+    for tx in all_txs:
+        if not _is_active(all_accounts.get(tx.account_id), active_item_ids):
+            continue
+        account = all_accounts.get(tx.account_id)
+        if account:
+            index[(account.type, tx.date)].append(tx)
+    return index
+
+
+def _relaxed_match(
+    inactive_tx: Transaction,
+    inactive_account: Optional[Account],
+    active_index: Dict[Tuple, List[Transaction]],
+    amount_tolerance: Decimal = Decimal("0.01"),
+    day_tolerance: int = 1,
+    desc_prefix_len: int = 12,
+) -> Optional[Transaction]:
+    """Return the best active match for an inactive transaction, or None."""
+    if inactive_account is None:
+        return None
+    account_type = inactive_account.type
+    desc_pfx = _desc_prefix(inactive_tx.description, desc_prefix_len)
+    abs_amount = abs(inactive_tx.amount)
+    inst_key = (
+        inactive_tx.installment_number or 0,
+        inactive_tx.total_installments or 0,
+    )
+
+    for delta in range(-day_tolerance, day_tolerance + 1):
+        search_date = inactive_tx.date + timedelta(days=delta)
+        for candidate in active_index.get((account_type, search_date), []):
+            if abs(abs(candidate.amount) - abs_amount) > amount_tolerance:
+                continue
+            cand_pfx = _desc_prefix(candidate.description, desc_prefix_len)
+            if not desc_pfx or not cand_pfx or cand_pfx != desc_pfx:
+                continue
+            cand_inst = (candidate.installment_number or 0, candidate.total_installments or 0)
+            if inst_key != (0, 0) and cand_inst != (0, 0) and inst_key != cand_inst:
+                continue
+            return candidate  # return first match; all are equivalent for our purposes
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--db", default="openfinance.db", help="Path to the SQLite database"
-    )
+    parser.add_argument("--db", default="openfinance.db", help="Path to the SQLite database")
     parser.add_argument(
         "--apply",
         action="store_true",
         default=False,
         help="Write changes to the database (default: dry-run)",
+    )
+    parser.add_argument(
+        "--include-relaxed",
+        action="store_true",
+        default=False,
+        dest="include_relaxed",
+        help="Also mark relaxed-match duplicates (lower confidence)",
     )
     args = parser.parse_args()
 
@@ -62,12 +141,14 @@ def main() -> None:
         sys.exit(1)
 
     mode = "APPLY" if args.apply else "DRY-RUN"
-    print("=" * 60)
+    print("=" * 70)
     print(f"MARCAR TRANSAÇÕES DUPLICADAS ({mode})")
-    print("=" * 60)
+    print("=" * 70)
     print(f"Database: {db_path}")
     if not args.apply:
         print("(Sem --apply: nenhuma alteração será gravada)")
+    if args.include_relaxed:
+        print("(--include-relaxed: matching relaxado também será aplicado)")
     print()
 
     engine = create_engine(
@@ -75,84 +156,119 @@ def main() -> None:
     )
 
     with Session(engine) as session:
-        # --- load accounts and items ---
-        all_accounts: dict[str, Account] = {
+        all_accounts: Dict[str, Account] = {
             a.id: a for a in session.exec(select(Account)).all()
         }
         active_item_ids = {
             item.id for item in session.exec(select(Item)).all() if item.is_active
         }
 
-        def _is_active(account: Account | None) -> bool:
-            if account is None:
-                return False
-            return bool(account.is_active and account.item_id in active_item_ids)
+        def is_active(account_id: str) -> bool:
+            return _is_active(all_accounts.get(account_id), active_item_ids)
 
         all_txs = session.exec(select(Transaction)).all()
 
-        # --- group by natural key ---
-        by_key: dict[str, list[Transaction]] = defaultdict(list)
+        # -------------------------------------------------------------------
+        # Strategy 1: EXACT key matching
+        # -------------------------------------------------------------------
+        by_key: Dict[str, List[Transaction]] = defaultdict(list)
         for tx in all_txs:
             account = all_accounts.get(tx.account_id)
             account_type = account.type if account else "UNKNOWN"
             key = tx.dedupe_key or compute_dedupe_key(
-                account_type,
-                tx.description,
-                tx.date,
-                tx.amount,
-                tx.installment_number,
-                tx.total_installments,
+                account_type, tx.description, tx.date,
+                tx.amount, tx.installment_number, tx.total_installments,
             )
             by_key[key].append(tx)
 
-        # --- decide which transactions to mark ---
-        to_mark: list[tuple[Transaction, str]] = []  # (tx, canonical_id)
+        # to_mark_exact: list of (tx_to_mark, canonical_id)
+        to_mark_exact: List[Tuple[Transaction, str]] = []
+        ambiguous_groups: List[List[Transaction]] = []
+
+        exact_matched_inactive_ids: set = set()
 
         for key, txs in by_key.items():
             if len(txs) < 2:
                 continue
-            active_txs = [
-                tx for tx in txs if _is_active(all_accounts.get(tx.account_id))
-            ]
-            inactive_txs = [
-                tx
-                for tx in txs
-                if not _is_active(all_accounts.get(tx.account_id))
-            ]
+            active_txs = [tx for tx in txs if is_active(tx.account_id)]
+            inactive_txs = [tx for tx in txs if not is_active(tx.account_id)]
 
-            # Only act when there is at least one active AND one inactive copy.
-            # If all are active or all are inactive we cannot determine which is
-            # canonical without extra heuristics — skip to be safe.
-            if not active_txs or not inactive_txs:
+            # All-active duplicate: suspicious but never auto-mark.
+            if active_txs and not inactive_txs:
+                ambiguous_groups.append(active_txs)
                 continue
 
-            # Use the first active transaction as the canonical one (they should
-            # all represent the same purchase).
+            # No active counterpart: cannot determine canonical, skip.
+            if not active_txs:
+                continue
+
+            # Has both active and inactive: mark inactive ones.
             canonical_id = active_txs[0].id
             for tx in inactive_txs:
                 if not tx.is_duplicate:
-                    to_mark.append((tx, canonical_id))
+                    to_mark_exact.append((tx, canonical_id))
+                    exact_matched_inactive_ids.add(tx.id)
 
-        # --- report what would happen (or what is happening) ---
-        total_amount = sum(abs(Decimal(str(tx.amount))) for tx, _ in to_mark)
-        print(f"Transações a marcar como is_duplicate=True: {len(to_mark)}")
-        print(f"Valor total afetado: R$ {total_amount:.2f}")
+        # -------------------------------------------------------------------
+        # Strategy 2: RELAXED matching
+        # -------------------------------------------------------------------
+        to_mark_relaxed: List[Tuple[Transaction, str]] = []
+
+        if args.include_relaxed:
+            active_index = _build_active_index(all_txs, all_accounts, active_item_ids)
+            for tx in all_txs:
+                if is_active(tx.account_id):
+                    continue
+                if tx.id in exact_matched_inactive_ids:
+                    continue  # already covered
+                if tx.is_duplicate:
+                    continue  # already marked
+                account = all_accounts.get(tx.account_id)
+                best_match = _relaxed_match(tx, account, active_index)
+                if best_match is not None:
+                    to_mark_relaxed.append((tx, best_match.id))
+
+        # -------------------------------------------------------------------
+        # Report
+        # -------------------------------------------------------------------
+        all_to_mark = to_mark_exact + to_mark_relaxed
+        exact_amount = sum(abs(Decimal(str(tx.amount))) for tx, _ in to_mark_exact)
+        relaxed_amount = sum(abs(Decimal(str(tx.amount))) for tx, _ in to_mark_relaxed)
+
+        print(f"Estratégia EXATA   — transações a marcar: {len(to_mark_exact):4d}  R$ {exact_amount:>12,.2f}")
+        print(f"Estratégia RELAXADA— transações a marcar: {len(to_mark_relaxed):4d}  R$ {relaxed_amount:>12,.2f}")
+        print(f"Grupos ambíguos (só-ativo, não tocados):  {len(ambiguous_groups):4d}")
         print()
 
-        if to_mark:
-            print("Detalhes:")
-            print("-" * 60)
-            for tx, canonical_id in sorted(to_mark, key=lambda x: (x[0].date, x[0].description)):
-                account = all_accounts.get(tx.account_id)
+        if to_mark_exact:
+            print(f"Detalhes EXATO (primeiros 30):")
+            print("-" * 70)
+            for tx, canonical_id in sorted(
+                to_mark_exact, key=lambda x: (x[0].date, x[0].description or "")
+            )[:30]:
                 print(
                     f"  {tx.date}  R${abs(float(tx.amount)):>10.2f}  "
-                    f"{tx.description[:40]:40s}  "
-                    f"account={tx.account_id[:8]}...  "
-                    f"→ canonical={canonical_id[:8]}..."
+                    f"{(tx.description or '')[:40]:40s}  "
+                    f"acc={tx.account_id[:8]}...  → {canonical_id[:8]}..."
                 )
+            if len(to_mark_exact) > 30:
+                print(f"  ... e mais {len(to_mark_exact) - 30} transações")
             print()
 
-        if not to_mark:
+        if to_mark_relaxed:
+            print(f"Detalhes RELAXADO (primeiros 15):")
+            print("-" * 70)
+            for tx, canonical_id in to_mark_relaxed[:15]:
+                print(
+                    f"  {tx.date}  R${abs(float(tx.amount)):>10.2f}  "
+                    f"{(tx.description or '')[:40]:40s}  "
+                    f"acc={tx.account_id[:8]}...  → {canonical_id[:8]}..."
+                )
+            if len(to_mark_relaxed) > 15:
+                print(f"  ... e mais {len(to_mark_relaxed) - 15} transações")
+            print()
+
+        if not all_to_mark:
             print("Nenhuma duplicata para marcar. Nada a fazer.")
             return
 
@@ -163,35 +279,56 @@ def main() -> None:
             )
             return
 
-        # --- apply ---
+        # -------------------------------------------------------------------
+        # Apply
+        # -------------------------------------------------------------------
         print("Aplicando alterações...")
-        marked_count = 0
-        for tx, canonical_id in to_mark:
+        marked_exact = 0
+        marked_relaxed = 0
+
+        def _mark(tx: Transaction, canonical_id: str, strategy: str) -> None:
+            nonlocal marked_exact, marked_relaxed
             tx.is_duplicate = True
             tx.duplicate_of_id = canonical_id
-            # Also set dedupe_key if missing so future runs are faster.
+            # Populate dedupe_key if missing so future runs are faster
             if tx.dedupe_key is None:
                 account = all_accounts.get(tx.account_id)
                 account_type = account.type if account else "UNKNOWN"
                 tx.dedupe_key = compute_dedupe_key(
-                    account_type,
-                    tx.description,
-                    tx.date,
-                    tx.amount,
-                    tx.installment_number,
-                    tx.total_installments,
+                    account_type, tx.description, tx.date,
+                    tx.amount, tx.installment_number, tx.total_installments,
                 )
             session.add(tx)
-            marked_count += 1
-            if marked_count % 100 == 0:
+            if strategy == "exact":
+                marked_exact += 1
+            else:
+                marked_relaxed += 1
+
+        batch = 0
+        for tx, canonical_id in all_to_mark:
+            _mark(tx, canonical_id, "exact" if tx in [t for t, _ in to_mark_exact] else "relaxed")
+            batch += 1
+            if batch % 200 == 0:
                 session.commit()
-                print(f"  {marked_count}/{len(to_mark)} marcadas...")
+                print(f"  {batch}/{len(all_to_mark)} marcadas...")
 
         session.commit()
-        print(f"Concluído: {marked_count} transações marcadas como is_duplicate=True.")
+
+        # More accurate counts using index
+        exact_ids = {tx.id for tx, _ in to_mark_exact}
+        relaxed_ids = {tx.id for tx, _ in to_mark_relaxed}
+        marked_exact_final = sum(1 for tx, _ in to_mark_exact)
+        marked_relaxed_final = sum(1 for tx, _ in to_mark_relaxed)
+
+        print(f"Concluído:")
+        print(f"  Marcadas por estratégia EXATA:    {marked_exact_final}")
+        print(f"  Marcadas por estratégia RELAXADA: {marked_relaxed_final}")
+        print(f"  Total:                            {marked_exact_final + marked_relaxed_final}")
         print()
 
-        # --- refresh monthly snapshots so aggregated views are corrected ---
+        # -------------------------------------------------------------------
+        # Refresh monthly snapshots
+        # -------------------------------------------------------------------
         print("Recalculando snapshots mensais...")
         from app.services.snapshots import refresh_monthly_balance_snapshots
         refreshed_income, refreshed_invoice, refreshed_balance = (
@@ -202,9 +339,9 @@ def main() -> None:
         print(f"  refreshed_balance_months: {refreshed_balance}")
         print()
         print(
-            "NOTA: as transações originais NÃO foram deletadas. "
-            "Para removê-las fisicamente (somente após verificação),\n"
-            "use DELETE FROM transaction WHERE is_duplicate=1 diretamente no SQLite."
+            "NOTA: as transações originais NÃO foram deletadas.\n"
+            "Para removê-las fisicamente (somente após verificação):\n"
+            "  sqlite3 openfinance.db \"DELETE FROM 'transaction' WHERE is_duplicate=1\""
         )
 
 
