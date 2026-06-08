@@ -1,5 +1,11 @@
 'use strict';
 
+// Version marker — change this whenever dashboard.js is modified so the
+// DevTools console confirms the new file is actually executing.
+const DASHBOARD_JS_VERSION = 'pluggy-sdk-fix-v10';
+window.DASHBOARD_JS_VERSION = DASHBOARD_JS_VERSION;
+console.log('[Dashboard] JS carregado:', DASHBOARD_JS_VERSION);
+
 // The Dashboard is a READ-ONLY presentation of the Planejamento "Visão do mês"
 // numbers. All financial values come from normalizePlanningOverview() in
 // planning_common.js — the same function Planejamento uses. Do NOT add any
@@ -292,7 +298,12 @@ function waitForPluggyConnectSdk(timeoutMs = 10000) {
 async function ensurePluggyConnectSdkLoaded() {
   if (window.PluggyConnect) return;
 
-  const existingScript = document.querySelector('script[data-pluggy-connect-sdk]');
+  // Match both the static <script> tag added in dashboard.html (which has no
+  // data-pluggy-connect-sdk attribute but contains "pluggy-connect" in its src)
+  // and any previously injected dynamic script.
+  const existingScript = document.querySelector(
+    'script[data-pluggy-connect-sdk], script[src*="pluggy-connect"]',
+  );
   if (existingScript) {
     await waitForPluggyConnectSdk();
     return;
@@ -342,8 +353,8 @@ async function connectBank() {
       countries: ['BR'],
       connectorIds: [200],
       onSuccess: async (data) => {
-        // Pluggy SDK pode retornar { itemId } ou { item: { id } } — suportamos ambos.
-        const itemId = data?.itemId ?? data?.item?.id;
+        // Pluggy SDK pode retornar { itemId }, { item: { id } } ou { id } — suportamos todos.
+        const itemId = data?.itemId || data?.item?.id || data?.id;
         console.log('[Pluggy] onSuccess payload:', JSON.stringify(data), '→ itemId:', itemId);
         if (!itemId) {
           console.error('[Pluggy] onSuccess: payload sem itemId', data);
@@ -387,7 +398,14 @@ async function connectBank() {
   }
 }
 
+// Expose helpers on window so:
+//   1. DevTools can confirm the new version is actually executing.
+//   2. The event listener below references window.connectBank directly
+//      (avoids stale-closure issues from a cached older version of the file).
+window.ensurePluggyConnectSdkLoaded = ensurePluggyConnectSdkLoaded;
+window.connectBank = connectBank;
+
 document.getElementById('btn-refresh').addEventListener('click', () => loadData());
-document.getElementById('btn-connect').addEventListener('click', () => connectBank());
+document.getElementById('btn-connect')?.addEventListener('click', window.connectBank);
 
 loadData();

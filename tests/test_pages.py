@@ -122,14 +122,14 @@ class PageSmokeTest(unittest.TestCase):
         self.assertLess(sdk_pos, token_pos, "SDK loader must be defined before connect-token call")
 
     def test_dashboard_js_onsuccess_is_defensive_about_item_id(self):
-        # onSuccess must handle both data.itemId and data?.item?.id payloads.
+        # onSuccess must handle data.itemId, data?.item?.id, and data?.id payloads.
         response = self.client.get("/static/dashboard.js")
         self.assertEqual(response.status_code, 200)
         js = response.text
         self.assertIn(
-            "data?.itemId ?? data?.item?.id",
+            "data?.itemId || data?.item?.id || data?.id",
             js,
-            "onSuccess must extract itemId defensively from both payload shapes",
+            "onSuccess must extract itemId defensively from all three payload shapes",
         )
 
     def test_dashboard_js_fetchjson_extracts_error_detail(self):
@@ -151,6 +151,52 @@ class PageSmokeTest(unittest.TestCase):
             "SDK Pluggy Connect não carregado",
             response.text,
             "Old stale error message must be removed from dashboard.js",
+        )
+
+    def test_dashboard_js_exposes_version_and_helpers_on_window(self):
+        # The JS must expose key symbols on window so DevTools can confirm
+        # the new version is actually executing (not a stale cached copy).
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        for symbol in (
+            "DASHBOARD_JS_VERSION",
+            "window.DASHBOARD_JS_VERSION",
+            "window.ensurePluggyConnectSdkLoaded",
+            "window.connectBank",
+        ):
+            self.assertIn(symbol, js, f"dashboard.js must assign {symbol!r}")
+
+    def test_dashboard_js_uses_window_connectbank_in_listener(self):
+        # The click listener must reference window.connectBank so it always
+        # invokes the current definition even if the closure was cached.
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "window.connectBank",
+            response.text,
+            "btn-connect listener must use window.connectBank",
+        )
+
+    def test_dashboard_html_includes_pluggy_sdk_script_tag(self):
+        # dashboard.html must load the Pluggy Connect SDK directly so
+        # window.PluggyConnect is available before dashboard.js runs.
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js",
+            response.text,
+            "/dashboard HTML must contain a <script> tag for the Pluggy CDN",
+        )
+
+    def test_dashboard_html_uses_v10_or_newer(self):
+        # Ensure the browser busts the cache for the updated dashboard.js.
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "dashboard.js?v=10",
+            response.text,
+            "/dashboard HTML must reference dashboard.js?v=10 (or newer)",
         )
 
     def test_dashboard_sub_routes_return_404(self):
