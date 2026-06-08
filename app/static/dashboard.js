@@ -265,23 +265,82 @@ function renderCategories() {
   }).join('');
 }
 
+const PLUGGY_CONNECT_SDK_URL = 'https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js';
+
+function waitForPluggyConnectSdk(timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    (function poll() {
+      if (window.PluggyConnect) return resolve();
+      if (Date.now() - start > timeoutMs) {
+        return reject(new Error('Timeout aguardando window.PluggyConnect.'));
+      }
+      setTimeout(poll, 100);
+    })();
+  });
+}
+
+async function ensurePluggyConnectSdkLoaded() {
+  if (window.PluggyConnect) return;
+
+  const existingScript = document.querySelector('script[data-pluggy-connect-sdk]');
+  if (existingScript) {
+    await waitForPluggyConnectSdk();
+    return;
+  }
+
+  const script = document.createElement('script');
+  script.src = PLUGGY_CONNECT_SDK_URL;
+  script.async = true;
+  script.dataset.pluggyConnectSdk = 'true';
+
+  const loadPromise = new Promise((resolve, reject) => {
+    script.onload = () => {
+      if (window.PluggyConnect) resolve();
+      else reject(new Error('SDK Pluggy Connect carregou, mas window.PluggyConnect não ficou disponível.'));
+    };
+    script.onerror = () => {
+      reject(new Error('Não foi possível carregar o Pluggy Connect no navegador. Verifique bloqueador de anúncios, conexão ou CSP.'));
+    };
+  });
+
+  document.head.appendChild(script);
+  await loadPromise;
+}
+
 async function connectBank() {
   const btn = document.getElementById('btn-connect');
   btn.disabled = true;
   try {
+    await ensurePluggyConnectSdkLoaded();
     const res = await fetchJson('/connect-token', { method: 'POST' });
-    if (typeof PluggyConnect !== 'undefined') {
-      new PluggyConnect({
-        connectToken: res.accessToken,
-        onSuccess: () => { showToast('Banco conectado com sucesso!', 'success'); loadData(); },
-        onError: (err) => showToast(`Erro ao conectar: ${err}`, 'error'),
-        onClose: () => {},
-      }).init();
-    } else {
-      showToast('Token de conexão gerado. SDK Pluggy Connect não carregado.', 'info');
-    }
-  } catch {
-    showToast('Não foi possível conectar ao Pluggy. Verifique as configurações.', 'error');
+    if (!res.accessToken) throw new Error('connect-token não retornou accessToken.');
+    new window.PluggyConnect({
+      connectToken: res.accessToken,
+      includeSandbox: false,
+      language: 'pt',
+      countries: ['BR'],
+      connectorIds: [200],
+      onSuccess: async ({ itemId }) => {
+        try {
+          await fetchJson(`/items/${itemId}`, { method: 'POST' });
+          await fetchJson(`/items/${itemId}/sync`, { method: 'POST' });
+          showToast('Banco conectado! Sincronizando dados…', 'success');
+          loadData();
+        } catch (err) {
+          console.error('Erro ao registrar/sincronizar item Pluggy:', err);
+          showToast('Banco conectado, mas houve um erro ao sincronizar. Tente Atualizar.', 'error');
+        }
+      },
+      onError: (err) => {
+        console.error('Pluggy Connect error:', err);
+        showToast(`Erro ao conectar banco: ${err?.message ?? err}`, 'error');
+      },
+      onClose: () => {},
+    }).init();
+  } catch (err) {
+    console.error('connectBank error:', err);
+    showToast(err?.message ?? 'Não foi possível conectar ao Pluggy. Verifique as configurações.', 'error');
   } finally {
     btn.disabled = false;
   }

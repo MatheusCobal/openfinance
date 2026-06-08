@@ -92,6 +92,33 @@ class PageSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 307)
         self.assertEqual(response.headers["location"], "/planejamento")
 
+    def test_dashboard_js_loads_pluggy_connect_sdk(self):
+        # dashboard.js must contain the Pluggy CDN URL and the robust SDK loader
+        # so the "Conectar banco" button works without a hard-coded <script> tag.
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertIn(
+            "cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js",
+            js,
+            "dashboard.js must reference the Pluggy Connect CDN URL",
+        )
+        self.assertIn(
+            "ensurePluggyConnectSdkLoaded",
+            js,
+            "dashboard.js must define the SDK loader function",
+        )
+        self.assertIn(
+            "window.PluggyConnect",
+            js,
+            "dashboard.js must use window.PluggyConnect (not bare PluggyConnect)",
+        )
+        # SDK load must happen before token fetch — ensurePluggyConnect must appear
+        # before the connect-token fetch call in the source.
+        sdk_pos = js.index("ensurePluggyConnectSdkLoaded")
+        token_pos = js.index("connect-token")
+        self.assertLess(sdk_pos, token_pos, "SDK loader must be defined before connect-token call")
+
     def test_dashboard_sub_routes_return_404(self):
         for path in (
             "/dashboard/snapshot",
