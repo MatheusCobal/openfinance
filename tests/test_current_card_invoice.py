@@ -554,6 +554,53 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["category_count"], 1, "only the legitimate tx should be counted")
         self.assertAlmostEqual(summary["category_total"], 49.90, places=2)
 
+    def test_reconciliation_field_present_and_correct(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("28619.60"))
+            self._add_bill(session)
+            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
+            session.add(CategoryRule(pluggy_category="Food", category_id=1))
+            session.add(
+                Transaction(
+                    id="purchase-1",
+                    account_id="credit-1",
+                    date=date(2026, 6, 5),
+                    amount=Decimal("500"),
+                    description="Supermercado",
+                    category="Food",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="refund-1",
+                    account_id="credit-1",
+                    date=date(2026, 6, 6),
+                    amount=Decimal("-100"),
+                    description="CANC PARCELA SEM J",
+                    category="Food",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
+
+        rec = summary["reconciliation"]
+        self.assertIsNotNone(rec)
+        self.assertAlmostEqual(rec["amount"], summary["amount"], places=2)
+        self.assertAlmostEqual(rec["category_total"], summary["category_total"], places=2)
+        self.assertAlmostEqual(rec["refund_total"], summary["possible_refunds_total"], places=2)
+        self.assertAlmostEqual(rec["refund_abs_total"], abs(summary["possible_refunds_total"]), places=2)
+        self.assertAlmostEqual(
+            rec["amount_minus_category_total"],
+            summary["amount"] - summary["category_total"],
+            places=2,
+        )
+        self.assertFalse(rec["refunds_affect_amount"])
+        self.assertTrue(rec["refunds_are_diagnostic_only"])
+        self.assertIn("source_label", rec)
+
     def test_future_planning_month_can_still_use_scheduled_installments(self):
         with Session(self.engine) as session:
             self._add_item(session)

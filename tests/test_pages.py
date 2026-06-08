@@ -217,6 +217,47 @@ class PageSmokeTest(unittest.TestCase):
             js,
         )
 
+    def test_dashboard_html_has_bank_balance_container(self):
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="bank-balance-card"', response.text)
+
+    def test_dashboard_html_has_invoice_reconciliation_container(self):
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="invoice-reconciliation"', response.text)
+
+    def test_dashboard_js_has_render_invoice_reconciliation(self):
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertIn("renderInvoiceReconciliation", js)
+        self.assertIn("currentCardInvoice?.reconciliation", js)
+        self.assertIn("rec.category_total", js)
+        self.assertIn("rec.refund_abs_total", js)
+        # Reconciliation must never write back to currentCardInvoice
+        self.assertNotIn("currentCardInvoice.amount =", js)
+        self.assertNotIn("currentCardInvoice =", js.split("renderInvoiceReconciliation")[1].split("function ")[0])
+
+    def test_dashboard_js_has_render_bank_balance(self):
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertIn("renderBankBalance", js)
+        self.assertIn("fetchJson('/bank/balance-summary')", js)
+        self.assertIn("bankBalance", js)
+        # Bank balance widget must not use CREDIT data
+        self.assertNotIn("currentCardInvoice.amount", js.split("renderBankBalance")[1].split("function ")[0])
+
+    def test_bank_balance_endpoint_exists(self):
+        response = self.client.get("/bank/balance-summary")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("total", data)
+        self.assertIn("account_count", data)
+        self.assertIn("accounts", data)
+        self.assertIn("source", data)
+
     def test_dashboard_sub_routes_return_404(self):
         for path in (
             "/dashboard/snapshot",

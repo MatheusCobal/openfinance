@@ -453,16 +453,17 @@ def current_card_invoice_summary(
         grouped_categories
     )
 
+    source_label = (
+        "Fatura vigente ajustada"
+        if source == "adjusted_account_balance"
+        else "Saldo atual ajustado"
+    )
     return {
         "amount": float(adjusted_total),
         "raw_account_balance_total": float(raw_total),
         "adjusted_total": float(adjusted_total),
         "source": source,
-        "source_label": (
-            "Fatura vigente ajustada"
-            if source == "adjusted_account_balance"
-            else "Saldo atual ajustado"
-        ),
+        "source_label": source_label,
         "confidence": confidence,
         "account_count": len(cards),
         "cards": cards,
@@ -474,5 +475,15 @@ def current_card_invoice_summary(
         "source_detail": {
             "refunds_are_diagnostic_only": True,
             "reason": "Refunds may already be reflected in Account.balance, so they are not applied again.",
+        },
+        "reconciliation": {
+            "amount": float(adjusted_total),
+            "category_total": float(category_total),
+            "refund_total": float(possible_refunds_total),
+            "refund_abs_total": float(abs(possible_refunds_total)),
+            "amount_minus_category_total": float(adjusted_total - category_total),
+            "refunds_affect_amount": False,
+            "refunds_are_diagnostic_only": True,
+            "source_label": source_label,
         },
     }
