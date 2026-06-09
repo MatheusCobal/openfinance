@@ -2,7 +2,7 @@
 
 // Version marker — change this whenever dashboard.js is modified so the
 // DevTools console confirms the new file is actually executing.
-const DASHBOARD_JS_VERSION = 'dashboard-current-invoice-capacity-v16';
+const DASHBOARD_JS_VERSION = 'dashboard-current-invoice-capacity-v17';
 window.DASHBOARD_JS_VERSION = DASHBOARD_JS_VERSION;
 console.log('[Dashboard] JS carregado:', DASHBOARD_JS_VERSION);
 
@@ -136,10 +136,23 @@ function buildDashboardCapacity(planningCapacity, cardInvoice) {
     ? (planningCapacity.fixed_cost_planned_total ?? 0)
     : (planningCapacity.fixed_cost_reserved_total ?? 0);
   const variableBudget = planningCapacity.variable_budget_total ?? 0;
-  const currentInvoiceAmount = asMoneyNumber(cardInvoice?.amount);
+  const planningAvailable = asMoneyNumber(
+    planningCapacity.budget_available_to_spend
+      ?? planningCapacity.discretionary_available
+      ?? planningCapacity.available_to_spend,
+  );
+  const planningInvoiceImpact = invoiceIncludedAmount(planningCapacity);
+  const currentInvoiceRawAmount = cardInvoice?.amount ?? cardInvoice?.adjusted_total;
+  const hasCurrentInvoiceAmount = Number.isFinite(Number(currentInvoiceRawAmount));
+  const currentInvoiceAmount = hasCurrentInvoiceAmount ? asMoneyNumber(currentInvoiceRawAmount) : 0;
   const variableUsed = planningCapacity.variable_budget_consumed ?? 0;
   const variableRemaining = variableBudget - variableUsed;
-  const availableToSpend = expectedIncome - fixedCosts - currentInvoiceAmount - variableBudget;
+  // Planejamento calcula a capacidade mensal com a fatura de planejamento.
+  // A Dashboard troca somente esse componente pela fatura atual operacional,
+  // evitando ficar presa à fatura oficial/planejada quando o saldo Pluggy já mudou.
+  const availableToSpend = hasCurrentInvoiceAmount
+    ? planningAvailable + planningInvoiceImpact - currentInvoiceAmount
+    : planningAvailable;
 
   let status;
   if (expectedIncome <= 0) {

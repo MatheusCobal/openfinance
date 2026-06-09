@@ -203,11 +203,11 @@ class PageSmokeTest(unittest.TestCase):
             "/dashboard HTML must contain a <script> tag for the Pluggy CDN",
         )
 
-    def test_dashboard_html_uses_v16(self):
+    def test_dashboard_html_uses_v17(self):
         # Ensure the browser busts the cache for the updated dashboard.js.
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("dashboard.js?v=16", response.text)
+        self.assertIn("dashboard.js?v=17", response.text)
 
     def test_dashboard_js_uses_current_card_invoice_endpoint_for_invoice_card(self):
         response = self.client.get("/static/dashboard.js")
@@ -466,10 +466,10 @@ class DashboardCapacityTest(unittest.TestCase):
         end = js.index("\nfunction ", start + 1)
         return js[start:end]
 
-    def test_dashboard_html_uses_v16(self):
+    def test_dashboard_html_uses_v17(self):
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("dashboard.js?v=16", response.text)
+        self.assertIn("dashboard.js?v=17", response.text)
 
     def test_dashboard_js_has_build_dashboard_capacity(self):
         js = self._get_js()
@@ -478,17 +478,35 @@ class DashboardCapacityTest(unittest.TestCase):
     def test_build_dashboard_capacity_uses_current_invoice_amount(self):
         js = self._get_js()
         fn_body = self._extract_fn(js, "buildDashboardCapacity")
-        self.assertIn("cardInvoice?.amount", fn_body)
-        self.assertNotIn("card_invoice_remaining_to_include", fn_body)
+        self.assertIn("cardInvoice?.amount ?? cardInvoice?.adjusted_total", fn_body)
+        self.assertIn("hasCurrentInvoiceAmount", fn_body)
+        self.assertIn("invoiceIncludedAmount(planningCapacity)", fn_body)
         self.assertNotIn("planning_invoice", fn_body)
 
     def test_build_dashboard_capacity_formula(self):
         js = self._get_js()
         fn_body = self._extract_fn(js, "buildDashboardCapacity")
-        self.assertIn(
-            "availableToSpend = expectedIncome - fixedCosts - currentInvoiceAmount - variableBudget",
-            fn_body,
-        )
+        self.assertIn("availableToSpend = hasCurrentInvoiceAmount", fn_body)
+        self.assertIn("planningAvailable + planningInvoiceImpact - currentInvoiceAmount", fn_body)
+        self.assertIn(": planningAvailable", fn_body)
+
+    def test_build_dashboard_capacity_documents_dashboard_invoice_swap(self):
+        js = self._get_js()
+        fn_body = self._extract_fn(js, "buildDashboardCapacity")
+        self.assertIn("Planejamento calcula a capacidade mensal", fn_body)
+        self.assertIn("troca somente esse componente pela fatura atual operacional", fn_body)
+
+    def test_dashboard_capacity_formula_examples(self):
+        def dashboard_available(
+            planning_available, planning_invoice_impact, current_invoice_amount
+        ):
+            if current_invoice_amount is None:
+                return planning_available
+            return planning_available + planning_invoice_impact - current_invoice_amount
+
+        self.assertEqual(dashboard_available(5000, 2000, 3000), 4000)
+        self.assertEqual(dashboard_available(5000, 2000, 1000), 6000)
+        self.assertEqual(dashboard_available(5000, 2000, None), 5000)
 
     def test_build_dashboard_capacity_variable_remaining_formula(self):
         js = self._get_js()
