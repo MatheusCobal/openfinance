@@ -1,8 +1,11 @@
 'use strict';
 
+// Capture the shared planning namespace (defined in planning_common.js, loaded first).
+const Planning = window.OpenFinancePlanning;
+
 // Version marker — change this whenever dashboard.js is modified so the
 // DevTools console confirms the new file is actually executing.
-const DASHBOARD_JS_VERSION = 'dashboard-current-invoice-capacity-v17';
+const DASHBOARD_JS_VERSION = 'dashboard-current-invoice-capacity-v18';
 window.DASHBOARD_JS_VERSION = DASHBOARD_JS_VERSION;
 console.log('[Dashboard] JS carregado:', DASHBOARD_JS_VERSION);
 

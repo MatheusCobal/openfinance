@@ -203,11 +203,11 @@ class PageSmokeTest(unittest.TestCase):
             "/dashboard HTML must contain a <script> tag for the Pluggy CDN",
         )
 
-    def test_dashboard_html_uses_v17(self):
+    def test_dashboard_html_uses_current_version(self):
         # Ensure the browser busts the cache for the updated dashboard.js.
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("dashboard.js?v=17", response.text)
+        self.assertIn("dashboard.js?v=20260609-2", response.text)
 
     def test_dashboard_js_uses_current_card_invoice_endpoint_for_invoice_card(self):
         response = self.client.get("/static/dashboard.js")
@@ -466,10 +466,10 @@ class DashboardCapacityTest(unittest.TestCase):
         end = js.index("\nfunction ", start + 1)
         return js[start:end]
 
-    def test_dashboard_html_uses_v17(self):
+    def test_dashboard_html_uses_current_version(self):
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("dashboard.js?v=17", response.text)
+        self.assertIn("dashboard.js?v=20260609-2", response.text)
 
     def test_dashboard_js_has_build_dashboard_capacity(self):
         js = self._get_js()
@@ -570,6 +570,123 @@ class DashboardCapacityTest(unittest.TestCase):
                 if "indigo" in path.read_text(encoding="utf-8"):
                     offenders.append(str(path))
         self.assertEqual(offenders, [], "app/static must not contain indigo classes")
+
+
+class FrontendHardeningTest(unittest.TestCase):
+    """Static checks that harden the frontend namespace and loading order.
+
+    These tests run against the source files directly (no HTTP) so they are
+    fast and do not require a running server.
+    """
+
+    SHARED_SYMBOLS = [
+        "currency",
+        "MONTH_LABELS",
+        "currentYearMonth",
+        "getDefaultPlanningMonth",
+        "shiftYearMonth",
+        "formatMonthShort",
+        "asMoneyNumber",
+        "normalizePlanningOverview",
+        "invoiceIncludedAmount",
+        "PLAN_STATUS_LABELS",
+        "planStatusLabel",
+    ]
+
+    def _read(self, relative_path: str) -> str:
+        return Path(relative_path).read_text(encoding="utf-8")
+
+    # ── Script loading order ────────────────────────────────────────────────
+
+    def test_planning_common_loads_before_dashboard_js(self):
+        html = self._read("app/static/dashboard.html")
+        self.assertLess(
+            html.index("planning_common.js"),
+            html.index("dashboard.js"),
+            "planning_common.js must appear before dashboard.js in dashboard.html",
+        )
+
+    def test_planning_common_loads_before_planejamento_js(self):
+        html = self._read("app/static/planejamento.html")
+        self.assertLess(
+            html.index("planning_common.js"),
+            html.index("planejamento.js"),
+            "planning_common.js must appear before planejamento.js in planejamento.html",
+        )
+
+    # ── Namespace ───────────────────────────────────────────────────────────
+
+    def test_planning_common_exposes_namespace(self):
+        js = self._read("app/static/planning_common.js")
+        self.assertIn("window.OpenFinancePlanning", js)
+        for sym in self.SHARED_SYMBOLS:
+            self.assertIn(sym, js, f"window.OpenFinancePlanning must include {sym!r}")
+
+    def test_dashboard_captures_planning_namespace(self):
+        js = self._read("app/static/dashboard.js")
+        self.assertIn(
+            "window.OpenFinancePlanning",
+            js,
+            "dashboard.js must reference window.OpenFinancePlanning",
+        )
+
+    def test_planejamento_captures_planning_namespace(self):
+        js = self._read("app/static/planejamento.js")
+        self.assertIn(
+            "window.OpenFinancePlanning",
+            js,
+            "planejamento.js must reference window.OpenFinancePlanning",
+        )
+
+    # ── Anti-collision: bundles must not redeclare shared symbols ───────────
+
+    def test_dashboard_js_does_not_redeclare_shared_symbols(self):
+        js = self._read("app/static/dashboard.js")
+        for sym in self.SHARED_SYMBOLS:
+            for keyword in ("const", "let", "var"):
+                declaration = f"{keyword} {sym}"
+                self.assertNotIn(
+                    declaration,
+                    js,
+                    f"dashboard.js must not redeclare {sym!r} (would collide with planning_common.js global)",
+                )
+
+    def test_planejamento_js_does_not_redeclare_shared_symbols(self):
+        js = self._read("app/static/planejamento.js")
+        for sym in self.SHARED_SYMBOLS:
+            for keyword in ("const", "let", "var"):
+                declaration = f"{keyword} {sym}"
+                self.assertNotIn(
+                    declaration,
+                    js,
+                    f"planejamento.js must not redeclare {sym!r} (would collide with planning_common.js global)",
+                )
+
+    # ── CDN placement: each CDN only on intended pages ──────────────────────
+
+    def test_pluggy_sdk_only_in_dashboard(self):
+        pluggy_cdn = "cdn.pluggy.ai"
+        for name in ("historico.html", "planejamento.html", "proximos.html", "regras.html"):
+            html = self._read(f"app/static/{name}")
+            self.assertNotIn(pluggy_cdn, html, f"Pluggy SDK CDN must not appear in {name}")
+        self.assertIn(pluggy_cdn, self._read("app/static/dashboard.html"))
+
+    def test_chartjs_only_in_historico_and_proximos(self):
+        chartjs_cdn = "chart.js"
+        for name in ("dashboard.html", "planejamento.html", "regras.html"):
+            html = self._read(f"app/static/{name}")
+            self.assertNotIn(chartjs_cdn, html.lower(), f"Chart.js CDN must not appear in {name}")
+        for name in ("historico.html", "proximos.html"):
+            self.assertIn(chartjs_cdn, self._read(f"app/static/{name}").lower())
+
+    def test_planning_common_not_loaded_in_standalone_pages(self):
+        for name in ("historico.html", "proximos.html", "regras.html"):
+            html = self._read(f"app/static/{name}")
+            self.assertNotIn(
+                "planning_common.js",
+                html,
+                f"planning_common.js must not be loaded in {name} (not needed there)",
+            )
 
 
 if __name__ == "__main__":

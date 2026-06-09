@@ -117,3 +117,20 @@ const PLAN_STATUS_LABELS = {
 function planStatusLabel(status) {
   return PLAN_STATUS_LABELS[status] || PLAN_STATUS_LABELS.unknown;
 }
+
+// Explicit namespace — preferred entry point for new code.
+// The top-level declarations above remain as aliases so the existing bundles
+// (dashboard.js, planejamento.js) continue working without a full rewrite.
+window.OpenFinancePlanning = {
+  currency,
+  MONTH_LABELS,
+  currentYearMonth,
+  getDefaultPlanningMonth,
+  shiftYearMonth,
+  formatMonthShort,
+  asMoneyNumber,
+  normalizePlanningOverview,
+  invoiceIncludedAmount,
+  PLAN_STATUS_LABELS,
+  planStatusLabel,
+};

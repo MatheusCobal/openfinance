@@ -1,5 +1,8 @@
 'use strict';
 
+// Capture the shared planning namespace (defined in planning_common.js, loaded first).
+const Planning = window.OpenFinancePlanning;
+
 // currency, MONTH_LABELS and the month/normalization helpers live in
 // planning_common.js (loaded before this file) so the Dashboard reuses the
 // exact same financial logic.
