@@ -261,15 +261,26 @@ O endpoint trata `item/created` e `item/updated`.
 
 ## Sync Pluggy
 
+O sync Pluggy é uma operação de escrita no banco local. Em SQLite baseado em arquivo, o app cria backup automaticamente antes do sync manual `POST /items/{item_id}/sync`. Em SQLite em memória ou bancos não-SQLite, o helper de backup não cria arquivo.
+
+Para manutenção ou syncs pesados, também é possível executar backup manual antes:
+
+```bash
+.venv/bin/python scripts/backup_database.py --reason before-pluggy-sync
+```
+
 O backend expõe um endpoint de status de sincronização:
 
 ```text
 GET /sync/status
+GET /sync/health
 ```
 
 Ele mostra um resumo de itens, contas, transações, faturas e a melhor estimativa disponível da última sincronização.
 
 Como o app não mantém uma tabela dedicada de execuções de sync, `last_sync_status` é calculado a partir dos timestamps e erros persistidos em `Item` e `AccountSync`. Quando não há dados suficientes, o status retorna `unknown` com `last_sync_status_source` igual a `not_tracked`.
+
+Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e falhas persistidas por conta antes de repetir uma sincronização.
 
 ---
 

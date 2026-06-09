@@ -280,6 +280,9 @@ class SyncIsolationAndLockTest(unittest.TestCase):
             self.assertIsNotNone(bank_sync)
             self.assertIn("pluggy 500", bank_sync.last_error)
             self.assertIsNotNone(bank_sync.last_error_at)
+            failed_account = session.get(Account, "bank-1")
+            self.assertIsNotNone(failed_account)
+            self.assertEqual(failed_account.item_id, "item-1")
 
             credit_sync = session.get(AccountSync, "credit-1")
             self.assertIsNone(credit_sync.last_error)
@@ -287,6 +290,7 @@ class SyncIsolationAndLockTest(unittest.TestCase):
             item = session.get(Item, "item-1")
             self.assertIsNotNone(item.sync_finished_at)
             self.assertIsNone(item.last_sync_error)  # top-level didn't fail
+            self.assertFalse(sync_service.is_sync_running(item))
 
     def test_concurrent_sync_raises_already_running(self):
         with Session(self.engine) as session:
@@ -295,6 +299,7 @@ class SyncIsolationAndLockTest(unittest.TestCase):
 
             with self.assertRaises(sync_service.SyncAlreadyRunning):
                 sync_service.sync_item("item-1", session)
+            self.assertEqual(self.fake_pluggy.transaction_calls, [])
 
     def test_stale_lock_is_recoverable(self):
         with Session(self.engine) as session:
@@ -312,6 +317,8 @@ class SyncIsolationAndLockTest(unittest.TestCase):
 
             item = session.get(Item, "item-1")
             self.assertIsNotNone(item.sync_finished_at)
+            self.assertIsNone(item.last_sync_error)
+            self.assertFalse(sync_service.is_sync_running(item))
 
     def test_top_level_failure_releases_lock(self):
         def boom(item_id):
@@ -327,6 +334,7 @@ class SyncIsolationAndLockTest(unittest.TestCase):
             item = session.get(Item, "item-1")
             self.assertIsNotNone(item.sync_finished_at)
             self.assertIn("list_accounts down", item.last_sync_error)
+            self.assertFalse(sync_service.is_sync_running(item))
 
 
 if __name__ == "__main__":

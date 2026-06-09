@@ -54,6 +54,25 @@ class SyncAlreadyRunning(Exception):
     pass
 
 
+def is_sync_lock_stale(item: Item, now: Optional[datetime] = None) -> bool:
+    if item.sync_started_at is None or item.sync_finished_at is not None:
+        return False
+    current_time = now or datetime.utcnow()
+    return item.sync_started_at < current_time - timedelta(minutes=SYNC_STALE_LOCK_MINUTES)
+
+
+def sync_lock_status(item: Item, now: Optional[datetime] = None) -> str:
+    if item.sync_started_at is None or item.sync_finished_at is not None:
+        return "idle"
+    if is_sync_lock_stale(item, now=now):
+        return "stale"
+    return "running"
+
+
+def is_sync_running(item: Item, now: Optional[datetime] = None) -> bool:
+    return sync_lock_status(item, now=now) == "running"
+
+
 def _truncate_error(exc: BaseException) -> str:
     msg = f"{type(exc).__name__}: {exc}"
     return msg[:ERROR_MESSAGE_MAX_LEN]
@@ -294,8 +313,12 @@ def _record_account_failure(
     account_id: str,
     session: Session,
     error: str,
+    raw_account: Optional[Dict[str, Any]] = None,
+    item_id: Optional[str] = None,
 ) -> None:
     # Runs after rollback, so the AccountSync row may not exist yet.
+    if raw_account is not None and item_id is not None:
+        upsert_account(raw_account, item_id, session)
     sync_state = session.get(AccountSync, account_id) or AccountSync(account_id=account_id)
     sync_state.last_error = error
     sync_state.last_error_at = datetime.utcnow()
@@ -384,7 +407,13 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         except Exception as exc:
             session.rollback()
             error = _truncate_error(exc)
-            _record_account_failure(account_id, session, error)
+            _record_account_failure(
+                account_id,
+                session,
+                error,
+                raw_account=raw_account,
+                item_id=item_id,
+            )
             failed_accounts.append({"account_id": account_id, "error": error})
             continue
 

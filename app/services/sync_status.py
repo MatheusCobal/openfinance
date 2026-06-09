@@ -4,6 +4,7 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from app.models import Account, AccountSync, CreditCardBill, Item, Transaction
+from app.services.sync import is_sync_lock_stale, is_sync_running, sync_lock_status
 
 
 def _iso(value: Any) -> Optional[str]:
@@ -35,12 +36,13 @@ def get_sync_status(session: Session) -> dict[str, Any]:
     account_syncs = list(session.exec(select(AccountSync)).all())
     transactions = list(session.exec(select(Transaction)).all())
     bills = list(session.exec(select(CreditCardBill)).all())
+    accounts_by_id = {account.id: account for account in accounts}
 
-    running = any(
-        item.sync_started_at is not None and item.sync_finished_at is None for item in items
-    )
+    running = any(is_sync_running(item) for item in items)
+    stale_locks = [item for item in items if is_sync_lock_stale(item)]
     item_errors = [item.last_sync_error for item in items if item.last_sync_error]
-    account_errors = [sync.last_error for sync in account_syncs if sync.last_error]
+    failed_account_syncs = [sync for sync in account_syncs if sync.last_error]
+    account_errors = [sync.last_error for sync in failed_account_syncs if sync.last_error]
 
     sync_timestamps = [item.sync_finished_at for item in items]
     sync_timestamps.extend(sync.last_synced_at for sync in account_syncs)
@@ -49,6 +51,9 @@ def get_sync_status(session: Session) -> dict[str, Any]:
     if running:
         last_sync_status = "running"
         last_sync_status_source = "item_sync_lock"
+    elif stale_locks:
+        last_sync_status = "error"
+        last_sync_status_source = "stale_sync_lock"
     elif item_errors or account_errors:
         last_sync_status = "error"
         last_sync_status_source = "persisted_error"
@@ -64,6 +69,8 @@ def get_sync_status(session: Session) -> dict[str, Any]:
         last_sync_error = item_errors[-1]
     elif account_errors:
         last_sync_error = account_errors[-1]
+    elif stale_locks:
+        last_sync_error = "stale sync lock detected"
 
     transaction_dates = [tx.date for tx in transactions]
     bill_due_dates = [bill.due_date for bill in bills if bill.due_date is not None]
@@ -74,12 +81,18 @@ def get_sync_status(session: Session) -> dict[str, Any]:
         "last_sync_error": last_sync_error,
         "last_sync_status_source": last_sync_status_source,
         "last_sync_duration_seconds": _last_sync_duration_seconds(items),
+        "sync_locks": {
+            "running": sum(1 for item in items if sync_lock_status(item) == "running"),
+            "stale": len(stale_locks),
+        },
         "items": {
             "total": len(items),
             "active": sum(1 for item in items if item.is_active),
             "inactive": sum(1 for item in items if not item.is_active),
             "updated": sum(1 for item in items if item.status == "UPDATED"),
             "error": len(item_errors),
+            "running": sum(1 for item in items if is_sync_running(item)),
+            "stale": len(stale_locks),
         },
         "accounts": {
             "total": len(accounts),
@@ -89,6 +102,23 @@ def get_sync_status(session: Session) -> dict[str, Any]:
             "bank": sum(1 for account in accounts if account.type == "BANK"),
             "error": len(account_errors),
         },
+        "failed_accounts": [
+            {
+                "account_id": sync.account_id,
+                "item_id": accounts_by_id[sync.account_id].item_id
+                if sync.account_id in accounts_by_id
+                else None,
+                "account_name": accounts_by_id[sync.account_id].name
+                if sync.account_id in accounts_by_id
+                else None,
+                "account_type": accounts_by_id[sync.account_id].type
+                if sync.account_id in accounts_by_id
+                else None,
+                "error": sync.last_error,
+                "last_error_at": _iso(sync.last_error_at),
+            }
+            for sync in failed_account_syncs
+        ],
         "transactions": {
             "total": len(transactions),
             "latest_date": _iso(max(transaction_dates)) if transaction_dates else None,

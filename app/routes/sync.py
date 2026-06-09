@@ -8,15 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.config import get_pluggy_settings
+from app.config import database_settings, get_pluggy_settings
 from app.database import get_session
 from app.models import Account, AccountSync, Item, Transaction
 from app.pluggy_client import PluggyCredentialError, pluggy
+from app.services.database_backup import backup_sqlite_database
 from app.services.sync import (
     SyncAlreadyRunning,
     compute_dedupe_key,
+    is_sync_running,
     reconcile_active_items,
     sync_item as run_sync_item,
+    sync_lock_status,
     upsert_item,
 )
 from app.services.sync_status import get_sync_status
@@ -78,6 +81,19 @@ def register_item(item_id: str, session: Session = Depends(get_session)):
 
 @router.post("/items/{item_id}/sync")
 def sync_item(item_id: str, session: Session = Depends(get_session)):
+    try:
+        backup_sqlite_database(database_settings.database_url, f"pluggy-sync-{item_id}")
+    except Exception as exc:
+        logger.error(
+            "SQLite backup before Pluggy sync failed for item_id=%s error=%s",
+            item_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            500,
+            "Could not create SQLite backup before starting Pluggy sync.",
+        ) from exc
+
     item = session.get(Item, item_id)
     if item is None:
         item = upsert_item(item_id, session)
@@ -95,15 +111,19 @@ def list_items(session: Session = Depends(get_session)):
 @router.get("/sync/health")
 def sync_health(session: Session = Depends(get_session)):
     items = session.exec(select(Item)).all()
+    accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
+    failed_syncs = session.exec(
+        select(AccountSync).where(AccountSync.last_error.is_not(None))
+    ).all()
     health = []
     for item in items:
-        is_running = item.sync_started_at is not None and item.sync_finished_at is None
-        failed = session.exec(
-            select(Account.id, AccountSync.last_error, AccountSync.last_error_at)
-            .join(AccountSync, AccountSync.account_id == Account.id)
-            .where(Account.item_id == item.id)
-            .where(AccountSync.last_error.is_not(None))
-        ).all()
+        lock_status = sync_lock_status(item)
+        failed = [
+            sync
+            for sync in failed_syncs
+            if accounts_by_id.get(sync.account_id)
+            and accounts_by_id[sync.account_id].item_id == item.id
+        ]
         health.append(
             {
                 "item_id": item.id,
@@ -113,15 +133,18 @@ def sync_health(session: Session = Depends(get_session)):
                 "deactivated_at": item.deactivated_at,
                 "sync_started_at": item.sync_started_at,
                 "sync_finished_at": item.sync_finished_at,
-                "is_running": is_running,
+                "is_running": is_sync_running(item),
+                "sync_lock_status": lock_status,
                 "last_sync_error": item.last_sync_error,
                 "failed_accounts": [
                     {
-                        "account_id": account_id,
-                        "error": error,
-                        "last_error_at": last_error_at,
+                        "account_id": sync.account_id,
+                        "account_name": accounts_by_id[sync.account_id].name,
+                        "account_type": accounts_by_id[sync.account_id].type,
+                        "error": sync.last_error,
+                        "last_error_at": sync.last_error_at,
                     }
-                    for account_id, error, last_error_at in failed
+                    for sync in failed
                 ],
             }
         )
