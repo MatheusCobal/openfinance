@@ -175,13 +175,61 @@ Abre em http://127.0.0.1:8000 (redireciona para `/dashboard`).
 Definidas em `.env` (via `pydantic-settings`):
 
 ```text
-PLUGGY_CLIENT_ID       client ID do dashboard.pluggy.ai (obrigatório só ao usar Pluggy)
-PLUGGY_CLIENT_SECRET   client secret do dashboard.pluggy.ai (obrigatório só ao usar Pluggy)
-PLUGGY_BASE_URL        URL base da API Pluggy (padrão: https://api.pluggy.ai)
-DATABASE_URL           URL do banco SQLite (padrão: sqlite:///./openfinance.db)
+PLUGGY_CLIENT_ID            client ID do dashboard.pluggy.ai (obrigatório só ao usar Pluggy)
+PLUGGY_CLIENT_SECRET        client secret do dashboard.pluggy.ai (obrigatório só ao usar Pluggy)
+PLUGGY_BASE_URL             URL base da API Pluggy (padrão: https://api.pluggy.ai)
+DATABASE_URL                URL do banco SQLite (padrão: sqlite:///./openfinance.db)
+OPENFINANCE_ENV             local | production (padrão: local)
+OPENFINANCE_REQUIRE_AUTH    ativa o Basic Auth do app (padrão: false)
+OPENFINANCE_ADMIN_TOKEN     senha do Basic Auth (obrigatória quando require_auth=true)
+OPENFINANCE_PUBLIC_HEALTH   deixa /health público mesmo com auth (padrão: true)
+OPENFINANCE_WEBHOOK_SECRET  segredo do webhook Pluggy, separado do admin token
 ```
 
 Importar a aplicação, rodar testes e executar migrações Alembic não exigem credenciais Pluggy. As credenciais só são validadas quando o cliente Pluggy é usado, por exemplo em `/connect-token` ou no sync.
+
+---
+
+## Autenticação (antes de expor publicamente)
+
+O app é **local-first** e roda sem autenticação por padrão. **Não exponha publicamente sem ativar a auth.**
+
+Para habilitar a proteção:
+
+```bash
+OPENFINANCE_REQUIRE_AUTH=true
+OPENFINANCE_ADMIN_TOKEN=<um-token-forte-e-secreto>
+```
+
+Com a auth ativa, todas as páginas e APIs exigem **HTTP Basic Auth**. No navegador aparece o diálogo nativo de login:
+
+- **usuário:** qualquer valor (é ignorado);
+- **senha:** o valor de `OPENFINANCE_ADMIN_TOKEN`.
+
+O navegador reenvia a credencial automaticamente nas próximas requisições (inclusive nos `fetch()` do frontend), então não há tela de login própria e o frontend não muda.
+
+Exceções (públicas mesmo com auth ativa):
+
+- `/static/*` — sempre público (não contém segredos);
+- `/health` — público quando `OPENFINANCE_PUBLIC_HEALTH=true` (padrão); defina `false` para exigir auth também nele.
+
+### Webhook Pluggy
+
+O `/webhooks/pluggy` **não** usa Basic Auth (a Pluggy não envia essas credenciais). Ele é protegido por um segredo próprio na URL:
+
+```bash
+OPENFINANCE_WEBHOOK_SECRET=<um-segredo-forte>
+```
+
+Configure no painel Pluggy/ngrok a URL com o token na query string:
+
+```text
+https://SEU_DOMINIO/webhooks/pluggy?token=<OPENFINANCE_WEBHOOK_SECRET>
+```
+
+Sem o token correto, o webhook é rejeitado (403) antes de processar qualquer payload, acionar sync ou alterar o banco. O `OPENFINANCE_ADMIN_TOKEN` **não** funciona como token de webhook. Com `OPENFINANCE_REQUIRE_AUTH=true` e `OPENFINANCE_WEBHOOK_SECRET` vazio, o webhook rejeita tudo.
+
+> Em deploy futuro (VPS, Caddy/Nginx, Cloudflare Tunnel), recomenda-se também proteger no reverse proxy como defesa em profundidade. Não implementado aqui.
 
 ---
 
@@ -298,7 +346,7 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 
 ## Limitações intencionais
 
-- Sem autenticação (uso local apenas — não exponha publicamente sem adicionar auth)
+- Auth desativada por padrão (local-first); proteção mínima via Basic Auth disponível — veja [Autenticação](#autenticação-antes-de-expor-publicamente) antes de expor publicamente
 - Filtro de contas hardcoded em `type == "CREDIT"` (foco em cartão; conta corrente fica de fora)
 - Sync incremental com janela de segurança de 7 dias para capturar alterações recentes
 - Webhooks dependem do ngrok rodando junto com o app local

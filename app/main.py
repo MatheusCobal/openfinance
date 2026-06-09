@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
+from app.security import OpenFinanceAuthMiddleware
 from app.routes import (
     bank,
     budgets,
@@ -30,6 +31,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="OpenFinance Collector", lifespan=lifespan)
+# Minimal single-user auth gate. No-op when OPENFINANCE_REQUIRE_AUTH is false
+# (default), so local development and the test suite are unaffected.
+app.add_middleware(OpenFinanceAuthMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(pages.router)
