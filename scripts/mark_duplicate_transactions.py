@@ -29,6 +29,7 @@ Options:
     --apply             Write changes to the database (default: dry-run)
     --include-relaxed   Also mark relaxed-match duplicates (lower confidence)
 """
+
 import argparse
 import sys
 from collections import defaultdict
@@ -49,6 +50,7 @@ from app.services.sync import compute_dedupe_key
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_active(account: Optional[Account], active_item_ids: set) -> bool:
     if account is None:
@@ -114,6 +116,7 @@ def _relaxed_match(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -151,17 +154,11 @@ def main() -> None:
         print("(--include-relaxed: matching relaxado também será aplicado)")
     print()
 
-    engine = create_engine(
-        f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
-    )
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
 
     with Session(engine) as session:
-        all_accounts: Dict[str, Account] = {
-            a.id: a for a in session.exec(select(Account)).all()
-        }
-        active_item_ids = {
-            item.id for item in session.exec(select(Item)).all() if item.is_active
-        }
+        all_accounts: Dict[str, Account] = {a.id: a for a in session.exec(select(Account)).all()}
+        active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
 
         def is_active(account_id: str) -> bool:
             return _is_active(all_accounts.get(account_id), active_item_ids)
@@ -176,8 +173,12 @@ def main() -> None:
             account = all_accounts.get(tx.account_id)
             account_type = account.type if account else "UNKNOWN"
             key = tx.dedupe_key or compute_dedupe_key(
-                account_type, tx.description, tx.date,
-                tx.amount, tx.installment_number, tx.total_installments,
+                account_type,
+                tx.description,
+                tx.date,
+                tx.amount,
+                tx.installment_number,
+                tx.total_installments,
             )
             by_key[key].append(tx)
 
@@ -235,13 +236,17 @@ def main() -> None:
         exact_amount = sum(abs(Decimal(str(tx.amount))) for tx, _ in to_mark_exact)
         relaxed_amount = sum(abs(Decimal(str(tx.amount))) for tx, _ in to_mark_relaxed)
 
-        print(f"Estratégia EXATA   — transações a marcar: {len(to_mark_exact):4d}  R$ {exact_amount:>12,.2f}")
-        print(f"Estratégia RELAXADA— transações a marcar: {len(to_mark_relaxed):4d}  R$ {relaxed_amount:>12,.2f}")
+        print(
+            f"Estratégia EXATA   — transações a marcar: {len(to_mark_exact):4d}  R$ {exact_amount:>12,.2f}"
+        )
+        print(
+            f"Estratégia RELAXADA— transações a marcar: {len(to_mark_relaxed):4d}  R$ {relaxed_amount:>12,.2f}"
+        )
         print(f"Grupos ambíguos (só-ativo, não tocados):  {len(ambiguous_groups):4d}")
         print()
 
         if to_mark_exact:
-            print(f"Detalhes EXATO (primeiros 30):")
+            print("Detalhes EXATO (primeiros 30):")
             print("-" * 70)
             for tx, canonical_id in sorted(
                 to_mark_exact, key=lambda x: (x[0].date, x[0].description or "")
@@ -256,7 +261,7 @@ def main() -> None:
             print()
 
         if to_mark_relaxed:
-            print(f"Detalhes RELAXADO (primeiros 15):")
+            print("Detalhes RELAXADO (primeiros 15):")
             print("-" * 70)
             for tx, canonical_id in to_mark_relaxed[:15]:
                 print(
@@ -273,10 +278,7 @@ def main() -> None:
             return
 
         if not args.apply:
-            print(
-                "DRY-RUN: nenhuma alteração gravada. "
-                "Use --apply para confirmar."
-            )
+            print("DRY-RUN: nenhuma alteração gravada. Use --apply para confirmar.")
             return
 
         # -------------------------------------------------------------------
@@ -295,8 +297,12 @@ def main() -> None:
                 account = all_accounts.get(tx.account_id)
                 account_type = account.type if account else "UNKNOWN"
                 tx.dedupe_key = compute_dedupe_key(
-                    account_type, tx.description, tx.date,
-                    tx.amount, tx.installment_number, tx.total_installments,
+                    account_type,
+                    tx.description,
+                    tx.date,
+                    tx.amount,
+                    tx.installment_number,
+                    tx.total_installments,
                 )
             session.add(tx)
             if strategy == "exact":
@@ -314,13 +320,10 @@ def main() -> None:
 
         session.commit()
 
-        # More accurate counts using index
-        exact_ids = {tx.id for tx, _ in to_mark_exact}
-        relaxed_ids = {tx.id for tx, _ in to_mark_relaxed}
         marked_exact_final = sum(1 for tx, _ in to_mark_exact)
         marked_relaxed_final = sum(1 for tx, _ in to_mark_relaxed)
 
-        print(f"Concluído:")
+        print("Concluído:")
         print(f"  Marcadas por estratégia EXATA:    {marked_exact_final}")
         print(f"  Marcadas por estratégia RELAXADA: {marked_relaxed_final}")
         print(f"  Total:                            {marked_exact_final + marked_relaxed_final}")
@@ -331,8 +334,9 @@ def main() -> None:
         # -------------------------------------------------------------------
         print("Recalculando snapshots mensais...")
         from app.services.snapshots import refresh_monthly_balance_snapshots
-        refreshed_income, refreshed_invoice, refreshed_balance = (
-            refresh_monthly_balance_snapshots(session)
+
+        refreshed_income, refreshed_invoice, refreshed_balance = refresh_monthly_balance_snapshots(
+            session
         )
         print(f"  refreshed_income_months:  {refreshed_income}")
         print(f"  refreshed_invoice_months: {refreshed_invoice}")

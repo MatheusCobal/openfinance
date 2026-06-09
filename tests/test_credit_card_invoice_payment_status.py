@@ -311,9 +311,17 @@ class StaleDueDateGuardTest(unittest.TestCase):
             )
 
         self.assertNotEqual(invoice["amount"], 24712.95, "stale balance must not be invoice amount")
-        self.assertNotIn("2026-05-04", invoice["due_dates"], "stale due date must not appear in due_dates")
-        self.assertNotEqual(invoice["source"], "account_balance", "source must not be account_balance when due date is stale")
-        self.assertTrue(invoice.get("account_balance_due_date_is_stale"), "must flag stale due date")
+        self.assertNotIn(
+            "2026-05-04", invoice["due_dates"], "stale due date must not appear in due_dates"
+        )
+        self.assertNotEqual(
+            invoice["source"],
+            "account_balance",
+            "source must not be account_balance when due date is stale",
+        )
+        self.assertTrue(
+            invoice.get("account_balance_due_date_is_stale"), "must flag stale due date"
+        )
         self.assertEqual(invoice.get("account_balance_due_date"), "2026-05-04")
 
     # B. Previous-cycle payment is not matched when due date is stale
@@ -345,8 +353,14 @@ class StaleDueDateGuardTest(unittest.TestCase):
             )
 
         matched_ids = [tx["id"] for tx in invoice["matched_payment_transactions"]]
-        self.assertNotIn("prev-cycle-payment", matched_ids, "April payment must not match June invoice")
-        self.assertNotEqual(invoice["payment_status"], "partially_paid", "must not be partially_paid from prior-cycle payment")
+        self.assertNotIn(
+            "prev-cycle-payment", matched_ids, "April payment must not match June invoice"
+        )
+        self.assertNotEqual(
+            invoice["payment_status"],
+            "partially_paid",
+            "must not be partially_paid from prior-cycle payment",
+        )
 
     # C. Valid due-month account balance is still accepted
     def test_valid_due_date_in_month_is_accepted(self):
@@ -404,7 +418,6 @@ class StaleDueDateGuardTest(unittest.TestCase):
     # F. Default planning month helper
     def test_default_planning_month_is_next_calendar_month(self):
         """Backend: next month from a given date is the expected planning default."""
-        import calendar
 
         def default_planning_month(today: datetime.date) -> str:
             y, m = today.year, today.month

@@ -12,14 +12,17 @@ from app.main import app
 from app.models import (
     Account,
     BankCashflowExclusionRule,
+    BankIncomeMonth,
     BankIncomeExclusionRule,
     Budget,
     BudgetOverride,
     Category,
     CategoryRule,
+    CreditCardInvoiceMonth,
     DescriptionCategoryRule,
     IgnoredDescriptionRule,
     Item,
+    MonthlyBalanceMonth,
     Transaction,
 )
 
@@ -353,9 +356,7 @@ class BackendRegressionTest(unittest.TestCase):
         # The R$ 260 PIX outflow (tx-bank-outflow) falls into "Outros"
         # — no budget — so it must surface as unbudgeted spend, not as
         # silent invisible spending like before.
-        self.assertEqual(
-            payload["summary"]["unbudgeted_actual_spent"], 260.0
-        )
+        self.assertEqual(payload["summary"]["unbudgeted_actual_spent"], 260.0)
         self.assertEqual(items_by_name["Outros"]["actual_spent"], 260.0)
 
     def test_budget_progress_includes_bank_pix_in_budgeted_category(self):
@@ -403,11 +404,7 @@ class BackendRegressionTest(unittest.TestCase):
 
     def test_bank_income_respects_real_income_exclusion_rules(self):
         with Session(self.engine) as session:
-            session.add(
-                BankIncomeExclusionRule(
-                    pluggy_category="Proceeds interests and dividends"
-                )
-            )
+            session.add(BankIncomeExclusionRule(pluggy_category="Proceeds interests and dividends"))
             session.commit()
 
         response = self.client.get("/bank-income/monthly", params={"months": 1})
@@ -420,11 +417,7 @@ class BackendRegressionTest(unittest.TestCase):
 
     def test_monthly_balance_combines_income_card_spend_and_invoice_payment(self):
         with Session(self.engine) as session:
-            session.add(
-                BankIncomeExclusionRule(
-                    pluggy_category="Proceeds interests and dividends"
-                )
-            )
+            session.add(BankIncomeExclusionRule(pluggy_category="Proceeds interests and dividends"))
             session.commit()
 
         response = self.client.get("/monthly-balance", params={"months": 1})
@@ -436,6 +429,26 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(summary["invoice_paid"], 150.0)
         self.assertEqual(summary["net_by_purchase_month"], 4850.0)
         self.assertEqual(summary["net_cashflow"], 4850.0)
+
+    def test_read_endpoints_do_not_create_snapshot_rows(self):
+        endpoints = [
+            ("/bank-income/monthly", {"months": 1}),
+            ("/monthly-balance", {"months": 1}),
+            ("/expected-income/forecast", {"year_month": self.current_month}),
+            ("/credit-card-payments/history", {}),
+            ("/bank-income/history", {}),
+            ("/monthly-balance/history", {}),
+        ]
+
+        for path, params in endpoints:
+            with self.subTest(path=path):
+                response = self.client.get(path, params=params)
+                self.assertEqual(response.status_code, 200)
+
+        with Session(self.engine) as session:
+            self.assertEqual(session.exec(select(BankIncomeMonth)).all(), [])
+            self.assertEqual(session.exec(select(CreditCardInvoiceMonth)).all(), [])
+            self.assertEqual(session.exec(select(MonthlyBalanceMonth)).all(), [])
 
     def test_bank_cashflow_includes_ignored_and_respects_cashflow_rules(self):
         response = self.client.get("/bank-cashflow/monthly", params={"months": 1})

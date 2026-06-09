@@ -13,9 +13,7 @@ def normalize_description(text: Optional[str]) -> str:
     if not text:
         return ""
     normalized = unicodedata.normalize("NFKD", text)
-    without_accents = "".join(
-        char for char in normalized if not unicodedata.combining(char)
-    )
+    without_accents = "".join(char for char in normalized if not unicodedata.combining(char))
     return " ".join(without_accents.casefold().split())
 
 
@@ -27,9 +25,7 @@ class CategoryResolver:
     """
 
     def __init__(self, session: Session) -> None:
-        self._categories_by_id = {
-            c.id: c for c in session.exec(select(Category)).all()
-        }
+        self._categories_by_id = {c.id: c for c in session.exec(select(Category)).all()}
         self._rule_to_category_id = {
             rule.pluggy_category: rule.category_id
             for rule in session.exec(select(CategoryRule)).all()
@@ -56,10 +52,7 @@ class CategoryResolver:
         normalized_description = normalize_description(description)
         if normalized_description:
             for pattern, category_id in self._description_rules:
-                if (
-                    pattern in normalized_description
-                    and category_id in self._categories_by_id
-                ):
+                if pattern in normalized_description and category_id in self._categories_by_id:
                     return self._categories_by_id[category_id]
         if pluggy_category is not None:
             category_id = self._rule_to_category_id.get(pluggy_category)
@@ -80,9 +73,7 @@ class CategoryResolver:
         return category
 
     def all_categories(self) -> List[Category]:
-        return sorted(
-            self._categories_by_id.values(), key=lambda c: (c.sort_order, c.name)
-        )
+        return sorted(self._categories_by_id.values(), key=lambda c: (c.sort_order, c.name))
 
     def all_top_level_categories(self) -> List[Category]:
         """Returns only root categories (no parent). Use for budgets and top-level charts."""

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -18,15 +17,11 @@ def bank_balance_summary(session: Session) -> dict[str, Any]:
     - Account.item_id belongs to an active Item
     - Accounts with balance=None are treated as zero (no balance data yet)
     """
-    active_item_ids = {
-        item.id for item in session.exec(select(Item)).all() if item.is_active
-    }
+    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
     accounts = [
         a
         for a in session.exec(select(Account)).all()
-        if a.type == "BANK"
-        and a.is_active
-        and a.item_id in active_item_ids
+        if a.type == "BANK" and a.is_active and a.item_id in active_item_ids
     ]
 
     total = sum(

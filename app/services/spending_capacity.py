@@ -63,26 +63,16 @@ def spending_capacity_summary(
     fixed_cost_actual_total = Decimal(str(fixed["actual_total"]))
     fixed_cost_pending_total = Decimal(str(fixed["pending_total"]))
     fixed_cost_variance_total = Decimal(str(fixed["variance_total"]))
-    fixed_cost_positive_variance_total = Decimal(
-        str(fixed["positive_variance_total"])
-    )
-    fixed_cost_negative_variance_total = Decimal(
-        str(fixed["negative_variance_total"])
-    )
+    fixed_cost_positive_variance_total = Decimal(str(fixed["positive_variance_total"]))
+    fixed_cost_negative_variance_total = Decimal(str(fixed["negative_variance_total"]))
     fixed_cost_reserved_total = Decimal(str(fixed["reserved_or_actual_total"]))
     card_invoice_gross_total = Decimal(str(invoice["invoice_gross_total"]))
-    card_invoice_discretionary_total = Decimal(
-        str(invoice["invoice_discretionary_total"])
-    )
+    card_invoice_discretionary_total = Decimal(str(invoice["invoice_discretionary_total"]))
     card_invoice_total = card_invoice_discretionary_total
     invoice_paid_gross_total = Decimal(str(invoice["invoice_paid_gross_total"]))
-    invoice_paid_discretionary_total = Decimal(
-        str(invoice["invoice_paid_discretionary_total"])
-    )
+    invoice_paid_discretionary_total = Decimal(str(invoice["invoice_paid_discretionary_total"]))
     invoice_open_gross_total = Decimal(str(invoice["invoice_open_gross_total"]))
-    invoice_open_discretionary_total = Decimal(
-        str(invoice["invoice_open_discretionary_total"])
-    )
+    invoice_open_discretionary_total = Decimal(str(invoice["invoice_open_discretionary_total"]))
     invoice_paid_total = invoice_paid_discretionary_total
     invoice_open_total = invoice_open_discretionary_total
     card_invoice_fixed_cost_total = max(
@@ -95,30 +85,16 @@ def spending_capacity_summary(
     card_open_balance_total = Decimal(str(planning_inv["account_balance_total"]))
     credit_card_due_dates = planning_inv["due_dates"]
     variable_budget_total = Decimal(str(variable_budgets["summary"]["target"]))
-    variable_budget_spent = Decimal(
-        str(variable_budgets["summary"]["projected_spent"])
-    )
-    variable_budget_actual_spent = Decimal(
-        str(variable_budgets["summary"]["actual_spent"])
-    )
-    variable_budget_future_spent = Decimal(
-        str(variable_budgets["summary"]["future_spent"])
-    )
+    variable_budget_spent = Decimal(str(variable_budgets["summary"]["projected_spent"]))
+    variable_budget_actual_spent = Decimal(str(variable_budgets["summary"]["actual_spent"]))
+    variable_budget_future_spent = Decimal(str(variable_budgets["summary"]["future_spent"]))
     unbudgeted_variable_spent = Decimal(
         str(variable_budgets["summary"]["unbudgeted_projected_spent"])
     )
-    variable_budget_consumed = Decimal(
-        str(variable_budgets["summary"]["target_consumed"])
-    )
-    variable_budget_remaining = Decimal(
-        str(variable_budgets["summary"]["target_remaining"])
-    )
-    variable_budget_overage = Decimal(
-        str(variable_budgets["summary"]["target_overage"])
-    )
-    variable_budget_free_impact = Decimal(
-        str(variable_budgets["summary"]["free_impact"])
-    )
+    variable_budget_consumed = Decimal(str(variable_budgets["summary"]["target_consumed"]))
+    variable_budget_remaining = Decimal(str(variable_budgets["summary"]["target_remaining"]))
+    variable_budget_overage = Decimal(str(variable_budgets["summary"]["target_overage"]))
+    variable_budget_free_impact = Decimal(str(variable_budgets["summary"]["free_impact"]))
     received_income_transactions = []
     if first_day <= today:
         received_income_transactions = bank_income_transactions(
@@ -212,9 +188,7 @@ def spending_capacity_summary(
         future_card_obligation_count = planning_inv.get("transaction_count", 0)
 
         if planning_inv["source"] == "scheduled_installments":
-            raw_installments = scheduled_installments_for_month(
-                session, year_month, today=today
-            )
+            raw_installments = scheduled_installments_for_month(session, year_month, today=today)
             non_fixed_items = [
                 item
                 for item in raw_installments["transactions"]
@@ -273,16 +247,10 @@ def spending_capacity_summary(
     available_to_spend = budget_available_to_spend
     discretionary_available = budget_available_to_spend
     received_based_available_to_spend = (
-        budget_available_to_spend
-        - income_to_receive
-        + income_over_expected
+        budget_available_to_spend - income_to_receive + income_over_expected
     )
-    remaining_after_invoice = (
-        planned_after_fixed_costs - card_invoice_discretionary_total
-    )
-    remaining_after_plan_and_invoice = (
-        remaining_after_plan - card_invoice_discretionary_total
-    )
+    remaining_after_invoice = planned_after_fixed_costs - card_invoice_discretionary_total
+    remaining_after_plan_and_invoice = remaining_after_plan - card_invoice_discretionary_total
 
     projected_cash_available: Optional[float] = None
 
@@ -293,9 +261,8 @@ def spending_capacity_summary(
     else:
         days_remaining_in_month = (last_day - today).days + 1
     if days_remaining_in_month > 0:
-        daily_discretionary_remaining = (
-            max(budget_available_to_spend, Decimal("0"))
-            / Decimal(days_remaining_in_month)
+        daily_discretionary_remaining = max(budget_available_to_spend, Decimal("0")) / Decimal(
+            days_remaining_in_month
         )
     else:
         daily_discretionary_remaining = Decimal("0")
@@ -330,12 +297,8 @@ def spending_capacity_summary(
         "fixed_cost_actual_total": float(fixed_cost_actual_total),
         "fixed_cost_pending_total": float(fixed_cost_pending_total),
         "fixed_cost_variance_total": float(fixed_cost_variance_total),
-        "fixed_cost_positive_variance_total": float(
-            fixed_cost_positive_variance_total
-        ),
-        "fixed_cost_negative_variance_total": float(
-            fixed_cost_negative_variance_total
-        ),
+        "fixed_cost_positive_variance_total": float(fixed_cost_positive_variance_total),
+        "fixed_cost_negative_variance_total": float(fixed_cost_negative_variance_total),
         "fixed_cost_reserved_total": float(fixed_cost_reserved_total),
         "fixed_cost_paid_count": fixed["paid_count"],
         "fixed_cost_pending_count": fixed["pending_count"],
@@ -359,9 +322,7 @@ def spending_capacity_summary(
         "planned_expense_total": float(planned_expense_total),
         "card_invoice_total": float(card_invoice_total),
         "card_invoice_gross_total": float(card_invoice_gross_total),
-        "card_invoice_discretionary_total": float(
-            card_invoice_discretionary_total
-        ),
+        "card_invoice_discretionary_total": float(card_invoice_discretionary_total),
         "card_invoice_fixed_cost_total": float(card_invoice_fixed_cost_total),
         "card_invoice_official_total": float(card_invoice_official_total),
         "card_invoice_remaining_to_include": float(card_invoice_remaining_to_include),
@@ -381,13 +342,9 @@ def spending_capacity_summary(
         "invoice_paid_total": float(invoice_paid_total),
         "invoice_open_total": float(invoice_open_total),
         "invoice_paid_gross_total": float(invoice_paid_gross_total),
-        "invoice_paid_discretionary_total": float(
-            invoice_paid_discretionary_total
-        ),
+        "invoice_paid_discretionary_total": float(invoice_paid_discretionary_total),
         "invoice_open_gross_total": float(invoice_open_gross_total),
-        "invoice_open_discretionary_total": float(
-            invoice_open_discretionary_total
-        ),
+        "invoice_open_discretionary_total": float(invoice_open_discretionary_total),
         "invoice_mode": invoice["invoice_mode"],
         "invoice_paid_count": invoice["invoice_paid_count"],
         "invoice_open_count": invoice["invoice_open_count"],
@@ -397,9 +354,7 @@ def spending_capacity_summary(
         "planned_after_fixed_costs": float(planned_after_fixed_costs),
         "remaining_after_plan": float(remaining_after_plan),
         "available_to_spend": float(available_to_spend),
-        "received_based_available_to_spend": float(
-            received_based_available_to_spend
-        ),
+        "received_based_available_to_spend": float(received_based_available_to_spend),
         "remaining_after_invoice": float(remaining_after_invoice),
         "remaining_after_plan_and_invoice": float(remaining_after_plan_and_invoice),
         "fixed_costs": fixed,
@@ -467,21 +422,13 @@ def spending_capacity_monthly_summary(
             "variable_budget_remaining": capacity["variable_budget_remaining"],
             "variable_budget_overage": capacity["variable_budget_overage"],
             "card_invoice_gross_total": capacity["card_invoice_gross_total"],
-            "card_invoice_discretionary_total": capacity[
-                "card_invoice_discretionary_total"
-            ],
-            "card_invoice_fixed_cost_total": capacity[
-                "card_invoice_fixed_cost_total"
-            ],
-            "card_invoice_remaining_to_include": capacity[
-                "card_invoice_remaining_to_include"
-            ],
+            "card_invoice_discretionary_total": capacity["card_invoice_discretionary_total"],
+            "card_invoice_fixed_cost_total": capacity["card_invoice_fixed_cost_total"],
+            "card_invoice_remaining_to_include": capacity["card_invoice_remaining_to_include"],
             "budget_available_to_spend": capacity["budget_available_to_spend"],
             "discretionary_available": capacity["discretionary_available"],
             "projected_cash_available": capacity["projected_cash_available"],
-            "daily_discretionary_remaining": capacity[
-                "daily_discretionary_remaining"
-            ],
+            "daily_discretionary_remaining": capacity["daily_discretionary_remaining"],
             "days_remaining_in_month": capacity["days_remaining_in_month"],
             "plan_status": capacity["plan_status"],
         }

@@ -23,16 +23,13 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.database import get_session
 from app.main import app
 from app.models import Account, Item, Transaction
-from app.services.snapshots import refresh_monthly_balance_snapshots
 from app.services.transaction_reports import (
     enriched_transactions,
     invoice_summary,
     monthly_stats_summary,
-    stats_summary,
     upcoming_summary,
 )
 from app.services.transactions import (
-    credit_card_spend_transactions,
     discretionary_spend_transactions,
 )
 
@@ -40,6 +37,7 @@ from app.services.transactions import (
 # ---------------------------------------------------------------------------
 # Shared test infrastructure
 # ---------------------------------------------------------------------------
+
 
 def _make_engine():
     engine = create_engine(
@@ -51,19 +49,31 @@ def _make_engine():
     return engine
 
 
-def _seed(session: Session, *, item_id="item-a", account_id="acc-a",
-          account_type="CREDIT", is_active=True) -> None:
-    session.add(Item(id=item_id, connector_id=1, connector_name="Bank",
-                     status="UPDATED", is_active=is_active))
-    session.add(Account(id=account_id, item_id=item_id, name=account_id,
-                        type=account_type, is_active=is_active))
+def _seed(
+    session: Session, *, item_id="item-a", account_id="acc-a", account_type="CREDIT", is_active=True
+) -> None:
+    session.add(
+        Item(
+            id=item_id, connector_id=1, connector_name="Bank", status="UPDATED", is_active=is_active
+        )
+    )
+    session.add(
+        Account(
+            id=account_id, item_id=item_id, name=account_id, type=account_type, is_active=is_active
+        )
+    )
 
 
-def _tx(tx_id, account_id, tx_date, amount, description="Buy",
-        category="Shopping", is_duplicate=False):
+def _tx(
+    tx_id, account_id, tx_date, amount, description="Buy", category="Shopping", is_duplicate=False
+):
     return Transaction(
-        id=tx_id, account_id=account_id, date=tx_date,
-        amount=amount, description=description, category=category,
+        id=tx_id,
+        account_id=account_id,
+        date=tx_date,
+        amount=amount,
+        description=description,
+        category=category,
         is_duplicate=is_duplicate,
     )
 
@@ -71,6 +81,7 @@ def _tx(tx_id, account_id, tx_date, amount, description="Buy",
 # ---------------------------------------------------------------------------
 # A: invoice_summary excludes marked duplicate purchases
 # ---------------------------------------------------------------------------
+
 
 class TestInvoiceSummaryExcludesMarkedDuplicate(unittest.TestCase):
     def setUp(self):
@@ -86,8 +97,7 @@ class TestInvoiceSummaryExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             s.add(_tx("tx-real", "acc-a", d, Decimal("100"), "Netflix"))
-            s.add(_tx("tx-dup",  "acc-a", d, Decimal("100"), "Netflix",
-                      is_duplicate=True))
+            s.add(_tx("tx-dup", "acc-a", d, Decimal("100"), "Netflix", is_duplicate=True))
             s.commit()
 
         with self.session() as s:
@@ -102,8 +112,7 @@ class TestInvoiceSummaryExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             s.add(_tx("tx-real", "acc-a", d, Decimal("200"), "Spotify"))
-            s.add(_tx("tx-dup",  "acc-a", d, Decimal("200"), "Spotify",
-                      is_duplicate=True))
+            s.add(_tx("tx-dup", "acc-a", d, Decimal("200"), "Spotify", is_duplicate=True))
             s.commit()
 
         with self.session() as s:
@@ -115,6 +124,7 @@ class TestInvoiceSummaryExcludesMarkedDuplicate(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # B: Duplicate payment does not shift last_payment_date
 # ---------------------------------------------------------------------------
+
 
 class TestDuplicatePaymentIgnored(unittest.TestCase):
     def setUp(self):
@@ -129,12 +139,19 @@ class TestDuplicatePaymentIgnored(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             # Duplicate payment on 2026-06-04 — should be ignored
-            s.add(_tx("pay-dup", "acc-a", date(2026, 6, 4),
-                      Decimal("-400"), "Pagamento recebido",
-                      category="Card payments", is_duplicate=True))
+            s.add(
+                _tx(
+                    "pay-dup",
+                    "acc-a",
+                    date(2026, 6, 4),
+                    Decimal("-400"),
+                    "Pagamento recebido",
+                    category="Card payments",
+                    is_duplicate=True,
+                )
+            )
             # Real purchase after that date
-            s.add(_tx("buy-real", "acc-a", date(2026, 6, 6),
-                      Decimal("80"), "Mercado"))
+            s.add(_tx("buy-real", "acc-a", date(2026, 6, 6), Decimal("80"), "Mercado"))
             s.commit()
 
         with self.session() as s:
@@ -152,6 +169,7 @@ class TestDuplicatePaymentIgnored(unittest.TestCase):
 # C: monthly_stats_summary excludes marked duplicate
 # ---------------------------------------------------------------------------
 
+
 class TestMonthlyStatsSummaryExcludesMarkedDuplicate(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
@@ -165,19 +183,24 @@ class TestMonthlyStatsSummaryExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             s.add(_tx("tx-real", "acc-a", d, Decimal("100"), "Netflix", "Entertainment"))
-            s.add(_tx("tx-dup",  "acc-a", d, Decimal("100"), "Netflix", "Entertainment",
-                      is_duplicate=True))
+            s.add(
+                _tx(
+                    "tx-dup",
+                    "acc-a",
+                    d,
+                    Decimal("100"),
+                    "Netflix",
+                    "Entertainment",
+                    is_duplicate=True,
+                )
+            )
             s.commit()
 
         with self.session() as s:
             result = monthly_stats_summary(s)
 
-        cat_totals = {c["name"]: c["total"] for c in result["categories"]}
         # Only the canonical copy should be summed.
-        entertainment_total = sum(
-            cat["by_month"].get("2026-05", 0)
-            for cat in result["categories"]
-        )
+        entertainment_total = sum(cat["by_month"].get("2026-05", 0) for cat in result["categories"])
         self.assertAlmostEqual(entertainment_total, 100.0, places=2)
 
     def test_no_duplicate_category_total_stays_full(self):
@@ -191,16 +214,14 @@ class TestMonthlyStatsSummaryExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             result = monthly_stats_summary(s)
 
-        total = sum(
-            cat["by_month"].get("2026-05", 0)
-            for cat in result["categories"]
-        )
+        total = sum(cat["by_month"].get("2026-05", 0) for cat in result["categories"])
         self.assertAlmostEqual(total, 300.0, places=2)
 
 
 # ---------------------------------------------------------------------------
 # D: upcoming_summary excludes marked duplicate future installment
 # ---------------------------------------------------------------------------
+
 
 class TestUpcomingSummaryExcludesMarkedDuplicate(unittest.TestCase):
     def setUp(self):
@@ -211,6 +232,7 @@ class TestUpcomingSummaryExcludesMarkedDuplicate(unittest.TestCase):
 
     def _future_date(self):
         from datetime import date, timedelta
+
         return date.today() + timedelta(days=10)
 
     def test_future_duplicate_excluded_from_total(self):
@@ -219,8 +241,7 @@ class TestUpcomingSummaryExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             s.add(_tx("fut-real", "acc-a", future, Decimal("150"), "Parcela"))
-            s.add(_tx("fut-dup",  "acc-a", future, Decimal("150"), "Parcela",
-                      is_duplicate=True))
+            s.add(_tx("fut-dup", "acc-a", future, Decimal("150"), "Parcela", is_duplicate=True))
             s.commit()
 
         with self.session() as s:
@@ -235,6 +256,7 @@ class TestUpcomingSummaryExcludesMarkedDuplicate(unittest.TestCase):
 # E: enriched_transactions / GET /transactions excludes marked duplicate
 # ---------------------------------------------------------------------------
 
+
 class TestEnrichedTransactionsExcludesMarkedDuplicate(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
@@ -247,8 +269,7 @@ class TestEnrichedTransactionsExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             s.add(_tx("tx-real", "acc-a", d, Decimal("70"), "Padaria"))
-            s.add(_tx("tx-dup",  "acc-a", d, Decimal("70"), "Padaria",
-                      is_duplicate=True))
+            s.add(_tx("tx-dup", "acc-a", d, Decimal("70"), "Padaria", is_duplicate=True))
             s.commit()
 
         with self.session() as s:
@@ -264,6 +285,7 @@ class TestEnrichedTransactionsExcludesMarkedDuplicate(unittest.TestCase):
 # F: discretionary_spend_transactions excludes marked duplicate
 # ---------------------------------------------------------------------------
 
+
 class TestDiscretionarySpendExcludesMarkedDuplicate(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
@@ -276,8 +298,7 @@ class TestDiscretionarySpendExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             s.add(_tx("tx-real", "acc-a", d, Decimal("90"), "Gym"))
-            s.add(_tx("tx-dup",  "acc-a", d, Decimal("90"), "Gym",
-                      is_duplicate=True))
+            s.add(_tx("tx-dup", "acc-a", d, Decimal("90"), "Gym", is_duplicate=True))
             s.commit()
 
         with self.session() as s:
@@ -293,6 +314,7 @@ class TestDiscretionarySpendExcludesMarkedDuplicate(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # G: snapshot refresh ignores marked duplicates
 # ---------------------------------------------------------------------------
+
 
 class TestSnapshotRefreshExcludesMarkedDuplicate(unittest.TestCase):
     def setUp(self):
@@ -311,12 +333,28 @@ class TestSnapshotRefreshExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             # Canonical invoice payment
-            s.add(_tx("pay-real", "acc-a", today, Decimal("-200"),
-                      "Pagamento recebido", category="Card payments"))
+            s.add(
+                _tx(
+                    "pay-real",
+                    "acc-a",
+                    today,
+                    Decimal("-200"),
+                    "Pagamento recebido",
+                    category="Card payments",
+                )
+            )
             # Duplicate payment — must not double the snapshot
-            s.add(_tx("pay-dup", "acc-a", today, Decimal("-200"),
-                      "Pagamento recebido", category="Card payments",
-                      is_duplicate=True))
+            s.add(
+                _tx(
+                    "pay-dup",
+                    "acc-a",
+                    today,
+                    Decimal("-200"),
+                    "Pagamento recebido",
+                    category="Card payments",
+                    is_duplicate=True,
+                )
+            )
             s.commit()
 
         with self.session() as s:
@@ -330,8 +368,7 @@ class TestSnapshotRefreshExcludesMarkedDuplicate(unittest.TestCase):
                 refresh_credit_card_invoice_snapshots(s)
 
             snap = s.exec(
-                select(CreditCardInvoiceMonth)
-                .where(CreditCardInvoiceMonth.year_month == "2026-05")
+                select(CreditCardInvoiceMonth).where(CreditCardInvoiceMonth.year_month == "2026-05")
             ).first()
 
         if snap is not None:
@@ -348,8 +385,7 @@ class TestSnapshotRefreshExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             s.add(_tx("buy-real", "acc-a", today, Decimal("100"), "Buy"))
-            s.add(_tx("buy-dup",  "acc-a", today, Decimal("100"), "Buy",
-                      is_duplicate=True))
+            s.add(_tx("buy-dup", "acc-a", today, Decimal("100"), "Buy", is_duplicate=True))
             s.commit()
 
         with self.session() as s:
@@ -363,8 +399,7 @@ class TestSnapshotRefreshExcludesMarkedDuplicate(unittest.TestCase):
                 refresh_monthly_balance_snapshots(s)
 
             snap = s.exec(
-                select(MonthlyBalanceMonth)
-                .where(MonthlyBalanceMonth.year_month == "2026-05")
+                select(MonthlyBalanceMonth).where(MonthlyBalanceMonth.year_month == "2026-05")
             ).first()
 
         if snap is not None:
@@ -375,6 +410,7 @@ class TestSnapshotRefreshExcludesMarkedDuplicate(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # H: HTTP endpoints exclude marked duplicates
 # ---------------------------------------------------------------------------
+
 
 class TestEndpointsExcludeMarkedDuplicates(unittest.TestCase):
     def setUp(self):
@@ -395,8 +431,7 @@ class TestEndpointsExcludeMarkedDuplicates(unittest.TestCase):
         with Session(self.engine) as s:
             _seed(s, account_type=account_type)
             s.add(_tx("tx-real", "acc-a", d, Decimal("60"), "Loja"))
-            s.add(_tx("tx-dup",  "acc-a", d, Decimal("60"), "Loja",
-                      is_duplicate=True))
+            s.add(_tx("tx-dup", "acc-a", d, Decimal("60"), "Loja", is_duplicate=True))
             s.commit()
 
     def test_get_transactions_excludes_marked_duplicate(self):
@@ -414,16 +449,14 @@ class TestEndpointsExcludeMarkedDuplicates(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         # The total across all categories in 2026-05 must be 60, not 120
-        may_total = sum(
-            cat["by_month"].get("2026-05", 0)
-            for cat in data["categories"]
-        )
+        may_total = sum(cat["by_month"].get("2026-05", 0) for cat in data["categories"])
         self.assertAlmostEqual(may_total, 60.0, places=2)
 
 
 # ---------------------------------------------------------------------------
 # I: /debug/duplicate-transactions still lists marked duplicates
 # ---------------------------------------------------------------------------
+
 
 class TestDebugEndpointStillSeesMarkedDuplicates(unittest.TestCase):
     def setUp(self):
@@ -444,8 +477,7 @@ class TestDebugEndpointStillSeesMarkedDuplicates(unittest.TestCase):
         with Session(self.engine) as s:
             _seed(s)
             s.add(_tx("tx-real", "acc-a", date(2026, 5, 1), Decimal("99"), "A"))
-            s.add(_tx("tx-dup",  "acc-a", date(2026, 5, 1), Decimal("99"), "A",
-                      is_duplicate=True))
+            s.add(_tx("tx-dup", "acc-a", date(2026, 5, 1), Decimal("99"), "A", is_duplicate=True))
             s.commit()
 
         resp = self.client.get("/debug/duplicate-transactions")
@@ -459,8 +491,9 @@ class TestDebugEndpointStillSeesMarkedDuplicates(unittest.TestCase):
         with Session(self.engine) as s:
             _seed(s)
             s.add(_tx("tx-real", "acc-a", date(2026, 5, 1), Decimal("55"), "Buy X"))
-            s.add(_tx("tx-dup",  "acc-a", date(2026, 5, 1), Decimal("55"), "Buy X",
-                      is_duplicate=True))
+            s.add(
+                _tx("tx-dup", "acc-a", date(2026, 5, 1), Decimal("55"), "Buy X", is_duplicate=True)
+            )
             s.commit()
 
         resp = self.client.get("/debug/duplicate-transactions")
@@ -469,8 +502,7 @@ class TestDebugEndpointStillSeesMarkedDuplicates(unittest.TestCase):
         found = False
         for group in data["duplicate_groups"]:
             all_ids = {
-                t["id"]
-                for t in group["active_transactions"] + group["inactive_transactions"]
+                t["id"] for t in group["active_transactions"] + group["inactive_transactions"]
             }
             if "tx-real" in all_ids and "tx-dup" in all_ids:
                 found = True
@@ -486,6 +518,7 @@ class TestDebugEndpointStillSeesMarkedDuplicates(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Extra: non_duplicate_clause handles NULL values correctly
 # ---------------------------------------------------------------------------
+
 
 class TestNonDuplicateClauseHandlesNull(unittest.TestCase):
     """The _non_duplicate_clause uses OR(is_duplicate IS FALSE, is_duplicate IS NULL)
@@ -506,11 +539,17 @@ class TestNonDuplicateClauseHandlesNull(unittest.TestCase):
         with self.session() as s:
             _seed(s)
             # Simulate a pre-migration row: is_duplicate explicitly False (server default).
-            s.add(Transaction(
-                id="tx-old", account_id="acc-a", date=d,
-                amount=Decimal("100"), description="OldTx",
-                currency_code="BRL", is_duplicate=False,
-            ))
+            s.add(
+                Transaction(
+                    id="tx-old",
+                    account_id="acc-a",
+                    date=d,
+                    amount=Decimal("100"),
+                    description="OldTx",
+                    currency_code="BRL",
+                    is_duplicate=False,
+                )
+            )
             s.commit()
 
         with self.session() as s:
@@ -524,11 +563,17 @@ class TestNonDuplicateClauseHandlesNull(unittest.TestCase):
         d = date(2026, 5, 10)
         with self.session() as s:
             _seed(s)
-            s.add(Transaction(
-                id="tx-dup2", account_id="acc-a", date=d,
-                amount=Decimal("100"), description="Dup",
-                currency_code="BRL", is_duplicate=True,
-            ))
+            s.add(
+                Transaction(
+                    id="tx-dup2",
+                    account_id="acc-a",
+                    date=d,
+                    amount=Decimal("100"),
+                    description="Dup",
+                    currency_code="BRL",
+                    is_duplicate=True,
+                )
+            )
             s.commit()
 
         with self.session() as s:

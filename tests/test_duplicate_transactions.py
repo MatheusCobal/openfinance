@@ -21,7 +21,7 @@ from app.database import get_session
 from app.main import app
 from app.models import Account, Item, Transaction
 from app.services.sync import compute_dedupe_key
-from app.services.transaction_reports import invoice_summary, monthly_stats_summary, stats_summary
+from app.services.transaction_reports import invoice_summary, monthly_stats_summary
 from app.services.transactions import account_ids_by_type, credit_card_spend_transactions
 
 
@@ -38,6 +38,7 @@ def _make_engine():
 # ---------------------------------------------------------------------------
 # Helper factories
 # ---------------------------------------------------------------------------
+
 
 def _seed_item(session: Session, item_id: str, is_active: bool = True) -> Item:
     item = Item(
@@ -98,8 +99,8 @@ def _seed_tx(
 # Tests: compute_dedupe_key
 # ---------------------------------------------------------------------------
 
-class TestComputeDedupeKey(unittest.TestCase):
 
+class TestComputeDedupeKey(unittest.TestCase):
     def test_same_inputs_produce_same_key(self):
         k1 = compute_dedupe_key("CREDIT", "Netflix", date(2026, 5, 1), Decimal("49.90"), None, None)
         k2 = compute_dedupe_key("CREDIT", "Netflix", date(2026, 5, 1), Decimal("49.90"), None, None)
@@ -123,7 +124,9 @@ class TestComputeDedupeKey(unittest.TestCase):
     def test_amount_sign_ignored(self):
         """Both positive and negative amounts with the same |value| map to the same key."""
         k1 = compute_dedupe_key("CREDIT", "Netflix", date(2026, 5, 1), Decimal("49.90"), None, None)
-        k2 = compute_dedupe_key("CREDIT", "Netflix", date(2026, 5, 1), Decimal("-49.90"), None, None)
+        k2 = compute_dedupe_key(
+            "CREDIT", "Netflix", date(2026, 5, 1), Decimal("-49.90"), None, None
+        )
         self.assertEqual(k1, k2)
 
     def test_installment_fields_affect_key(self):
@@ -142,8 +145,12 @@ class TestComputeDedupeKey(unittest.TestCase):
 
     def test_description_normalised_before_hashing(self):
         """Descriptions that differ only by case/accents should map to the same key."""
-        k1 = compute_dedupe_key("CREDIT", "NETFLIX BR", date(2026, 5, 1), Decimal("49.90"), None, None)
-        k2 = compute_dedupe_key("CREDIT", "netflix br", date(2026, 5, 1), Decimal("49.90"), None, None)
+        k1 = compute_dedupe_key(
+            "CREDIT", "NETFLIX BR", date(2026, 5, 1), Decimal("49.90"), None, None
+        )
+        k2 = compute_dedupe_key(
+            "CREDIT", "netflix br", date(2026, 5, 1), Decimal("49.90"), None, None
+        )
         self.assertEqual(k1, k2)
 
 
@@ -151,8 +158,8 @@ class TestComputeDedupeKey(unittest.TestCase):
 # Tests: account_ids_by_type active filtering
 # ---------------------------------------------------------------------------
 
-class TestAccountIdsByTypeFiltering(unittest.TestCase):
 
+class TestAccountIdsByTypeFiltering(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
 
@@ -175,7 +182,9 @@ class TestAccountIdsByTypeFiltering(unittest.TestCase):
     def test_active_only_excludes_accounts_from_inactive_items(self):
         with self._session() as session:
             _seed_item(session, "item-old", is_active=False)
-            _seed_account(session, "acc-old", "item-old", is_active=True)  # account says active but item is not
+            _seed_account(
+                session, "acc-old", "item-old", is_active=True
+            )  # account says active but item is not
             _seed_item(session, "item-new", is_active=True)
             _seed_account(session, "acc-new", "item-new", is_active=True)
             session.commit()
@@ -201,6 +210,7 @@ class TestAccountIdsByTypeFiltering(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: invoice_summary active account filtering
 # ---------------------------------------------------------------------------
+
 
 class TestInvoiceSummaryActiveFiltering(unittest.TestCase):
     """invoice_summary must exclude transactions from inactive accounts."""
@@ -243,8 +253,22 @@ class TestInvoiceSummaryActiveFiltering(unittest.TestCase):
             _seed_account(session, "acc-new", "item-new", is_active=True)
 
             for i in range(3):
-                _seed_tx(session, f"tx-old-{i}", "acc-old", date(2026, 5, 10 + i), Decimal("100"), f"Compra {i}")
-                _seed_tx(session, f"tx-new-{i}", "acc-new", date(2026, 5, 10 + i), Decimal("100"), f"Compra {i}")
+                _seed_tx(
+                    session,
+                    f"tx-old-{i}",
+                    "acc-old",
+                    date(2026, 5, 10 + i),
+                    Decimal("100"),
+                    f"Compra {i}",
+                )
+                _seed_tx(
+                    session,
+                    f"tx-new-{i}",
+                    "acc-new",
+                    date(2026, 5, 10 + i),
+                    Decimal("100"),
+                    f"Compra {i}",
+                )
             session.commit()
 
         with self._session() as session:
@@ -263,8 +287,15 @@ class TestInvoiceSummaryActiveFiltering(unittest.TestCase):
             _seed_account(session, "acc-new", "item-new", is_active=True)
 
             # Payment on old inactive account — should be ignored
-            _seed_tx(session, "pay-old", "acc-old", date(2026, 6, 5),
-                     Decimal("-500"), "Pagamento recebido", category="Card payments")
+            _seed_tx(
+                session,
+                "pay-old",
+                "acc-old",
+                date(2026, 6, 5),
+                Decimal("-500"),
+                "Pagamento recebido",
+                category="Card payments",
+            )
             # Purchase on new active account (should appear in open_total)
             _seed_tx(session, "buy-new", "acc-new", date(2026, 6, 6), Decimal("150"), "Mercado")
             session.commit()
@@ -284,8 +315,15 @@ class TestInvoiceSummaryActiveFiltering(unittest.TestCase):
             _seed_item(session, "item-new", is_active=True)
             _seed_account(session, "acc-new", "item-new", is_active=True)
 
-            _seed_tx(session, "pay-new", "acc-new", date(2026, 6, 4),
-                     Decimal("-400"), "Pagamento recebido", category="Card payments")
+            _seed_tx(
+                session,
+                "pay-new",
+                "acc-new",
+                date(2026, 6, 4),
+                Decimal("-400"),
+                "Pagamento recebido",
+                category="Card payments",
+            )
             _seed_tx(session, "buy-new", "acc-new", date(2026, 6, 6), Decimal("80"), "Padaria")
             session.commit()
 
@@ -299,6 +337,7 @@ class TestInvoiceSummaryActiveFiltering(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Tests: credit_card_spend_transactions active filtering
 # ---------------------------------------------------------------------------
+
 
 class TestCreditCardSpendActiveFiltering(unittest.TestCase):
     """credit_card_spend_transactions must only return transactions from active accounts."""
@@ -333,8 +372,8 @@ class TestCreditCardSpendActiveFiltering(unittest.TestCase):
 # Tests: GET /debug/duplicate-transactions endpoint
 # ---------------------------------------------------------------------------
 
-class TestDebugDuplicateTransactionsEndpoint(unittest.TestCase):
 
+class TestDebugDuplicateTransactionsEndpoint(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
 
@@ -469,8 +508,8 @@ class TestDebugDuplicateTransactionsEndpoint(unittest.TestCase):
 # Tests: monthly_stats_summary excludes inactive accounts
 # ---------------------------------------------------------------------------
 
-class TestMonthlyStatsSummaryActiveFiltering(unittest.TestCase):
 
+class TestMonthlyStatsSummaryActiveFiltering(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
 
@@ -478,7 +517,6 @@ class TestMonthlyStatsSummaryActiveFiltering(unittest.TestCase):
         return Session(self.engine)
 
     def test_inactive_account_transactions_not_counted(self):
-        today = date(2026, 6, 8)
         with self._session() as session:
             _seed_item(session, "item-old", is_active=False)
             _seed_account(session, "acc-old", "item-old", is_active=False)
@@ -493,10 +531,7 @@ class TestMonthlyStatsSummaryActiveFiltering(unittest.TestCase):
             result = monthly_stats_summary(session)
 
         # Only new-tx (100) should be in the summary, not old-tx (500)
-        all_totals = sum(
-            cat["by_month"].get("2026-05", 0)
-            for cat in result["categories"]
-        )
+        all_totals = sum(cat["by_month"].get("2026-05", 0) for cat in result["categories"])
         self.assertAlmostEqual(all_totals, 100.0, places=2)
 
 

@@ -35,6 +35,7 @@ _INVOICE_PAYMENT_DATE_TOLERANCE_DAYS = 5
 # Deduplication helpers
 # ---------------------------------------------------------------------------
 
+
 def _non_duplicate_clause():
     """SQLAlchemy WHERE clause that excludes marked-duplicate transactions.
 
@@ -64,6 +65,7 @@ def filter_non_duplicate_transactions(
 # Misc helpers
 # ---------------------------------------------------------------------------
 
+
 def month_key(value: date) -> str:
     return value.strftime("%Y-%m")
 
@@ -77,10 +79,7 @@ def shift_month(value: date, months: int) -> date:
 
 def last_month_keys(count: int, today: date) -> list[str]:
     current_month = date(today.year, today.month, 1)
-    return [
-        month_key(shift_month(current_month, offset))
-        for offset in range(-(count - 1), 1)
-    ]
+    return [month_key(shift_month(current_month, offset)) for offset in range(-(count - 1), 1)]
 
 
 def ignored_description_patterns(session: Session) -> list[str]:
@@ -115,15 +114,11 @@ def account_ids_by_type(
     accounts = session.exec(select(Account)).all()
     if not active_only:
         return [a.id for a in accounts if a.type in account_types]
-    active_item_ids = {
-        item.id for item in session.exec(select(Item)).all() if item.is_active
-    }
+    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
     return [
         a.id
         for a in accounts
-        if a.type in account_types
-        and a.is_active
-        and a.item_id in active_item_ids
+        if a.type in account_types and a.is_active and a.item_id in active_item_ids
     ]
 
 
@@ -159,10 +154,8 @@ def _has_matching_credit_invoice_payment(
     credit_payments: list[Transaction],
 ) -> bool:
     return any(
-        abs(abs(bank_tx.amount) - abs(credit_tx.amount))
-        <= _INVOICE_PAYMENT_AMOUNT_TOLERANCE
-        and abs((bank_tx.date - credit_tx.date).days)
-        <= _INVOICE_PAYMENT_DATE_TOLERANCE_DAYS
+        abs(abs(bank_tx.amount) - abs(credit_tx.amount)) <= _INVOICE_PAYMENT_AMOUNT_TOLERANCE
+        and abs((bank_tx.date - credit_tx.date).days) <= _INVOICE_PAYMENT_DATE_TOLERANCE_DAYS
         for credit_tx in credit_payments
     )
 
@@ -183,9 +176,7 @@ def credit_card_payment_transactions(
         )
         .order_by(Transaction.date.asc())
     ).all()
-    classifier_payments = [
-        tx for tx in transactions if classifier.is_invoice_payment(tx)
-    ]
+    classifier_payments = [tx for tx in transactions if classifier.is_invoice_payment(tx)]
     credit_payments = [
         tx
         for tx in classifier_payments
@@ -249,17 +240,11 @@ def count_bank_cashflow_exclusion_matches(
     session: Session,
 ) -> int:
     transactions = filter_transactions_by_account_type(
-        session.exec(
-            select(Transaction).where(_non_duplicate_clause())
-        ).all(),
+        session.exec(select(Transaction).where(_non_duplicate_clause())).all(),
         session,
         BANK_ACCOUNT_TYPES,
     )
-    return sum(
-        1
-        for tx in transactions
-        if is_excluded_bank_cashflow_transaction(tx, [rule])
-    )
+    return sum(1 for tx in transactions if is_excluded_bank_cashflow_transaction(tx, [rule]))
 
 
 def is_excluded_bank_income_transaction(
@@ -357,10 +342,7 @@ def _investment_transactions(
         )
         .order_by(Transaction.date.asc())
     ).all()
-    return [
-        tx for tx in rows
-        if classifier.classify(tx).kind == TransactionKind.INVESTMENT_NOISE
-    ]
+    return [tx for tx in rows if classifier.classify(tx).kind == TransactionKind.INVESTMENT_NOISE]
 
 
 def investment_application_transactions(
@@ -493,9 +475,7 @@ def discretionary_spend_transactions(
     from app.services.classification import TransactionKind
 
     classifier = TransactionClassifier.from_session(session)
-    tracked_account_ids = set(
-        account_ids_by_type(session, TRACKED_ACCOUNT_TYPES)
-    )
+    tracked_account_ids = set(account_ids_by_type(session, TRACKED_ACCOUNT_TYPES))
     if not tracked_account_ids:
         return []
     rows = session.exec(
@@ -520,10 +500,7 @@ def discretionary_spend_transactions(
         # BANK side: only outflows count as spending, and only when they
         # survive the cashflow filters (so we drop internal transfers and
         # investment movements).
-        if (
-            kind == TransactionKind.BANK_OUTFLOW
-            and not classification.cashflow_excluded
-        ):
+        if kind == TransactionKind.BANK_OUTFLOW and not classification.cashflow_excluded:
             out.append(tx)
     return out
 
@@ -542,8 +519,4 @@ def count_bank_income_exclusion_matches(
             _non_duplicate_clause(),
         )
     ).all()
-    return sum(
-        1
-        for tx in transactions
-        if is_excluded_bank_income_transaction(tx, [rule])
-    )
+    return sum(1 for tx in transactions if is_excluded_bank_income_transaction(tx, [rule]))

@@ -10,7 +10,6 @@ from app.database import get_session
 from app.main import app
 from app.models import (
     Account,
-    BankIncomeMonth,
     ExpectedIncome,
     Item,
     Transaction,
@@ -71,9 +70,7 @@ class ExpectedIncomeTest(unittest.TestCase):
 
         active_only = self.client.get("/expected-income").json()
         self.assertEqual(active_only, [])
-        all_entries = self.client.get(
-            "/expected-income", params={"include_inactive": True}
-        ).json()
+        all_entries = self.client.get("/expected-income", params={"include_inactive": True}).json()
         self.assertEqual(len(all_entries), 1)
 
         self.assertEqual(
@@ -110,12 +107,8 @@ class ExpectedIncomeTest(unittest.TestCase):
         with Session(self.engine) as session:
             session.add_all(
                 [
-                    ExpectedIncome(
-                        description="Salário", amount=Decimal("10000"), expected_day=5
-                    ),
-                    ExpectedIncome(
-                        description="Freela", amount=Decimal("2000"), expected_day=20
-                    ),
+                    ExpectedIncome(description="Salário", amount=Decimal("10000"), expected_day=5),
+                    ExpectedIncome(description="Freela", amount=Decimal("2000"), expected_day=20),
                     # Inactive entries shouldn't count.
                     ExpectedIncome(
                         description="Antigo",
@@ -187,12 +180,8 @@ class ExpectedIncomeTest(unittest.TestCase):
         self.assertEqual(upserted["amount"], 11500.0)
 
         # June reflects the override; July still uses base.
-        june = self.client.get(
-            "/expected-income/by-month", params={"year_month": "2026-06"}
-        ).json()
-        july = self.client.get(
-            "/expected-income/by-month", params={"year_month": "2026-07"}
-        ).json()
+        june = self.client.get("/expected-income/by-month", params={"year_month": "2026-06"}).json()
+        july = self.client.get("/expected-income/by-month", params={"year_month": "2026-07"}).json()
         self.assertEqual(june["entries"][0]["amount"], 11500.0)
         self.assertTrue(june["entries"][0]["is_override"])
         self.assertEqual(july["entries"][0]["amount"], 10000.0)
@@ -220,17 +209,15 @@ class ExpectedIncomeTest(unittest.TestCase):
             )
             session.commit()
         # Override only Aug 2026.
-        self.client.put(
-            "/expected-income/1/overrides/2026-08", json={"amount": 12000}
-        )
+        self.client.put("/expected-income/1/overrides/2026-08", json={"amount": 12000})
 
         upcoming = self.client.get(
             "/expected-income/upcoming",
             params={"start_year_month": "2026-06", "months": 4},
         ).json()
-        self.assertEqual([m["year_month"] for m in upcoming], [
-            "2026-06", "2026-07", "2026-08", "2026-09"
-        ])
+        self.assertEqual(
+            [m["year_month"] for m in upcoming], ["2026-06", "2026-07", "2026-08", "2026-09"]
+        )
         totals = {m["year_month"]: m["total"] for m in upcoming}
         self.assertEqual(totals["2026-06"], 10000.0)
         self.assertEqual(totals["2026-07"], 10000.0)
@@ -240,9 +227,7 @@ class ExpectedIncomeTest(unittest.TestCase):
     def test_remaining_clamped_to_zero_when_received_exceeds_expected(self):
         with Session(self.engine) as session:
             session.add(
-                ExpectedIncome(
-                    description="Salário", amount=Decimal("5000"), expected_day=5
-                )
+                ExpectedIncome(description="Salário", amount=Decimal("5000"), expected_day=5)
             )
             session.add(
                 Transaction(

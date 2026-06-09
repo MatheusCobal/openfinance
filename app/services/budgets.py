@@ -9,8 +9,6 @@ from app.categorization import CategoryResolver
 from app.models import (
     Budget,
     BudgetOverride,
-    FixedCost,
-    FixedCostTransactionMatch,
 )
 from app.services.transactions import discretionary_spend_transactions
 
@@ -60,9 +58,7 @@ def budget_progress_summary(
         )
     fixed_cost_transaction_ids = set(fixed_cost_accounted_transaction_ids)
     if fixed_cost_transaction_ids:
-        transactions = [
-            tx for tx in transactions if tx.id not in fixed_cost_transaction_ids
-        ]
+        transactions = [tx for tx in transactions if tx.id not in fixed_cost_transaction_ids]
 
     actual_spent_by_category: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     future_spent_by_category: Dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
@@ -98,12 +94,8 @@ def budget_progress_summary(
     unbudgeted_future_spent = Decimal("0")
     unbudgeted_count = 0
     for cat in resolver.all_top_level_categories():
-        default_target = (
-            budgets[cat.id].monthly_target if cat.id in budgets else None
-        )
-        month_target = (
-            overrides[cat.id].monthly_target if cat.id in overrides else None
-        )
+        default_target = budgets[cat.id].monthly_target if cat.id in budgets else None
+        month_target = overrides[cat.id].monthly_target if cat.id in overrides else None
         target = month_target if month_target is not None else default_target
         target_scope = (
             "month"
@@ -204,9 +196,7 @@ def budget_progress_summary(
             "free_impact": float(total_free_impact),
             "unbudgeted_actual_spent": float(unbudgeted_actual_spent),
             "unbudgeted_future_spent": float(unbudgeted_future_spent),
-            "unbudgeted_projected_spent": float(
-                unbudgeted_actual_spent + unbudgeted_future_spent
-            ),
+            "unbudgeted_projected_spent": float(unbudgeted_actual_spent + unbudgeted_future_spent),
             "unbudgeted_count": unbudgeted_count,
             "fixed_cost_matched_transaction_count": len(fixed_cost_transaction_ids),
             "actual_progress_pct": (
@@ -215,13 +205,10 @@ def budget_progress_summary(
                 else None
             ),
             "progress_pct": (
-                (float(total_actual_spent + total_future_spent) / float(total_target))
-                * 100
+                (float(total_actual_spent + total_future_spent) / float(total_target)) * 100
                 if total_target > 0
                 else None
             ),
         },
         "items": items,
     }
-
-

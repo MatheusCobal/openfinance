@@ -37,14 +37,16 @@ def compute_dedupe_key(
     transaction ID after an item re-authentication.  The key does NOT include
     the account_id so duplicates across old/new accounts are still recognised.
     """
-    raw = "|".join([
-        account_type.upper(),
-        normalize_description(description),
-        tx_date.isoformat(),
-        f"{abs(amount):.2f}",
-        str(installment_number or 0),
-        str(total_installments or 0),
-    ])
+    raw = "|".join(
+        [
+            account_type.upper(),
+            normalize_description(description),
+            tx_date.isoformat(),
+            f"{abs(amount):.2f}",
+            str(installment_number or 0),
+            str(total_installments or 0),
+        ]
+    )
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -187,11 +189,7 @@ def upsert_transaction(
 
 
 def tracked_accounts(raw_accounts: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
-    return [
-        account
-        for account in raw_accounts
-        if account["type"] in TRACKED_ACCOUNT_TYPES
-    ]
+    return [account for account in raw_accounts if account["type"] in TRACKED_ACCOUNT_TYPES]
 
 
 def get_or_create_sync_state(account_id: str, session: Session) -> AccountSync:
@@ -230,9 +228,7 @@ def sync_account_transactions(
             result.new_transactions += 1
         if is_updated:
             result.updated_transactions += 1
-        if tx_date <= date.today() and (
-            max_past_tx_date is None or tx_date > max_past_tx_date
-        ):
+        if tx_date <= date.today() and (max_past_tx_date is None or tx_date > max_past_tx_date):
             max_past_tx_date = tx_date
 
     sync_state.last_transaction_date = max_past_tx_date
@@ -300,9 +296,7 @@ def _record_account_failure(
     error: str,
 ) -> None:
     # Runs after rollback, so the AccountSync row may not exist yet.
-    sync_state = session.get(AccountSync, account_id) or AccountSync(
-        account_id=account_id
-    )
+    sync_state = session.get(AccountSync, account_id) or AccountSync(account_id=account_id)
     sync_state.last_error = error
     sync_state.last_error_at = datetime.utcnow()
     session.add(sync_state)
@@ -352,9 +346,7 @@ def reconcile_active_items(session: Session) -> Dict[str, Any]:
             item.deactivated_at = now
             session.add(item)
             deactivated_items += 1
-            accounts = session.exec(
-                select(Account).where(Account.item_id == item.id)
-            ).all()
+            accounts = session.exec(select(Account).where(Account.item_id == item.id)).all()
             for account in accounts:
                 if account.is_active:
                     account.is_active = False
@@ -396,9 +388,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
             failed_accounts.append({"account_id": account_id, "error": error})
             continue
 
-        synced_accounts_by_type[account_type] = (
-            synced_accounts_by_type.get(account_type, 0) + 1
-        )
+        synced_accounts_by_type[account_type] = synced_accounts_by_type.get(account_type, 0) + 1
         fetched_transactions += account_result.fetched_transactions
         new_transactions += account_result.new_transactions
         updated_transactions += account_result.updated_transactions
@@ -435,9 +425,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
                 # Best-effort: a per-bill failure must not roll back bill rows.
                 for bill_id in bill_outcome.extras.get("bill_ids", []):
                     try:
-                        for raw_tx in pluggy.list_transactions(
-                            account_id, bill_id=bill_id
-                        ):
+                        for raw_tx in pluggy.list_transactions(account_id, bill_id=bill_id):
                             bill_transactions_fetched += 1
                             is_new, is_updated, _ = upsert_transaction(
                                 raw_tx, account_id, session, account_type=account_type
@@ -473,9 +461,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         snapshot_notes.append({"scope": "investments", "error": _truncate_error(exc)})
     else:
         investments_upserted = inv_outcome.upserted
-        investment_transactions_upserted = inv_outcome.extras.get(
-            "transactions_upserted", 0
-        )
+        investment_transactions_upserted = inv_outcome.extras.get("transactions_upserted", 0)
         if inv_outcome.skipped_reason or inv_outcome.error:
             snapshot_notes.append(
                 {

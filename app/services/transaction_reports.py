@@ -14,7 +14,6 @@ from app.services.transactions import (
     _non_duplicate_clause,
     account_ids_by_type,
     filter_ignored_transactions,
-    filter_non_duplicate_transactions,
     filter_transactions_by_account_type,
     ignored_description_patterns,
     is_ignored_transaction,
@@ -98,9 +97,7 @@ def enriched_transactions(
     ignored_patterns = ignored_description_patterns(session)
     if not include_ignored and ignored_patterns:
         transactions = [
-            tx
-            for tx in transactions
-            if not is_ignored_transaction(tx, ignored_patterns)
+            tx for tx in transactions if not is_ignored_transaction(tx, ignored_patterns)
         ]
 
     rows = []
@@ -143,9 +140,7 @@ def upcoming_summary(
         include_ignored,
     )
 
-    by_month_cat: Dict[str, Dict[int, list[Transaction]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
+    by_month_cat: Dict[str, Dict[int, list[Transaction]]] = defaultdict(lambda: defaultdict(list))
     category_info_by_id: Dict[int, Category] = {}
     for tx in future_txs:
         # Exclude credits / refunds / cancellations (amount <= 0) so they
@@ -208,9 +203,7 @@ def monthly_stats_summary(
 ) -> Dict[str, Any]:
     resolver = CategoryResolver(session)
     today = date.today()
-    transactions = session.exec(
-        select(Transaction).where(_non_duplicate_clause())
-    ).all()
+    transactions = session.exec(select(Transaction).where(_non_duplicate_clause())).all()
     past_transactions = [tx for tx in transactions if tx.date <= today]
     past_transactions = filter_transactions_by_account_type(
         past_transactions,
@@ -223,9 +216,7 @@ def monthly_stats_summary(
         include_ignored,
     )
 
-    matrix: Dict[int, Dict[str, Decimal]] = defaultdict(
-        lambda: defaultdict(lambda: Decimal("0"))
-    )
+    matrix: Dict[int, Dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: Decimal("0")))
     counts: Dict[int, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     category_info_by_id: Dict[int, Category] = {}
     months_set: set[str] = set()
@@ -250,13 +241,8 @@ def monthly_stats_summary(
                 "color": cat.color,
                 "sort_order": cat.sort_order,
                 "total": float(category_total),
-                "by_month": {
-                    month: float(by_month.get(month, Decimal("0")))
-                    for month in months
-                },
-                "counts_by_month": {
-                    month: counts[cat_id].get(month, 0) for month in months
-                },
+                "by_month": {month: float(by_month.get(month, Decimal("0"))) for month in months},
+                "counts_by_month": {month: counts[cat_id].get(month, 0) for month in months},
             }
         )
 
@@ -293,9 +279,7 @@ def invoice_summary(
     # Restrict to active credit accounts from the start so that deactivated
     # accounts (e.g. after Pluggy re-authentication) never inflate totals or
     # shift last_payment_date via stale duplicate transactions.
-    credit_account_ids = set(
-        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
-    )
+    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES))
     all_up_to = session.exec(
         select(Transaction).where(
             Transaction.date <= effective_to,
@@ -304,7 +288,8 @@ def invoice_summary(
     ).all()
 
     payments = [
-        tx for tx in all_up_to
+        tx
+        for tx in all_up_to
         if tx.account_id in credit_account_ids and classifier.is_invoice_payment(tx)
     ]
 
@@ -341,9 +326,7 @@ def invoice_summary(
         open_txs = [
             tx
             for tx in all_up_to
-            if tx.account_id in credit_account_ids
-            and tx.date > lower
-            and tx.id not in skip
+            if tx.account_id in credit_account_ids and tx.date > lower and tx.id not in skip
         ]
         open_total = sum((abs(tx.amount) for tx in open_txs), Decimal("0"))
         open_count = len(open_txs)
@@ -487,8 +470,7 @@ def stats_summary(
         reverse=True,
     )
     months = [
-        {"month": month, "total": float(total)}
-        for month, total in sorted(totals_by_month.items())
+        {"month": month, "total": float(total)} for month, total in sorted(totals_by_month.items())
     ]
 
     invoice = invoice_summary(session, from_date=from_date, to_date=to_date)
@@ -515,10 +497,6 @@ def stats_summary(
         "invoice_discretionary_count": invoice["invoice_discretionary_count"],
         "invoice_paid_gross_total": invoice["invoice_paid_gross_total"],
         "invoice_open_gross_total": invoice["invoice_open_gross_total"],
-        "invoice_paid_discretionary_total": invoice[
-            "invoice_paid_discretionary_total"
-        ],
-        "invoice_open_discretionary_total": invoice[
-            "invoice_open_discretionary_total"
-        ],
+        "invoice_paid_discretionary_total": invoice["invoice_paid_discretionary_total"],
+        "invoice_open_discretionary_total": invoice["invoice_open_discretionary_total"],
     }

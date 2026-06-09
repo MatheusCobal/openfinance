@@ -7,15 +7,14 @@ planning/cashflow/snapshot calculations.
 import unittest
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
-from app.models import Account, CreditCardBill, Investment, Item, Transaction
+from app.models import Account, CreditCardBill, Item, Transaction
 from app.services import sync as sync_service
 from app.services.credit_card_invoice import planning_invoice_for_month
 from app.services.pluggy_snapshot import account_snapshot_summary
@@ -36,8 +35,9 @@ def _make_engine():
 
 
 def _seed_item(session: Session, item_id: str, is_active: bool = True) -> Item:
-    item = Item(id=item_id, connector_id=1, connector_name="Test", status="UPDATED",
-                is_active=is_active)
+    item = Item(
+        id=item_id, connector_id=1, connector_name="Test", status="UPDATED", is_active=is_active
+    )
     session.add(item)
     session.commit()
     return item
@@ -112,22 +112,26 @@ class BankOutflowExcludesInactiveTest(unittest.TestCase):
             _seed_account(session, "bank-itau", "item-itau", "BANK", is_active=True)
             _seed_account(session, "bank-caixa", "item-caixa", "BANK", is_active=False)
 
-            session.add(Transaction(
-                id="tx-itau-out",
-                account_id="bank-itau",
-                date=today,
-                amount=Decimal("-100"),
-                description="Pix enviado Itau",
-                category="Transfers",
-            ))
-            session.add(Transaction(
-                id="tx-caixa-out",
-                account_id="bank-caixa",
-                date=today,
-                amount=Decimal("-3000"),
-                description="Pix enviado Caixa",
-                category="Transfers",
-            ))
+            session.add(
+                Transaction(
+                    id="tx-itau-out",
+                    account_id="bank-itau",
+                    date=today,
+                    amount=Decimal("-100"),
+                    description="Pix enviado Itau",
+                    category="Transfers",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-caixa-out",
+                    account_id="bank-caixa",
+                    date=today,
+                    amount=Decimal("-3000"),
+                    description="Pix enviado Caixa",
+                    category="Transfers",
+                )
+            )
             session.commit()
 
             txs = bank_outflow_transactions(session, today, today)
@@ -149,10 +153,17 @@ class AccountSnapshotExcludesInactiveTest(unittest.TestCase):
         with Session(self.engine) as session:
             _seed_item(session, "item-active", is_active=True)
             _seed_item(session, "item-inactive", is_active=False)
-            _seed_account(session, "bank-ok", "item-active", "BANK",
-                          is_active=True, balance=Decimal("1000"))
-            _seed_account(session, "bank-dead", "item-inactive", "BANK",
-                          is_active=False, balance=Decimal("5000"))
+            _seed_account(
+                session, "bank-ok", "item-active", "BANK", is_active=True, balance=Decimal("1000")
+            )
+            _seed_account(
+                session,
+                "bank-dead",
+                "item-inactive",
+                "BANK",
+                is_active=False,
+                balance=Decimal("5000"),
+            )
 
             summary = account_snapshot_summary(session)
 
@@ -173,10 +184,22 @@ class CreditObligationExcludesInactiveTest(unittest.TestCase):
         with Session(self.engine) as session:
             _seed_item(session, "item-active", is_active=True)
             _seed_item(session, "item-inactive", is_active=False)
-            _seed_account(session, "cc-active", "item-active", "CREDIT",
-                          is_active=True, balance=Decimal("1000"))
-            _seed_account(session, "cc-inactive", "item-inactive", "CREDIT",
-                          is_active=False, balance=Decimal("5000"))
+            _seed_account(
+                session,
+                "cc-active",
+                "item-active",
+                "CREDIT",
+                is_active=True,
+                balance=Decimal("1000"),
+            )
+            _seed_account(
+                session,
+                "cc-inactive",
+                "item-inactive",
+                "CREDIT",
+                is_active=False,
+                balance=Decimal("5000"),
+            )
 
             result = planning_invoice_for_month(session, "2026-05", today=today)
 
@@ -190,23 +213,39 @@ class CreditObligationExcludesInactiveTest(unittest.TestCase):
         with Session(self.engine) as session:
             _seed_item(session, "item-active", is_active=True)
             _seed_item(session, "item-inactive", is_active=False)
-            _seed_account(session, "cc-active", "item-active", "CREDIT",
-                          is_active=True, balance=Decimal("1000"))
-            _seed_account(session, "cc-inactive", "item-inactive", "CREDIT",
-                          is_active=False, balance=Decimal("5000"))
+            _seed_account(
+                session,
+                "cc-active",
+                "item-active",
+                "CREDIT",
+                is_active=True,
+                balance=Decimal("1000"),
+            )
+            _seed_account(
+                session,
+                "cc-inactive",
+                "item-inactive",
+                "CREDIT",
+                is_active=False,
+                balance=Decimal("5000"),
+            )
 
-            session.add(CreditCardBill(
-                id="bill-active",
-                account_id="cc-active",
-                due_date=date(2026, 5, 15),
-                total_amount=Decimal("1000"),
-            ))
-            session.add(CreditCardBill(
-                id="bill-inactive",
-                account_id="cc-inactive",
-                due_date=date(2026, 5, 20),
-                total_amount=Decimal("5000"),
-            ))
+            session.add(
+                CreditCardBill(
+                    id="bill-active",
+                    account_id="cc-active",
+                    due_date=date(2026, 5, 15),
+                    total_amount=Decimal("1000"),
+                )
+            )
+            session.add(
+                CreditCardBill(
+                    id="bill-inactive",
+                    account_id="cc-inactive",
+                    due_date=date(2026, 5, 20),
+                    total_amount=Decimal("5000"),
+                )
+            )
             session.commit()
 
             result = planning_invoice_for_month(session, "2026-05", today=today)
@@ -255,7 +294,11 @@ class SyncDeactivatesMissingAccountsTest(unittest.TestCase):
             # Now simulate Pluggy returning only acc-a
             class FakePluggyOneAccount:
                 def get_item(self, item_id):
-                    return {"id": item_id, "connector": {"id": 1, "name": "Fake"}, "status": "UPDATED"}
+                    return {
+                        "id": item_id,
+                        "connector": {"id": 1, "name": "Fake"},
+                        "status": "UPDATED",
+                    }
 
                 def list_accounts(self, item_id):
                     return [{"id": "acc-a", "name": "Account A", "type": "BANK"}]
@@ -407,42 +450,48 @@ class BankCashflowMonthlyExcludesInactiveTest(unittest.TestCase):
         with Session(self.engine) as session:
             _seed_item(session, "item-itau", is_active=True)
             _seed_item(session, "item-caixa", is_active=False)
-            _seed_account(session, "bank-itau", "item-itau", "BANK",
-                          is_active=True)
-            _seed_account(session, "bank-caixa", "item-caixa", "BANK",
-                          is_active=False)
-            session.add(Transaction(
-                id="tx-itau-in",
-                account_id="bank-itau",
-                date=today,
-                amount=Decimal("1000"),
-                description="Salario Itau",
-                category="Salary",
-            ))
-            session.add(Transaction(
-                id="tx-itau-out",
-                account_id="bank-itau",
-                date=today,
-                amount=Decimal("-100"),
-                description="Pix enviado",
-                category="Transfers",
-            ))
-            session.add(Transaction(
-                id="tx-caixa-in",
-                account_id="bank-caixa",
-                date=today,
-                amount=Decimal("3000"),
-                description="Salario Caixa",
-                category="Salary",
-            ))
-            session.add(Transaction(
-                id="tx-caixa-out",
-                account_id="bank-caixa",
-                date=today,
-                amount=Decimal("-500"),
-                description="Pix Caixa",
-                category="Transfers",
-            ))
+            _seed_account(session, "bank-itau", "item-itau", "BANK", is_active=True)
+            _seed_account(session, "bank-caixa", "item-caixa", "BANK", is_active=False)
+            session.add(
+                Transaction(
+                    id="tx-itau-in",
+                    account_id="bank-itau",
+                    date=today,
+                    amount=Decimal("1000"),
+                    description="Salario Itau",
+                    category="Salary",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-itau-out",
+                    account_id="bank-itau",
+                    date=today,
+                    amount=Decimal("-100"),
+                    description="Pix enviado",
+                    category="Transfers",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-caixa-in",
+                    account_id="bank-caixa",
+                    date=today,
+                    amount=Decimal("3000"),
+                    description="Salario Caixa",
+                    category="Salary",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-caixa-out",
+                    account_id="bank-caixa",
+                    date=today,
+                    amount=Decimal("-500"),
+                    description="Pix Caixa",
+                    category="Transfers",
+                )
+            )
             session.commit()
 
         resp = self.client.get("/bank-cashflow/monthly", params={"months": 1})

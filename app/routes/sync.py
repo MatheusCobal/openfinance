@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.database import get_session
 from app.models import Account, AccountSync, Item, Transaction
-from app.pluggy_client import pluggy
+from app.pluggy_client import PluggyCredentialError, pluggy
 from app.services.sync import (
     SyncAlreadyRunning,
     compute_dedupe_key,
@@ -35,9 +35,7 @@ class ConnectTokenRequest(BaseModel):
 def connect_token(body: Optional[ConnectTokenRequest] = None):
     body = body or ConnectTokenRequest()
     # Log enough to diagnose credential/environment problems without leaking secrets.
-    _masked_id = (
-        (settings.pluggy_client_id[:4] + "…") if settings.pluggy_client_id else "<not set>"
-    )
+    _masked_id = (settings.pluggy_client_id[:4] + "…") if settings.pluggy_client_id else "<not set>"
     logger.info(
         "connect-token request base_url=%s client_id=%s item_id=%s",
         settings.pluggy_base_url,
@@ -45,9 +43,7 @@ def connect_token(body: Optional[ConnectTokenRequest] = None):
         body.itemId,
     )
     try:
-        token = pluggy.create_connect_token(
-            client_user_id=body.clientUserId, item_id=body.itemId
-        )
+        token = pluggy.create_connect_token(client_user_id=body.clientUserId, item_id=body.itemId)
     except httpx.HTTPStatusError as exc:
         logger.error(
             "connect-token Pluggy error status=%s body=%.500s",
@@ -60,9 +56,13 @@ def connect_token(body: Optional[ConnectTokenRequest] = None):
                 "Pluggy rejeitou as credenciais. Verifique PLUGGY_CLIENT_ID e "
                 "PLUGGY_CLIENT_SECRET no arquivo .env.",
             )
+        raise HTTPException(502, f"Pluggy retornou {exc.response.status_code}: {exc.response.text}")
+    except PluggyCredentialError as exc:
         raise HTTPException(
-            502, f"Pluggy retornou {exc.response.status_code}: {exc.response.text}"
-        )
+            500,
+            "Configure PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no arquivo .env "
+            "antes de conectar ao Pluggy.",
+        ) from exc
     except Exception as exc:
         logger.exception("connect-token unexpected error: %s", exc)
         raise HTTPException(500, f"Erro interno ao gerar token de conexão: {exc}") from exc
@@ -86,7 +86,6 @@ def sync_item(item_id: str, session: Session = Depends(get_session)):
         raise HTTPException(409, "sync already running for this item")
 
 
-
 @router.get("/items")
 def list_items(session: Session = Depends(get_session)):
     return session.exec(select(Item)).all()
@@ -97,9 +96,7 @@ def sync_health(session: Session = Depends(get_session)):
     items = session.exec(select(Item)).all()
     health = []
     for item in items:
-        is_running = (
-            item.sync_started_at is not None and item.sync_finished_at is None
-        )
+        is_running = item.sync_started_at is not None and item.sync_finished_at is None
         failed = session.exec(
             select(Account.id, AccountSync.last_error, AccountSync.last_error_at)
             .join(AccountSync, AccountSync.account_id == Account.id)
@@ -181,12 +178,8 @@ def debug_duplicate_transactions(session: Session = Depends(get_session)):
       - inactive_accounts: list of deactivated accounts still holding transactions
     """
     # --- load accounts and items ---
-    all_accounts: dict[str, Account] = {
-        a.id: a for a in session.exec(select(Account)).all()
-    }
-    active_item_ids = {
-        item.id for item in session.exec(select(Item)).all() if item.is_active
-    }
+    all_accounts: dict[str, Account] = {a.id: a for a in session.exec(select(Account)).all()}
+    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
 
     def _is_account_active(account: Account) -> bool:
         return bool(account.is_active and account.item_id in active_item_ids)
@@ -221,34 +214,36 @@ def debug_duplicate_transactions(session: Session = Depends(get_session)):
         inactive_txs = [tx for tx in txs if not _is_account_active(all_accounts.get(tx.account_id))]
         total_duplicate_txs += len(inactive_txs)
         confirmed_duplicate_amount += sum(abs(float(tx.amount)) for tx in inactive_txs)
-        duplicate_groups.append({
-            "dedupe_key": key,
-            "total_in_group": len(txs),
-            "active_count": len(active_txs),
-            "inactive_count": len(inactive_txs),
-            "active_transactions": [
-                {
-                    "id": tx.id,
-                    "date": tx.date.isoformat(),
-                    "amount": float(tx.amount),
-                    "description": tx.description,
-                    "account_id": tx.account_id,
-                    "is_duplicate": tx.is_duplicate,
-                }
-                for tx in active_txs
-            ],
-            "inactive_transactions": [
-                {
-                    "id": tx.id,
-                    "date": tx.date.isoformat(),
-                    "amount": float(tx.amount),
-                    "description": tx.description,
-                    "account_id": tx.account_id,
-                    "is_duplicate": tx.is_duplicate,
-                }
-                for tx in inactive_txs
-            ],
-        })
+        duplicate_groups.append(
+            {
+                "dedupe_key": key,
+                "total_in_group": len(txs),
+                "active_count": len(active_txs),
+                "inactive_count": len(inactive_txs),
+                "active_transactions": [
+                    {
+                        "id": tx.id,
+                        "date": tx.date.isoformat(),
+                        "amount": float(tx.amount),
+                        "description": tx.description,
+                        "account_id": tx.account_id,
+                        "is_duplicate": tx.is_duplicate,
+                    }
+                    for tx in active_txs
+                ],
+                "inactive_transactions": [
+                    {
+                        "id": tx.id,
+                        "date": tx.date.isoformat(),
+                        "amount": float(tx.amount),
+                        "description": tx.description,
+                        "account_id": tx.account_id,
+                        "is_duplicate": tx.is_duplicate,
+                    }
+                    for tx in inactive_txs
+                ],
+            }
+        )
 
     # Sort by inactive_count desc so worst offenders appear first
     duplicate_groups.sort(key=lambda g: g["inactive_count"], reverse=True)

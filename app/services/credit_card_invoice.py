@@ -31,12 +31,13 @@ Source priority:
     2. transaction_fallback
     3. none
 """
+
 from __future__ import annotations
 
 import calendar
 import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from sqlalchemy import or_
 from sqlmodel import Session, select
@@ -51,6 +52,7 @@ PAYMENT_MATCH_TOLERANCE = Decimal("1.00")
 # ---------------------------------------------------------------------------
 # Helpers shared with pluggy_snapshot (billing-cycle calculation)
 # ---------------------------------------------------------------------------
+
 
 def _billing_cycle_for_close_date(
     close_date: datetime.date,
@@ -117,13 +119,15 @@ def _next_calendar_month(today: datetime.date) -> str:
 
 def _active_item_ids(session: Session) -> set:
     from app.models import Item
+
     return {item.id for item in session.exec(select(Item)).all() if item.is_active}
 
 
 def _active_credit_accounts(session: Session) -> list[Account]:
     active_ids = _active_item_ids(session)
     return [
-        a for a in session.exec(select(Account)).all()
+        a
+        for a in session.exec(select(Account)).all()
         if a.type == "CREDIT" and a.is_active and a.item_id in active_ids
     ]
 
@@ -345,14 +349,10 @@ def _payment_status_for_non_official_invoice(
     invoice_amount = Decimal(str(result.get("amount") or 0))
     source = result.get("source") or "none"
     due_dates = [
-        datetime.date.fromisoformat(value)
-        for value in result.get("due_dates", [])
-        if value
+        datetime.date.fromisoformat(value) for value in result.get("due_dates", []) if value
     ]
     account_ids = {
-        card.get("account_id")
-        for card in result.get("cards", [])
-        if card.get("account_id")
+        card.get("account_id") for card in result.get("cards", []) if card.get("account_id")
     }
 
     if due_dates and invoice_amount > 0:
@@ -417,6 +417,7 @@ def _none_result(
 # ---------------------------------------------------------------------------
 # Scheduled installments (public — used by upcoming_months in fixed_costs.py)
 # ---------------------------------------------------------------------------
+
 
 def scheduled_installments_for_month(
     session: Session,
@@ -494,6 +495,7 @@ def scheduled_installments_for_month(
 # ---------------------------------------------------------------------------
 # Per-mode invoice logic
 # ---------------------------------------------------------------------------
+
 
 def _current_month_invoice(
     session: Session,
@@ -604,7 +606,8 @@ def _current_month_invoice(
 
     if accounts_with_balance:
         stale_accounts = [
-            a for a in accounts_with_balance
+            a
+            for a in accounts_with_balance
             if a.credit_balance_due_date is not None
             and a.credit_balance_due_date.strftime("%Y-%m") != year_month
         ]
@@ -613,11 +616,13 @@ def _current_month_invoice(
 
         if valid_accounts:
             open_total = _account_balance_total(valid_accounts)
-            due_dates = sorted({
-                a.credit_balance_due_date.isoformat()
-                for a in valid_accounts
-                if a.credit_balance_due_date
-            })
+            due_dates = sorted(
+                {
+                    a.credit_balance_due_date.isoformat()
+                    for a in valid_accounts
+                    if a.credit_balance_due_date
+                }
+            )
             return {
                 "year_month": year_month,
                 "planning_mode": "current_month",
@@ -629,7 +634,9 @@ def _current_month_invoice(
                 "cards": [
                     {
                         "account_id": a.id,
-                        "due_date": a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None,
+                        "due_date": a.credit_balance_due_date.isoformat()
+                        if a.credit_balance_due_date
+                        else None,
                         "total_amount": float(a.balance or 0),
                         "minimum_payment_amount": float(a.credit_minimum_payment or 0),
                     }
@@ -644,11 +651,13 @@ def _current_month_invoice(
             }
         else:
             # All accounts have stale due dates — retain visibility but skip as invoice amount.
-            stale_dates = sorted({
-                a.credit_balance_due_date.isoformat()
-                for a in stale_accounts
-                if a.credit_balance_due_date
-            })
+            stale_dates = sorted(
+                {
+                    a.credit_balance_due_date.isoformat()
+                    for a in stale_accounts
+                    if a.credit_balance_due_date
+                }
+            )
             _stale_ab_fields = {
                 "account_balance_due_date": stale_dates[0] if stale_dates else None,
                 "account_balance_due_date_is_stale": True,
@@ -803,7 +812,8 @@ def _future_month_invoice(
     # ---- Tier 1: official CreditCardBill ----
     bills = session.exec(select(CreditCardBill)).all()
     matched_bills = [
-        b for b in bills
+        b
+        for b in bills
         if b.due_date is not None
         and b.due_date.strftime("%Y-%m") == year_month
         and b.total_amount is not None
@@ -814,45 +824,48 @@ def _future_month_invoice(
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
         payment_status = _payment_status_for_official_bills(session, matched_bills)
-        return _with_payment_status({
-            "year_month": year_month,
-            "planning_mode": "future_month",
-            "amount": float(official_total),
-            "source": "official_bill",
-            "source_label": "Fatura oficial (Pluggy)",
-            "is_estimated": False,
-            "due_dates": due_dates,
-            "cards": [
-                {
-                    "account_id": b.account_id,
-                    "due_date": b.due_date.isoformat() if b.due_date else None,
-                    "total_amount": float(b.total_amount or 0),
-                    "minimum_payment_amount": float(b.minimum_payment_amount or 0),
-                    **_card_payment_status(b),
-                }
-                for b in matched_bills
-            ],
-            "transaction_count": 0,
-            "bill_count": len(matched_bills),
-            "account_count": len(credit_accounts),
-            "cycle_start": None,
-            "cycle_end": None,
-            "account_balance_total": float(bal_total),
-        }, payment_status)
+        return _with_payment_status(
+            {
+                "year_month": year_month,
+                "planning_mode": "future_month",
+                "amount": float(official_total),
+                "source": "official_bill",
+                "source_label": "Fatura oficial (Pluggy)",
+                "is_estimated": False,
+                "due_dates": due_dates,
+                "cards": [
+                    {
+                        "account_id": b.account_id,
+                        "due_date": b.due_date.isoformat() if b.due_date else None,
+                        "total_amount": float(b.total_amount or 0),
+                        "minimum_payment_amount": float(b.minimum_payment_amount or 0),
+                        **_card_payment_status(b),
+                    }
+                    for b in matched_bills
+                ],
+                "transaction_count": 0,
+                "bill_count": len(matched_bills),
+                "account_count": len(credit_accounts),
+                "cycle_start": None,
+                "cycle_end": None,
+                "account_balance_total": float(bal_total),
+            },
+            payment_status,
+        )
 
     # ---- Tier 2: Account.balance with due_date in this month ----
     credit_with_due_in_month = [
-        a for a in credit_accounts
+        a
+        for a in credit_accounts
         if a.balance is not None
         and a.credit_balance_due_date is not None
         and a.credit_balance_due_date.strftime("%Y-%m") == year_month
     ]
     if credit_with_due_in_month:
         open_total = _account_balance_total(credit_with_due_in_month)
-        due_dates = sorted({
-            a.credit_balance_due_date.isoformat()
-            for a in credit_with_due_in_month
-        })
+        due_dates = sorted(
+            {a.credit_balance_due_date.isoformat() for a in credit_with_due_in_month}
+        )
         return {
             "year_month": year_month,
             "planning_mode": "future_month",
@@ -949,7 +962,8 @@ def _past_month_invoice(
     # ---- Tier 1: official CreditCardBill ----
     bills = session.exec(select(CreditCardBill)).all()
     matched_bills = [
-        b for b in bills
+        b
+        for b in bills
         if b.due_date is not None
         and b.due_date.strftime("%Y-%m") == year_month
         and b.total_amount is not None
@@ -960,31 +974,34 @@ def _past_month_invoice(
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
         payment_status = _payment_status_for_official_bills(session, matched_bills)
-        return _with_payment_status({
-            "year_month": year_month,
-            "planning_mode": "past_month",
-            "amount": float(official_total),
-            "source": "official_bill",
-            "source_label": "Fatura oficial (Pluggy)",
-            "is_estimated": False,
-            "due_dates": due_dates,
-            "cards": [
-                {
-                    "account_id": b.account_id,
-                    "due_date": b.due_date.isoformat() if b.due_date else None,
-                    "total_amount": float(b.total_amount or 0),
-                    "minimum_payment_amount": float(b.minimum_payment_amount or 0),
-                    **_card_payment_status(b),
-                }
-                for b in matched_bills
-            ],
-            "transaction_count": 0,
-            "bill_count": len(matched_bills),
-            "account_count": len(credit_accounts),
-            "cycle_start": None,
-            "cycle_end": None,
-            "account_balance_total": float(bal_total),
-        }, payment_status)
+        return _with_payment_status(
+            {
+                "year_month": year_month,
+                "planning_mode": "past_month",
+                "amount": float(official_total),
+                "source": "official_bill",
+                "source_label": "Fatura oficial (Pluggy)",
+                "is_estimated": False,
+                "due_dates": due_dates,
+                "cards": [
+                    {
+                        "account_id": b.account_id,
+                        "due_date": b.due_date.isoformat() if b.due_date else None,
+                        "total_amount": float(b.total_amount or 0),
+                        "minimum_payment_amount": float(b.minimum_payment_amount or 0),
+                        **_card_payment_status(b),
+                    }
+                    for b in matched_bills
+                ],
+                "transaction_count": 0,
+                "bill_count": len(matched_bills),
+                "account_count": len(credit_accounts),
+                "cycle_start": None,
+                "cycle_end": None,
+                "account_balance_total": float(bal_total),
+            },
+            payment_status,
+        )
 
     # ---- Tier 2: transaction fallback ----
     inv = invoice_summary(session, from_date=first_day, to_date=last_day)
@@ -1013,6 +1030,7 @@ def _past_month_invoice(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def planning_invoice_for_month(
     session: Session,

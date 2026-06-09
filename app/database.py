@@ -30,13 +30,9 @@ def _add_column_if_missing(
     column_sql: str,
 ) -> None:
     with engine.begin() as connection:
-        columns = {
-            column["name"] for column in inspect(connection).get_columns(table_name)
-        }
+        columns = {column["name"] for column in inspect(connection).get_columns(table_name)}
         if column_name not in columns:
-            connection.execute(
-                text(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
-            )
+            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}"))
 
 
 def _prepare_legacy_database_for_alembic(cfg: Config) -> None:

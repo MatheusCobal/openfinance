@@ -90,9 +90,7 @@ def planning_month_summary(
         "credit_card_invoice": planning_invoice,
         "capacity": {
             "available_to_spend": capacity["available_to_spend"],
-            "daily_discretionary_remaining": capacity[
-                "daily_discretionary_remaining"
-            ],
+            "daily_discretionary_remaining": capacity["daily_discretionary_remaining"],
             "days_remaining_in_month": capacity["days_remaining_in_month"],
             "plan_status": capacity["plan_status"],
         },

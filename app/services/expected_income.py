@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlmodel import Session, select
 
-from app.models import BankIncomeMonth, ExpectedIncome, ExpectedIncomeOverride
-from app.services.snapshots import refresh_bank_income_snapshots
+from app.models import ExpectedIncome, ExpectedIncomeOverride
+from app.services.transactions import bank_income_transactions
 
 
 class ExpectedIncomeValidationError(ValueError):
@@ -31,12 +31,8 @@ def _serialize(entry: ExpectedIncome) -> Dict[str, Any]:
     }
 
 
-def list_expected_income(
-    session: Session, include_inactive: bool = False
-) -> List[Dict[str, Any]]:
-    query = select(ExpectedIncome).order_by(
-        ExpectedIncome.expected_day, ExpectedIncome.description
-    )
+def list_expected_income(session: Session, include_inactive: bool = False) -> List[Dict[str, Any]]:
+    query = select(ExpectedIncome).order_by(ExpectedIncome.expected_day, ExpectedIncome.description)
     if not include_inactive:
         query = query.where(ExpectedIncome.active.is_(True))
     return [_serialize(entry) for entry in session.exec(query).all()]
@@ -113,9 +109,7 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
     overrides = {
         ov.expected_income_id: ov
         for ov in session.exec(
-            select(ExpectedIncomeOverride).where(
-                ExpectedIncomeOverride.year_month == year_month
-            )
+            select(ExpectedIncomeOverride).where(ExpectedIncomeOverride.year_month == year_month)
         ).all()
     }
 
@@ -143,9 +137,7 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
     }
 
 
-def upcoming_months(
-    session: Session, start_year_month: str, months: int
-) -> List[Dict[str, Any]]:
+def upcoming_months(session: Session, start_year_month: str, months: int) -> List[Dict[str, Any]]:
     if not (1 <= months <= 24):
         raise ExpectedIncomeValidationError("months must be between 1 and 24")
     return [
@@ -215,9 +207,7 @@ def _parse_year_month(year_month: str) -> tuple[int, int]:
         if not (1 <= month <= 12):
             raise ValueError
     except (ValueError, AttributeError):
-        raise ExpectedIncomeValidationError(
-            "year_month must be in YYYY-MM format"
-        )
+        raise ExpectedIncomeValidationError("year_month must be in YYYY-MM format")
     return year, month
 
 
@@ -227,12 +217,20 @@ def expected_income_forecast(
     year, month = _parse_year_month(year_month)
     today = today or date.today()
 
-    # Refresh just the snapshot for the target month so the figure is fresh
-    # without paying for a full backfill.
-    refresh_bank_income_snapshots(session, months=1)
-    snapshot = session.get(BankIncomeMonth, year_month)
-    received_total = snapshot.total if snapshot is not None else Decimal("0")
-    received_count = snapshot.income_count if snapshot is not None else 0
+    first_day = date(year, month, 1)
+    if today < first_day:
+        received_transactions = []
+    else:
+        import calendar
+
+        last_day = date(year, month, calendar.monthrange(year, month)[1])
+        received_transactions = bank_income_transactions(
+            session,
+            first_day,
+            min(last_day, today),
+        )
+    received_total = sum((tx.amount for tx in received_transactions), Decimal("0"))
+    received_count = len(received_transactions)
 
     entries = session.exec(
         select(ExpectedIncome)
@@ -246,7 +244,7 @@ def expected_income_forecast(
 
     # Mark per-entry whether its expected day has already passed in the
     # current month — useful UX hint without trying to match per-entry.
-    is_current_month = (today.year == year and today.month == month)
+    is_current_month = today.year == year and today.month == month
     items = []
     for entry in entries:
         items.append(

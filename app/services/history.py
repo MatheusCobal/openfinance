@@ -1,4 +1,3 @@
-import calendar
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -14,11 +13,7 @@ from app.models import (
     Transaction,
 )
 from app.services.classification import TransactionClassifier
-from app.services.snapshots import (
-    refresh_bank_income_snapshots,
-    refresh_credit_card_invoice_snapshots,
-    refresh_monthly_balance_snapshots,
-)
+from app.services.invoice_month import invoice_month_from_payment
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
     _non_duplicate_clause,
@@ -26,6 +21,7 @@ from app.services.transactions import (
     bank_cashflow_exclusion_rules,
     bank_income_transactions,
     credit_card_payment_transactions,
+    credit_card_spend_transactions,
     ignored_description_patterns,
     is_ignored_transaction,
     last_month_keys,
@@ -34,31 +30,6 @@ from app.services.transactions import (
 
 
 _DEFAULT_DUE_DAY = 6  # fallback when account has no credit_balance_due_date
-
-
-def invoice_month_from_payment(payment_date: date, due_day: int) -> str:
-    """Return the YYYY-MM of the invoice that a payment belongs to.
-
-    The invoice month is the month containing the nearest due date that
-    falls ON OR AFTER the payment date.
-
-    Example — payment 2026-04-29, due_day=4:
-      candidate this month = 2026-04-04  (already past)
-      → next month          = 2026-05   ✓
-
-    Example — payment 2026-05-03, due_day=4:
-      candidate this month = 2026-05-04  (still in the future)
-      → same month          = 2026-05   ✓
-    """
-    max_day = calendar.monthrange(payment_date.year, payment_date.month)[1]
-    candidate_day = min(due_day, max_day)
-    candidate = payment_date.replace(day=candidate_day)
-    if candidate >= payment_date:
-        return candidate.strftime("%Y-%m")
-    # Due date this month is already past — invoice belongs to next month.
-    if payment_date.month == 12:
-        return f"{payment_date.year + 1}-01"
-    return f"{payment_date.year}-{payment_date.month + 1:02d}"
 
 
 def ignored_transactions_monthly_summary(session: Session):
@@ -183,12 +154,8 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
 
 
 def credit_card_payments_history_summary(session: Session):
-    refresh_credit_card_invoice_snapshots(session)
-
     snapshots = session.exec(
-        select(CreditCardInvoiceMonth).order_by(
-            CreditCardInvoiceMonth.year_month.asc()
-        )
+        select(CreditCardInvoiceMonth).order_by(CreditCardInvoiceMonth.year_month.asc())
     ).all()
     total = sum((snapshot.total for snapshot in snapshots), Decimal("0"))
     total_count = sum(snapshot.payment_count for snapshot in snapshots)
@@ -210,8 +177,6 @@ def credit_card_payments_history_summary(session: Session):
 
 
 def bank_income_monthly_summary(session: Session, months: int):
-    refresh_bank_income_snapshots(session, months)
-
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
@@ -223,12 +188,6 @@ def bank_income_monthly_summary(session: Session, months: int):
         if account.id in active_bank_ids
     }
     income_transactions = bank_income_transactions(session, start_date, today)
-    snapshots = {
-        snapshot.year_month: snapshot
-        for snapshot in session.exec(select(BankIncomeMonth)).all()
-        if snapshot.year_month in month_keys
-    }
-
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
     for tx in income_transactions:
         month = month_key(tx.date)
@@ -238,10 +197,9 @@ def bank_income_monthly_summary(session: Session, months: int):
     total = Decimal("0")
     output_months = []
     for month in month_keys:
-        snapshot = snapshots.get(month)
         txs = by_month[month]
-        income = snapshot.total if snapshot is not None else Decimal("0")
-        income_count = snapshot.income_count if snapshot is not None else 0
+        income = sum((tx.amount for tx in txs), Decimal("0"))
+        income_count = len(txs)
         total += income
         output_months.append(
             {
@@ -272,8 +230,6 @@ def bank_income_monthly_summary(session: Session, months: int):
 
 
 def bank_income_history_summary(session: Session):
-    refresh_bank_income_snapshots(session)
-
     snapshots = session.exec(
         select(BankIncomeMonth).order_by(BankIncomeMonth.year_month.asc())
     ).all()
@@ -321,8 +277,7 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
     bank_transactions = [
         tx
         for tx in transactions
-        if tx.account_id in bank_accounts
-        and classifier.is_bank_cashflow(tx)
+        if tx.account_id in bank_accounts and classifier.is_bank_cashflow(tx)
     ]
 
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
@@ -380,15 +335,37 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
 
 
 def monthly_balance_summary(session: Session, months: int):
-    refresh_monthly_balance_snapshots(session, months)
-
     today = date.today()
     month_keys = last_month_keys(months, today)
-    snapshots = {
-        snapshot.year_month: snapshot
-        for snapshot in session.exec(select(MonthlyBalanceMonth)).all()
-        if snapshot.year_month in month_keys
-    }
+    first_year, first_month = month_keys[0].split("-")
+    start_date = date(int(first_year), int(first_month), 1)
+    income_transactions = bank_income_transactions(session, start_date, today)
+    card_transactions = credit_card_spend_transactions(session, start_date, today)
+    payment_transactions = credit_card_payment_transactions(
+        session,
+        start_date,
+        today,
+    )
+
+    account_due_days: Dict[str, int] = {}
+    for acct in session.exec(select(Account)).all():
+        if acct.type == "CREDIT" and acct.credit_balance_due_date:
+            account_due_days[acct.id] = acct.credit_balance_due_date.day
+
+    income_by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
+    card_by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
+    payments_by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
+    for tx in income_transactions:
+        if (month := month_key(tx.date)) in income_by_month:
+            income_by_month[month].append(tx)
+    for tx in card_transactions:
+        if (month := month_key(tx.date)) in card_by_month:
+            card_by_month[month].append(tx)
+    for tx in payment_transactions:
+        due_day = account_due_days.get(tx.account_id, _DEFAULT_DUE_DAY)
+        invoice_month = invoice_month_from_payment(tx.date, due_day)
+        if invoice_month in payments_by_month:
+            payments_by_month[invoice_month].append(tx)
 
     output_months = []
     totals = {
@@ -399,12 +376,12 @@ def monthly_balance_summary(session: Session, months: int):
         "net_cashflow": Decimal("0"),
     }
     for month in month_keys:
-        snapshot = snapshots.get(month)
-        income = snapshot.income if snapshot is not None else Decimal("0")
-        card_spend = snapshot.card_spend if snapshot is not None else Decimal("0")
-        invoice_paid = (
-            snapshot.invoice_paid if snapshot is not None else Decimal("0")
-        )
+        income_txs = income_by_month[month]
+        card_txs = card_by_month[month]
+        payment_txs = payments_by_month[month]
+        income = sum((tx.amount for tx in income_txs), Decimal("0"))
+        card_spend = sum((abs(tx.amount) for tx in card_txs), Decimal("0"))
+        invoice_paid = sum((abs(tx.amount) for tx in payment_txs), Decimal("0"))
         net_by_purchase_month = income - card_spend
         net_cashflow = income - invoice_paid
         totals["income"] += income
@@ -420,11 +397,9 @@ def monthly_balance_summary(session: Session, months: int):
                 "invoice_paid": float(invoice_paid),
                 "net_by_purchase_month": float(net_by_purchase_month),
                 "net_cashflow": float(net_cashflow),
-                "income_count": snapshot.income_count if snapshot else 0,
-                "card_spend_count": snapshot.card_spend_count if snapshot else 0,
-                "invoice_payment_count": (
-                    snapshot.invoice_payment_count if snapshot else 0
-                ),
+                "income_count": len(income_txs),
+                "card_spend_count": len(card_txs),
+                "invoice_payment_count": len(payment_txs),
             }
         )
 
@@ -435,26 +410,18 @@ def monthly_balance_summary(session: Session, months: int):
 
 
 def monthly_balance_history_summary(session: Session):
-    refresh_monthly_balance_snapshots(session)
-
     snapshots = session.exec(
         select(MonthlyBalanceMonth).order_by(MonthlyBalanceMonth.year_month.asc())
     ).all()
     totals = {
         "income": sum((snapshot.income for snapshot in snapshots), Decimal("0")),
-        "card_spend": sum(
-            (snapshot.card_spend for snapshot in snapshots), Decimal("0")
-        ),
-        "invoice_paid": sum(
-            (snapshot.invoice_paid for snapshot in snapshots), Decimal("0")
-        ),
+        "card_spend": sum((snapshot.card_spend for snapshot in snapshots), Decimal("0")),
+        "invoice_paid": sum((snapshot.invoice_paid for snapshot in snapshots), Decimal("0")),
         "net_by_purchase_month": sum(
             (snapshot.net_by_purchase_month for snapshot in snapshots),
             Decimal("0"),
         ),
-        "net_cashflow": sum(
-            (snapshot.net_cashflow for snapshot in snapshots), Decimal("0")
-        ),
+        "net_cashflow": sum((snapshot.net_cashflow for snapshot in snapshots), Decimal("0")),
     }
     return {
         "month_count": len(snapshots),

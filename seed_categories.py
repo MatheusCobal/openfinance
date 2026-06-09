@@ -5,6 +5,7 @@ change the mapping; rerun to apply. Note: this script does NOT delete
 categories or rules that are removed from CATEGORIES — do that manually with
 SQL if you want a clean state.
 """
+
 from sqlmodel import Session, select
 
 from app.categorization import normalize_description
@@ -325,9 +326,8 @@ def main() -> None:
     total_categories = sum(1 for c in CATEGORIES)
     total_rules = sum(len(c[3]) for c in CATEGORIES)
     total_ignored_rules = len(IGNORED_DESCRIPTION_PATTERNS)
-    total_income_exclusion_rules = (
-        len(BANK_INCOME_EXCLUDED_CATEGORIES)
-        + len(BANK_INCOME_EXCLUDED_DESCRIPTION_PATTERNS)
+    total_income_exclusion_rules = len(BANK_INCOME_EXCLUDED_CATEGORIES) + len(
+        BANK_INCOME_EXCLUDED_DESCRIPTION_PATTERNS
     )
     print(
         "Seeded "

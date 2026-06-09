@@ -6,6 +6,7 @@ for many institutions. Each helper either succeeds or returns a structured
 "skipped"/"failed" entry so the sync caller can log it without aborting
 the whole sync.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -92,9 +93,7 @@ def account_snapshot_values(raw_account: Dict[str, Any]) -> Dict[str, Any]:
         "bank_automatically_invested_balance": _to_decimal(
             bank_data.get("automaticallyInvestedBalance")
         ),
-        "bank_overdraft_contracted_limit": _to_decimal(
-            bank_data.get("overdraftContractedLimit")
-        ),
+        "bank_overdraft_contracted_limit": _to_decimal(bank_data.get("overdraftContractedLimit")),
         "bank_overdraft_used_limit": _to_decimal(bank_data.get("overdraftUsedLimit")),
         # creditData.*
         "credit_level": credit_data.get("level"),
@@ -143,9 +142,7 @@ def sync_credit_card_bills(
     except httpx.HTTPStatusError as exc:
         # 404/501 from the connector → not an error, just unavailable.
         if exc.response.status_code in (404, 405, 501):
-            outcome.skipped_reason = (
-                f"bills unavailable (HTTP {exc.response.status_code})"
-            )
+            outcome.skipped_reason = f"bills unavailable (HTTP {exc.response.status_code})"
             return outcome
         outcome.error = f"{type(exc).__name__}: {exc}"
         return outcome
@@ -217,9 +214,7 @@ def _investment_values(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _investment_transaction_values(
-    raw: Dict[str, Any], investment_id: str
-) -> Dict[str, Any]:
+def _investment_transaction_values(raw: Dict[str, Any], investment_id: str) -> Dict[str, Any]:
     return {
         "investment_id": investment_id,
         "date": _to_date(raw.get("date")),
@@ -241,9 +236,7 @@ def sync_investments(session: Session, item_id: str) -> SnapshotOutcome:
         investments = pluggy.list_investments(item_id)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in (404, 405, 501):
-            outcome.skipped_reason = (
-                f"investments unavailable (HTTP {exc.response.status_code})"
-            )
+            outcome.skipped_reason = f"investments unavailable (HTTP {exc.response.status_code})"
             return outcome
         outcome.error = f"{type(exc).__name__}: {exc}"
         return outcome
@@ -326,9 +319,7 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
     active_ids = _active_item_ids(session)
     all_accounts = list(session.exec(select(Account)).all())
     accounts = [a for a in all_accounts if a.is_active and a.item_id in active_ids]
-    investments = [
-        i for i in session.exec(select(Investment)).all() if i.item_id in active_ids
-    ]
+    investments = [i for i in session.exec(select(Investment)).all() if i.item_id in active_ids]
 
     bank_accounts = [a for a in accounts if a.type == "BANK"]
     credit_accounts = [a for a in accounts if a.type == "CREDIT"]
@@ -388,9 +379,7 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
                     "brand": a.credit_brand,
                     "level": a.credit_level,
                     "used": float(a.balance) if a.balance is not None else None,
-                    "limit": (
-                        float(a.credit_limit) if a.credit_limit is not None else None
-                    ),
+                    "limit": (float(a.credit_limit) if a.credit_limit is not None else None),
                     "available": (
                         float(a.credit_available_limit)
                         if a.credit_available_limit is not None
@@ -407,9 +396,7 @@ def account_snapshot_summary(session: Session) -> Dict[str, Any]:
                         else None
                     ),
                     "balance_due_date": (
-                        a.credit_balance_due_date.isoformat()
-                        if a.credit_balance_due_date
-                        else None
+                        a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None
                     ),
                 }
                 for a in credit_accounts

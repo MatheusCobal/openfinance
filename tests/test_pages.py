@@ -1,5 +1,7 @@
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlsplit
 from unittest.mock import patch
 
 import httpx
@@ -9,6 +11,17 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
+
+
+class StaticAssetParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.assets = []
+
+    def handle_starttag(self, tag, attrs):
+        for name, value in attrs:
+            if name in {"href", "src"} and value:
+                self.assets.append(value)
 
 
 class PageSmokeTest(unittest.TestCase):
@@ -250,7 +263,9 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn("rec.refund_abs_total", js)
         # Reconciliation must never write back to currentCardInvoice
         self.assertNotIn("currentCardInvoice.amount =", js)
-        self.assertNotIn("currentCardInvoice =", js.split("renderInvoiceReconciliation")[1].split("function ")[0])
+        self.assertNotIn(
+            "currentCardInvoice =", js.split("renderInvoiceReconciliation")[1].split("function ")[0]
+        )
 
     def test_dashboard_js_has_render_bank_balance(self):
         response = self.client.get("/static/dashboard.js")
@@ -260,7 +275,9 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn("fetchJson('/bank/balance-summary')", js)
         self.assertIn("bankBalance", js)
         # Bank balance widget must not use CREDIT data
-        self.assertNotIn("currentCardInvoice.amount", js.split("renderBankBalance")[1].split("function ")[0])
+        self.assertNotIn(
+            "currentCardInvoice.amount", js.split("renderBankBalance")[1].split("function ")[0]
+        )
 
     def test_static_files_do_not_use_indigo_classes(self):
         static_dir = Path("app/static")
@@ -270,6 +287,23 @@ class PageSmokeTest(unittest.TestCase):
                 if "indigo" in path.read_text(encoding="utf-8"):
                     offenders.append(str(path))
         self.assertEqual(offenders, [], "app/static must not contain indigo classes")
+
+    def test_local_static_assets_referenced_by_html_exist(self):
+        static_dir = Path("app/static")
+        missing = []
+        for html_path in static_dir.glob("*.html"):
+            parser = StaticAssetParser()
+            parser.feed(html_path.read_text(encoding="utf-8"))
+            for asset in parser.assets:
+                parsed = urlsplit(asset)
+                if parsed.scheme or parsed.netloc:
+                    continue
+                if not parsed.path.startswith("/static/"):
+                    continue
+                target = static_dir / parsed.path.removeprefix("/static/")
+                if not target.is_file():
+                    missing.append(f"{html_path}: {asset}")
+        self.assertEqual(missing, [])
 
     def test_bank_balance_endpoint_exists(self):
         response = self.client.get("/bank/balance-summary")

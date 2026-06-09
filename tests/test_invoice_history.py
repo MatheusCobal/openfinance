@@ -7,10 +7,12 @@ C. May 2026 appears when the payment is on 2026-04-29
 D. April 2026 does not claim the April-29 payment as its own invoice
 E. Historico page still loads
 """
+
 import datetime
 import unittest
 from decimal import Decimal
 from typing import Optional
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -18,11 +20,12 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
-from app.models import Account, Item, Transaction
+from app.models import Account, CreditCardInvoiceMonth, Item, Transaction
 from app.services.history import (
     credit_card_payments_monthly_summary,
     invoice_month_from_payment,
 )
+from app.services.snapshots import refresh_credit_card_invoice_snapshots
 from app.services.transactions import credit_card_payment_transactions
 
 
@@ -238,8 +241,18 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
         """Grand total is consistent across all bucketed transactions."""
         with Session(self.engine) as session:
             _seed_base(session, due_date=datetime.date(2026, 5, 4))
-            _add_payment(session, tx_id="p1", payment_date=datetime.date(2026, 4, 29), amount=Decimal("1000.00"))
-            _add_payment(session, tx_id="p2", payment_date=datetime.date(2026, 5, 3),  amount=Decimal("2000.00"))
+            _add_payment(
+                session,
+                tx_id="p1",
+                payment_date=datetime.date(2026, 4, 29),
+                amount=Decimal("1000.00"),
+            )
+            _add_payment(
+                session,
+                tx_id="p2",
+                payment_date=datetime.date(2026, 5, 3),
+                amount=Decimal("2000.00"),
+            )
             result = credit_card_payments_monthly_summary(session, months=12)
 
         self.assertEqual(result["total_count"], 2)
@@ -360,6 +373,28 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
             )
 
         self.assertEqual([tx.id for tx in payments], ["credit-payment"])
+
+    def test_snapshot_refresh_uses_invoice_month_for_before_due_payment(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 5, 4))
+            _add_payment(
+                session,
+                tx_id="pay-apr29-snapshot",
+                payment_date=datetime.date(2026, 4, 29),
+                amount=Decimal("16120.06"),
+            )
+            with patch("app.services.snapshots.date") as mock_date:
+                mock_date.today.return_value = datetime.date(2026, 6, 9)
+                mock_date.side_effect = lambda *args, **kwargs: datetime.date(*args, **kwargs)
+                refresh_credit_card_invoice_snapshots(session, months=3)
+
+            may = session.get(CreditCardInvoiceMonth, "2026-05")
+            april = session.get(CreditCardInvoiceMonth, "2026-04")
+
+        self.assertIsNotNone(may)
+        self.assertEqual(may.payment_count, 1)
+        self.assertAlmostEqual(float(may.total), 16120.06, places=2)
+        self.assertIsNone(april)
 
 
 class TestHistoricoPageLoads(unittest.TestCase):

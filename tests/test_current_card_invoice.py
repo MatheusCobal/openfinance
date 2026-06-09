@@ -8,9 +8,19 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
-from app.models import Account, Category, CategoryRule, CreditCardBill, IgnoredDescriptionRule, Item, Transaction
+from app.models import (
+    Account,
+    Category,
+    CategoryRule,
+    CreditCardBill,
+    ExpectedIncome,
+    IgnoredDescriptionRule,
+    Item,
+    Transaction,
+)
 from app.services.credit_card_invoice import planning_invoice_for_month
 from app.services.current_card_invoice import current_card_invoice_summary
+from app.services.planning import planning_month_summary
 
 
 class CurrentCardInvoiceTest(unittest.TestCase):
@@ -345,7 +355,9 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(len(summary["categories"]), 1)
         self.assertEqual(summary["categories"][0]["name"], "Mercado")
         self.assertEqual(summary["categories"][0]["count"], 2)
-        self.assertEqual(summary["categories"][0]["transactions"][0]["custom_category_name"], "Mercado")
+        self.assertEqual(
+            summary["categories"][0]["transactions"][0]["custom_category_name"], "Mercado"
+        )
 
     def test_categories_skip_payments_duplicates_refunds_and_latest_bill_rows(self):
         with Session(self.engine) as session:
@@ -544,12 +556,12 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         with Session(self.engine) as session:
             summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
 
-        category_tx_ids = [
-            tx["id"]
-            for cat in summary["categories"]
-            for tx in cat["transactions"]
-        ]
-        self.assertNotIn("ignored-sub", category_tx_ids, "ignored tx must not appear in categories[].transactions")
+        category_tx_ids = [tx["id"] for cat in summary["categories"] for tx in cat["transactions"]]
+        self.assertNotIn(
+            "ignored-sub",
+            category_tx_ids,
+            "ignored tx must not appear in categories[].transactions",
+        )
         self.assertIn("legit-digital", category_tx_ids, "legitimate tx must still appear")
         self.assertEqual(summary["category_count"], 1, "only the legitimate tx should be counted")
         self.assertAlmostEqual(summary["category_total"], 49.90, places=2)
@@ -591,7 +603,9 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertAlmostEqual(rec["amount"], summary["amount"], places=2)
         self.assertAlmostEqual(rec["category_total"], summary["category_total"], places=2)
         self.assertAlmostEqual(rec["refund_total"], summary["possible_refunds_total"], places=2)
-        self.assertAlmostEqual(rec["refund_abs_total"], abs(summary["possible_refunds_total"]), places=2)
+        self.assertAlmostEqual(
+            rec["refund_abs_total"], abs(summary["possible_refunds_total"]), places=2
+        )
         self.assertAlmostEqual(
             rec["amount_minus_category_total"],
             summary["amount"] - summary["category_total"],
@@ -626,6 +640,64 @@ class CurrentCardInvoiceTest(unittest.TestCase):
 
         self.assertEqual(summary["source"], "scheduled_installments")
         self.assertEqual(summary["amount"], 7993.58)
+
+    def test_dashboard_capacity_uses_adjusted_current_invoice_when_planning_differs(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(
+                session,
+                balance=Decimal("28619.60"),
+                due_date=date(2026, 6, 8),
+            )
+            self._add_bill(
+                session,
+                bill_id="bill-jun",
+                due_date=date(2026, 6, 8),
+                total=Decimal("17131.28"),
+            )
+            self._add_bill(
+                session,
+                bill_id="bill-jul",
+                due_date=date(2026, 7, 8),
+                total=Decimal("17131.28"),
+            )
+            session.add(
+                ExpectedIncome(
+                    description="Salario",
+                    amount=Decimal("20000"),
+                    expected_day=5,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            planning = planning_month_summary(
+                session,
+                "2026-07",
+                today=date(2026, 6, 8),
+            )
+            current_invoice = current_card_invoice_summary(
+                session,
+                today=date(2026, 6, 8),
+            )
+
+        planning_invoice_amount = planning["credit_card_invoice"]["amount"]
+        current_invoice_amount = current_invoice["amount"]
+        dashboard_available = (
+            planning["income"]["expected"]
+            - planning["fixed_costs"]["planned"]
+            - planning["variable_budgets"]["planned"]
+            - current_invoice_amount
+        )
+
+        self.assertEqual(planning_invoice_amount, 17131.28)
+        self.assertEqual(current_invoice_amount, 11488.32)
+        self.assertNotEqual(planning_invoice_amount, current_invoice_amount)
+        self.assertNotEqual(
+            dashboard_available,
+            planning["capacity"]["available_to_spend"],
+        )
+        self.assertAlmostEqual(dashboard_available, 8511.68, places=2)
 
 
 if __name__ == "__main__":

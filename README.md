@@ -8,8 +8,16 @@ Backend em FastAPI + SQLModel/SQLAlchemy + SQLite; frontend em HTML estático + 
 
 ## Funcionalidades atuais
 
+### Dashboard (`/dashboard`)
+Tela inicial do app. Resumo executivo com:
+- Disponível para gastar
+- Fatura vigente do cartão via `/credit-card/current-invoice`
+- Saldo bancário
+- Entradas, saídas, custos fixos e uso de orçamento variável
+- Compras por categoria da fatura vigente
+
 ### Planejamento (`/planejamento`)
-Tela principal do app. Visão mensal futura com:
+Tela de planejamento e controle mensal. Visão mensal futura com:
 - Receita esperada
 - Custos fixos
 - Metas variáveis (budgets)
@@ -42,8 +50,9 @@ Tela principal do app. Visão mensal futura com:
 ### Páginas
 
 ```text
-GET /              → redirect para /planejamento
-GET /planejamento  → tela principal (Planejamento)
+GET /              → redirect para /dashboard
+GET /dashboard     → resumo executivo
+GET /planejamento  → tela de planejamento e controle
 GET /proximos      → tela Próximos
 GET /historico     → tela Histórico
 GET /regras        → tela Regras
@@ -74,6 +83,7 @@ GET  /expected-income/forecast           previsão de receitas
 GET  /expected-income/by-month           receitas por mês
 
 GET  /credit-card/invoice/{year_month}   fatura do cartão de crédito
+GET  /credit-card/current-invoice         fatura vigente ajustada para o Dashboard
 
 GET  /history/...                        histórico financeiro (ver routes/history.py)
 GET  /rules/...                          regras de categorização e exclusão
@@ -127,10 +137,12 @@ openfinance/
     │   ├── classification.py  classificação de transações
     │   └── transactions.py    consultas de transações
     ├── static/                frontend HTML/JS
+    │   ├── dashboard.html    / dashboard.js
     │   ├── planejamento.html / planejamento.js
     │   ├── proximos.html     / proximos.js
     │   ├── historico.html    / historico.js
-    │   └── regras.html       / regras.js
+    │   ├── regras.html       / regras.js
+    │   └── styles.css        estilos compartilhados
     └── docs/                  documentação auxiliar e backlog
 ```
 
@@ -143,7 +155,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 cp .env.example .env
-# editar .env com PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET
+# editar .env com PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET para usar o Pluggy
 
 .venv/bin/python seed_categories.py   # popula categorias e regras base (idempotente)
 
@@ -151,7 +163,7 @@ fastapi dev app/main.py
 # ou: .venv/bin/fastapi dev app/main.py
 ```
 
-Abre em http://127.0.0.1:8000 (redireciona para `/planejamento`).
+Abre em http://127.0.0.1:8000 (redireciona para `/dashboard`).
 
 ---
 
@@ -160,18 +172,24 @@ Abre em http://127.0.0.1:8000 (redireciona para `/planejamento`).
 Definidas em `.env` (via `pydantic-settings`):
 
 ```text
-PLUGGY_CLIENT_ID       client ID do dashboard.pluggy.ai (obrigatório)
-PLUGGY_CLIENT_SECRET   client secret do dashboard.pluggy.ai (obrigatório)
+PLUGGY_CLIENT_ID       client ID do dashboard.pluggy.ai (obrigatório só ao usar Pluggy)
+PLUGGY_CLIENT_SECRET   client secret do dashboard.pluggy.ai (obrigatório só ao usar Pluggy)
 PLUGGY_BASE_URL        URL base da API Pluggy (padrão: https://api.pluggy.ai)
 DATABASE_URL           URL do banco SQLite (padrão: sqlite:///./openfinance.db)
 ```
+
+Importar a aplicação, rodar testes e executar migrações Alembic não exigem credenciais Pluggy. As credenciais só são validadas quando o cliente Pluggy é usado, por exemplo em `/connect-token` ou no sync.
 
 ---
 
 ## Testes
 
 ```bash
+.venv/bin/ruff check
+.venv/bin/ruff format --check
+.venv/bin/python -m compileall app tests
 .venv/bin/python -m unittest discover -s tests
+DATABASE_URL=sqlite:////tmp/openfinance-ci.db .venv/bin/alembic upgrade head
 ```
 
 Estado atual:
@@ -238,9 +256,9 @@ Como o app não mantém uma tabela dedicada de execuções de sync, `last_sync_s
 
 ## Histórico recente
 
-- A Dashboard antiga foi removida
-- Planejamento virou a tela principal
-- A navegação foi reduzida para Planejamento, Próximos, Histórico e Regras
+- `/dashboard` foi reintroduzida como resumo executivo e é o destino de `/`
+- `/planejamento` segue como tela de planejamento e controle mensal
+- A navegação mantém Dashboard, Planejamento, Próximos, Histórico e Regras
 - As rotas `/custos-fixos` e `/orcamento` foram mantidas apenas como redirects legados
 - O projeto passou a usar Alembic para migrações de schema
 - `seed_dev.py` foi removido do projeto

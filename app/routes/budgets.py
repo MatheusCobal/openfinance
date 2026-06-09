@@ -32,9 +32,7 @@ def upsert_budget(
     validate_budget_target(body.monthly_target)
     if not session.get(Category, category_id):
         raise HTTPException(404, "category not found")
-    existing = session.exec(
-        select(Budget).where(Budget.category_id == category_id)
-    ).first()
+    existing = session.exec(select(Budget).where(Budget.category_id == category_id)).first()
     if existing:
         existing.monthly_target = body.monthly_target
         session.add(existing)
@@ -48,9 +46,7 @@ def upsert_budget(
 
 @router.delete("/budgets/{category_id}", status_code=204)
 def delete_budget(category_id: int, session: Session = Depends(get_session)):
-    budget = session.exec(
-        select(Budget).where(Budget.category_id == category_id)
-    ).first()
+    budget = session.exec(select(Budget).where(Budget.category_id == category_id)).first()
     if budget:
         session.delete(budget)
         session.commit()
@@ -124,5 +120,3 @@ def budgets_progress(
         today=today,
         include_ignored=include_ignored,
     )
-
-

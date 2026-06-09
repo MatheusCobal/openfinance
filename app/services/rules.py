@@ -39,9 +39,7 @@ def count_description_rule_matches(
 ) -> int:
     return sum(
         1
-        for tx in session.exec(
-            select(Transaction).where(_non_duplicate_clause())
-        ).all()
+        for tx in session.exec(select(Transaction).where(_non_duplicate_clause())).all()
         if pattern_normalized in normalize_description(tx.description)
     )
 
@@ -121,8 +119,7 @@ def upsert_bank_cashflow_exclusion_rule(
         rule = session.exec(
             select(BankCashflowExclusionRule).where(
                 BankCashflowExclusionRule.direction == direction,
-                BankCashflowExclusionRule.pattern_normalized
-                == pattern_normalized,
+                BankCashflowExclusionRule.pattern_normalized == pattern_normalized,
             )
         ).first()
         if rule is None:
@@ -250,10 +247,7 @@ def list_description_category_rules(session: Session):
     rules = session.exec(
         select(DescriptionCategoryRule).order_by(DescriptionCategoryRule.pattern)
     ).all()
-    categories = {
-        category.id: category
-        for category in session.exec(select(Category)).all()
-    }
+    categories = {category.id: category for category in session.exec(select(Category)).all()}
     return [
         {
             "id": rule.id,
@@ -266,9 +260,7 @@ def list_description_category_rules(session: Session):
             "category_color": categories.get(rule.category_id).color
             if categories.get(rule.category_id)
             else None,
-            "affected_count": count_description_rule_matches(
-                rule.pattern_normalized, session
-            ),
+            "affected_count": count_description_rule_matches(rule.pattern_normalized, session),
         }
         for rule in rules
     ]
@@ -332,22 +324,16 @@ def description_category_rule_suggestions(
             continue
 
         group = groups[normalized]
-        category = resolver.display_category(
-            resolver.resolve(tx.category, tx.description)
-        )
+        category = resolver.display_category(resolver.resolve(tx.category, tx.description))
         if not group["sample_description"]:
             group["sample_description"] = tx.description
         group["transaction_count"] += 1
         group["total"] += abs(tx.amount)
         group["first_seen"] = (
-            tx.date
-            if group["first_seen"] is None
-            else min(group["first_seen"], tx.date)
+            tx.date if group["first_seen"] is None else min(group["first_seen"], tx.date)
         )
         group["last_seen"] = (
-            tx.date
-            if group["last_seen"] is None
-            else max(group["last_seen"], tx.date)
+            tx.date if group["last_seen"] is None else max(group["last_seen"], tx.date)
         )
         if tx.category:
             group["pluggy_categories"].add(tx.category)
@@ -403,9 +389,7 @@ def list_ignored_description_rules(session: Session):
             "id": rule.id,
             "pattern": rule.pattern,
             "pattern_normalized": rule.pattern_normalized,
-            "affected_count": count_description_rule_matches(
-                rule.pattern_normalized, session
-            ),
+            "affected_count": count_description_rule_matches(rule.pattern_normalized, session),
         }
         for rule in rules
     ]

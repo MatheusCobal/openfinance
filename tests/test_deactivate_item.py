@@ -40,11 +40,19 @@ class DeactivateItemEndpointTest(unittest.TestCase):
 
     def _seed(self, item_id: str, account_ids: list[str]) -> None:
         with Session(self.engine) as session:
-            session.add(Item(id=item_id, connector_id=1, connector_name="Test",
-                             status="UPDATED", is_active=True))
+            session.add(
+                Item(
+                    id=item_id,
+                    connector_id=1,
+                    connector_name="Test",
+                    status="UPDATED",
+                    is_active=True,
+                )
+            )
             for acc_id in account_ids:
-                session.add(Account(id=acc_id, item_id=item_id,
-                                    name=acc_id, type="BANK", is_active=True))
+                session.add(
+                    Account(id=acc_id, item_id=item_id, name=acc_id, type="BANK", is_active=True)
+                )
             session.commit()
 
     def test_deactivates_item_and_all_accounts(self):
@@ -76,8 +84,15 @@ class DeactivateItemEndpointTest(unittest.TestCase):
 
     def test_deactivate_with_no_accounts_returns_zero(self):
         with Session(self.engine) as session:
-            session.add(Item(id="item-empty", connector_id=1,
-                             connector_name="Test", status="UPDATED", is_active=True))
+            session.add(
+                Item(
+                    id="item-empty",
+                    connector_id=1,
+                    connector_name="Test",
+                    status="UPDATED",
+                    is_active=True,
+                )
+            )
             session.commit()
 
         resp = self.client.post("/sync/items/item-empty/deactivate")
@@ -91,18 +106,40 @@ class DeactivateItemEndpointTest(unittest.TestCase):
         self._seed("item-caixa", ["bank-caixa"])
 
         with Session(self.engine) as session:
-            session.add(Item(id="item-itau", connector_id=2, connector_name="Itau",
-                             status="UPDATED", is_active=True))
-            session.add(Account(id="bank-itau", item_id="item-itau",
-                                name="Itau", type="BANK", is_active=True))
-            session.add(Transaction(
-                id="tx-itau", account_id="bank-itau", date=today,
-                amount=Decimal("-100"), description="Pix Itau", category="Transfers",
-            ))
-            session.add(Transaction(
-                id="tx-caixa", account_id="bank-caixa", date=today,
-                amount=Decimal("-3000"), description="Pix Caixa", category="Transfers",
-            ))
+            session.add(
+                Item(
+                    id="item-itau",
+                    connector_id=2,
+                    connector_name="Itau",
+                    status="UPDATED",
+                    is_active=True,
+                )
+            )
+            session.add(
+                Account(
+                    id="bank-itau", item_id="item-itau", name="Itau", type="BANK", is_active=True
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-itau",
+                    account_id="bank-itau",
+                    date=today,
+                    amount=Decimal("-100"),
+                    description="Pix Itau",
+                    category="Transfers",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-caixa",
+                    account_id="bank-caixa",
+                    date=today,
+                    amount=Decimal("-3000"),
+                    description="Pix Caixa",
+                    category="Transfers",
+                )
+            )
             session.commit()
 
         # Deactivate CAIXA item via the endpoint

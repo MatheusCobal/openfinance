@@ -11,6 +11,7 @@ Revises: f1a2b3c4d5e6
 Create Date: 2026-06-08 10:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -27,9 +28,7 @@ def upgrade() -> None:
     # SQLite's batch_alter_table creates a temp-table copy which can fail if
     # the table is large; ADD COLUMN is an O(1) metadata-only operation.
     with op.batch_alter_table("transaction") as batch:
-        batch.add_column(
-            sa.Column("dedupe_key", sa.String(), nullable=True)
-        )
+        batch.add_column(sa.Column("dedupe_key", sa.String(), nullable=True))
         batch.add_column(
             sa.Column(
                 "is_duplicate",
@@ -38,9 +37,7 @@ def upgrade() -> None:
                 server_default=sa.false(),
             )
         )
-        batch.add_column(
-            sa.Column("duplicate_of_id", sa.String(), nullable=True)
-        )
+        batch.add_column(sa.Column("duplicate_of_id", sa.String(), nullable=True))
 
     # Create indexes after the batch so they are not duplicated.
     op.create_index(

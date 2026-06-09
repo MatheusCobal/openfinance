@@ -15,7 +15,6 @@ from app.services.transaction_reports import (
     monthly_stats_summary,
     stats_summary,
     upcoming_summary,
-    validate_account_type,
 )
 
 router = APIRouter()
@@ -103,6 +102,7 @@ def refresh_balance(account_id: str, session: Session = Depends(get_session)):
         raise HTTPException(502, f"network error reaching Pluggy: {exc}") from exc
 
     from decimal import Decimal, InvalidOperation
+
     raw_balance = data.get("balance")
     if raw_balance is not None:
         try:

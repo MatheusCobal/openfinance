@@ -30,6 +30,7 @@ class FakePluggy:
                 "subtype": "CREDIT_CARD",
                 "marketingName": "Black",
                 "number": "1234",
+                "creditData": {"balanceDueDate": self.today.isoformat()},
             },
             {
                 "id": "bank-1",
@@ -193,9 +194,7 @@ class SyncServiceTest(unittest.TestCase):
                 ],
             )
 
-            accounts = {
-                account.id: account for account in session.exec(select(Account)).all()
-            }
+            accounts = {account.id: account for account in session.exec(select(Account)).all()}
             self.assertEqual(set(accounts.keys()), {"credit-1", "bank-1"})
             self.assertEqual(accounts["credit-1"].name, "Credit Card")
             self.assertEqual(accounts["credit-1"].marketing_name, "Black")

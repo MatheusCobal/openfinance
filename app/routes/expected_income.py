@@ -145,9 +145,7 @@ def set_override_route(
     return result
 
 
-@router.delete(
-    "/expected-income/{entry_id}/overrides/{year_month}", status_code=204
-)
+@router.delete("/expected-income/{entry_id}/overrides/{year_month}", status_code=204)
 def delete_override_route(
     entry_id: int,
     year_month: str,

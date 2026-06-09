@@ -20,6 +20,7 @@ Options:
     --db PATH    Path to the SQLite database (default: openfinance.db)
     --limit N    Max groups shown in detail for each section (default: 20)
 """
+
 import argparse
 import sys
 from collections import defaultdict
@@ -40,6 +41,7 @@ from app.services.sync import compute_dedupe_key
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_active(account: Optional[Account], active_item_ids: set) -> bool:
     if account is None:
@@ -99,6 +101,7 @@ def _relaxed_matches(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -116,12 +119,8 @@ def main() -> None:
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
 
     with Session(engine) as session:
-        all_accounts: Dict[str, Account] = {
-            a.id: a for a in session.exec(select(Account)).all()
-        }
-        active_item_ids = {
-            item.id for item in session.exec(select(Item)).all() if item.is_active
-        }
+        all_accounts: Dict[str, Account] = {a.id: a for a in session.exec(select(Account)).all()}
+        active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
 
         def is_active(account_id: str) -> bool:
             return _is_active(all_accounts.get(account_id), active_item_ids)
@@ -147,15 +146,14 @@ def main() -> None:
 
     print(f"Contas ativas ({len(active_accs)}):")
     for a in sorted(active_accs, key=lambda x: -tx_count_by_account.get(x.id, 0)):
-        print(f"  {a.name:40s}  type={a.type:6s}  txs={tx_count_by_account.get(a.id,0)}")
+        print(f"  {a.name:40s}  type={a.type:6s}  txs={tx_count_by_account.get(a.id, 0)}")
     print()
     print(f"Contas inativas ({len(inactive_accs)}):")
     for a in sorted(inactive_accs, key=lambda x: -tx_count_by_account.get(x.id, 0)):
         if tx_count_by_account.get(a.id, 0) == 0:
             continue
-        item_ok = a.item_id in active_item_ids
         print(
-            f"  {a.name:40s}  type={a.type:6s}  txs={tx_count_by_account.get(a.id,0):4d}"
+            f"  {a.name:40s}  type={a.type:6s}  txs={tx_count_by_account.get(a.id, 0):4d}"
             f"  deactivated={a.deactivated_at}"
         )
     print()
@@ -169,16 +167,22 @@ def main() -> None:
         account = all_accounts.get(tx.account_id)
         account_type = account.type if account else "UNKNOWN"
         key = tx.dedupe_key or compute_dedupe_key(
-            account_type, tx.description, tx.date,
-            tx.amount, tx.installment_number, tx.total_installments,
+            account_type,
+            tx.description,
+            tx.date,
+            tx.amount,
+            tx.installment_number,
+            tx.total_installments,
         )
         by_key[key].append(tx)
         tx_to_key[tx.id] = key
 
     # Classify groups
-    exact_markable: List[Tuple[str, List[Transaction], List[Transaction]]] = []  # (key, active, inactive)
-    exact_orphan: List[Tuple[str, List[Transaction]]] = []    # only-inactive groups
-    exact_ambiguous: List[Tuple[str, List[Transaction]]] = [] # only-active duplicates
+    exact_markable: List[
+        Tuple[str, List[Transaction], List[Transaction]]
+    ] = []  # (key, active, inactive)
+    exact_orphan: List[Tuple[str, List[Transaction]]] = []  # only-inactive groups
+    exact_ambiguous: List[Tuple[str, List[Transaction]]] = []  # only-active duplicates
 
     for key, txs in by_key.items():
         if len(txs) < 2:
@@ -196,23 +200,23 @@ def main() -> None:
     already_marked = sum(1 for tx in all_txs if tx.is_duplicate)
 
     markable_inactive_count = sum(len(inact) for _, _, inact in exact_markable)
-    markable_inactive_amount = sum(
-        abs(tx.amount) for _, _, inact in exact_markable for tx in inact
-    )
+    markable_inactive_amount = sum(abs(tx.amount) for _, _, inact in exact_markable for tx in inact)
 
     # Track which inactive tx IDs were matched exactly (for relaxed pass)
-    exact_matched_inactive_ids = {
-        tx.id
-        for _, _, inact in exact_markable
-        for tx in inact
-    }
+    exact_matched_inactive_ids = {tx.id for _, _, inact in exact_markable for tx in inact}
 
     print("=" * 70)
     print("SEÇÃO 2: GRUPOS POR CHAVE EXATA (dedupe_key)")
     print("=" * 70)
-    print(f"  Grupos marcáveis  (ativo+inativo):  {len(exact_markable):4d}  →  {markable_inactive_count} tx inativas para marcar  R$ {markable_inactive_amount:,.2f}")
-    print(f"  Grupos órfãos     (só inativo):      {len(exact_orphan):4d}  →  nada a marcar automaticamente")
-    print(f"  Grupos ambíguos   (só ativo, >1):    {len(exact_ambiguous):4d}  →  compras repetidas legítimas, não tocar")
+    print(
+        f"  Grupos marcáveis  (ativo+inativo):  {len(exact_markable):4d}  →  {markable_inactive_count} tx inativas para marcar  R$ {markable_inactive_amount:,.2f}"
+    )
+    print(
+        f"  Grupos órfãos     (só inativo):      {len(exact_orphan):4d}  →  nada a marcar automaticamente"
+    )
+    print(
+        f"  Grupos ambíguos   (só ativo, >1):    {len(exact_ambiguous):4d}  →  compras repetidas legítimas, não tocar"
+    )
     print(f"  Já marcados como is_duplicate=True:  {already_marked}")
     print()
 
@@ -222,10 +226,9 @@ def main() -> None:
         for i, (key, active_txs, inactive_txs) in enumerate(
             sorted(exact_markable, key=lambda x: abs(x[2][0].amount), reverse=True)[: args.limit]
         ):
-            repr_tx = (inactive_txs + active_txs)[0]
             total_active = len(active_txs)
             total_inactive = len(inactive_txs)
-            print(f"\n  [{i+1}] key={key}  ativo={total_active}  inativo={total_inactive}")
+            print(f"\n  [{i + 1}] key={key}  ativo={total_active}  inativo={total_inactive}")
             for tx in inactive_txs:
                 dup_marker = " ⚑DUP" if tx.is_duplicate else ""
                 print(
@@ -277,15 +280,17 @@ def main() -> None:
     print("=" * 70)
     print("SEÇÃO 3: CANDIDATOS POR MATCHING RELAXADO (±1 dia, ±R$0.01, prefixo desc)")
     print("=" * 70)
-    print(f"  Tx inativas não cobertas pelo exato, mas com candidato ativo: {len(relaxed_candidates)}  R$ {relaxed_amount:,.2f}")
+    print(
+        f"  Tx inativas não cobertas pelo exato, mas com candidato ativo: {len(relaxed_candidates)}  R$ {relaxed_amount:,.2f}"
+    )
     if relaxed_candidates:
-        print(f"  (requerem revisão manual — use --include-relaxed no mark script)")
+        print("  (requerem revisão manual — use --include-relaxed no mark script)")
         print()
         print(f"  Detalhes — primeiros {min(args.limit, len(relaxed_candidates))}:")
         print("  " + "-" * 66)
-        for i, (inactive_tx, candidates) in enumerate(relaxed_candidates[:args.limit]):
+        for i, (inactive_tx, candidates) in enumerate(relaxed_candidates[: args.limit]):
             print(
-                f"\n  [{i+1}] [INATIVA]  {inactive_tx.date}  R${abs(float(inactive_tx.amount)):>10.2f}"
+                f"\n  [{i + 1}] [INATIVA]  {inactive_tx.date}  R${abs(float(inactive_tx.amount)):>10.2f}"
                 f"  {(inactive_tx.description or '')[:40]:40s}"
                 f"  acc={inactive_tx.account_id[:8]}..."
             )
@@ -309,12 +314,22 @@ def main() -> None:
     print("=" * 70)
     print("SEÇÃO 4: RESUMO FINANCEIRO")
     print("=" * 70)
-    print(f"  Transações ativas:                     {len(all_txs) - total_inactive_txs:4d}  volume R$ {total_active_amount:,.2f}")
-    print(f"  Transações inativas (total):           {total_inactive_txs:4d}  volume R$ {total_inactive_amount:,.2f}")
+    print(
+        f"  Transações ativas:                     {len(all_txs) - total_inactive_txs:4d}  volume R$ {total_active_amount:,.2f}"
+    )
+    print(
+        f"  Transações inativas (total):           {total_inactive_txs:4d}  volume R$ {total_inactive_amount:,.2f}"
+    )
     print()
-    print(f"  ← Estratégia EXATA marcaria:           {markable_inactive_count:4d}  R$ {markable_inactive_amount:,.2f}")
-    print(f"  ← Estratégia RELAXADA adicional:       {len(relaxed_candidates):4d}  R$ {relaxed_amount:,.2f}")
-    print(f"  ← Grupos órfãos (mantidos):            {sum(len(txs) for _, txs in exact_orphan):4d}  (sem contraparte ativa)")
+    print(
+        f"  ← Estratégia EXATA marcaria:           {markable_inactive_count:4d}  R$ {markable_inactive_amount:,.2f}"
+    )
+    print(
+        f"  ← Estratégia RELAXADA adicional:       {len(relaxed_candidates):4d}  R$ {relaxed_amount:,.2f}"
+    )
+    print(
+        f"  ← Grupos órfãos (mantidos):            {sum(len(txs) for _, txs in exact_orphan):4d}  (sem contraparte ativa)"
+    )
     print()
     print(f"  Já marcados como is_duplicate=True:    {already_marked:4d}")
     print()

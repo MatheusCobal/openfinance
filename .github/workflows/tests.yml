@@ -10,8 +10,11 @@ on:
 
 jobs:
   unittest:
-    name: Run unittest suite
+    name: Lint, migrate, and test
     runs-on: ubuntu-latest
+    env:
+      PLUGGY_CLIENT_ID: fake-client-id
+      PLUGGY_CLIENT_SECRET: fake-client-secret
 
     steps:
       - name: Checkout repository
@@ -29,16 +32,30 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           elif [ -f pyproject.toml ]; then
-            pip install -e .
+            pip install -e ".[dev]"
           else
             echo "No requirements.txt or pyproject.toml found"
             exit 1
           fi
 
-      - name: Compile app
+      - name: Ruff check
         run: |
-          python -m compileall app
+          ruff check
+
+      - name: Ruff format check
+        run: |
+          ruff format --check
+
+      - name: Compile app and tests
+        run: |
+          python -m compileall app tests
 
       - name: Run tests
         run: |
           python -m unittest discover -s tests
+
+      - name: Alembic upgrade head
+        env:
+          DATABASE_URL: sqlite:///${{ runner.temp }}/openfinance-ci.db
+        run: |
+          alembic upgrade head

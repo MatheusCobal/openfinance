@@ -10,6 +10,7 @@ Revises: 30d7b2b7997f
 Create Date: 2026-05-27 12:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -68,12 +69,8 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["account_id"], ["account.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_creditcardbill_account_id", "creditcardbill", ["account_id"], unique=False
-    )
-    op.create_index(
-        "ix_creditcardbill_due_date", "creditcardbill", ["due_date"], unique=False
-    )
+    op.create_index("ix_creditcardbill_account_id", "creditcardbill", ["account_id"], unique=False)
+    op.create_index("ix_creditcardbill_due_date", "creditcardbill", ["due_date"], unique=False)
 
     op.create_table(
         "investment",
@@ -100,19 +97,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["item_id"], ["item.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_investment_item_id", "investment", ["item_id"], unique=False
-    )
-    op.create_index(
-        "ix_investment_type", "investment", ["type"], unique=False
-    )
+    op.create_index("ix_investment_item_id", "investment", ["item_id"], unique=False)
+    op.create_index("ix_investment_type", "investment", ["type"], unique=False)
 
     op.create_table(
         "investmenttransaction",
         sa.Column("id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column(
-            "investment_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False
-        ),
+        sa.Column("investment_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("date", sa.Date(), nullable=True),
         sa.Column("trade_date", sa.Date(), nullable=True),
         sa.Column("type", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
@@ -147,12 +138,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_investmenttransaction_type", table_name="investmenttransaction"
-    )
-    op.drop_index(
-        "ix_investmenttransaction_date", table_name="investmenttransaction"
-    )
+    op.drop_index("ix_investmenttransaction_type", table_name="investmenttransaction")
+    op.drop_index("ix_investmenttransaction_date", table_name="investmenttransaction")
     op.drop_index(
         "ix_investmenttransaction_investment_id",
         table_name="investmenttransaction",

@@ -33,9 +33,7 @@ REFUND_DESCRIPTION_PATTERNS = tuple(
 
 
 def _active_credit_accounts_with_balance(session: Session) -> list[Account]:
-    active_item_ids = {
-        item.id for item in session.exec(select(Item)).all() if item.is_active
-    }
+    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
     return [
         account
         for account in session.exec(select(Account)).all()
@@ -91,10 +89,7 @@ def _future_bill_is_reliable(
         return False
     if account.credit_balance_due_date == next_bill.due_date:
         return True
-    return (
-        account.credit_balance_due_date is not None
-        and account.credit_balance_due_date > today
-    )
+    return account.credit_balance_due_date is not None and account.credit_balance_due_date > today
 
 
 def _should_subtract_latest_bill(
@@ -112,9 +107,8 @@ def _should_subtract_latest_bill(
     if account.credit_balance_due_date is None:
         return False
     account_due_is_latest = account.credit_balance_due_date == latest_bill.due_date
-    due_is_settling = (
-        account.credit_balance_due_date <= today
-        or _is_recent_due_window(account.credit_balance_due_date, today)
+    due_is_settling = account.credit_balance_due_date <= today or _is_recent_due_window(
+        account.credit_balance_due_date, today
     )
     if not due_is_settling and not account_due_is_latest:
         return False
@@ -204,11 +198,7 @@ def _possible_refunds(
         .order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
     classifier = TransactionClassifier.from_session(session)
-    return [
-        tx
-        for tx in rows
-        if not classifier.is_invoice_payment(tx) and _looks_like_refund(tx)
-    ]
+    return [tx for tx in rows if not classifier.is_invoice_payment(tx) and _looks_like_refund(tx)]
 
 
 def _category_window_start(
@@ -287,9 +277,7 @@ def _append_category_transactions(
     transactions: list[Transaction],
 ) -> None:
     for tx in transactions:
-        category = resolver.display_category(
-            resolver.resolve(tx.category, tx.description)
-        )
+        category = resolver.display_category(resolver.resolve(tx.category, tx.description))
         if category.id not in grouped:
             grouped[category.id] = {
                 "id": category.id,
@@ -304,9 +292,7 @@ def _append_category_transactions(
         amount = abs(Decimal(tx.amount))
         row["total"] += amount
         row["count"] += 1
-        row["transactions"].append(
-            _serialize_category_transaction(tx, category.name)
-        )
+        row["transactions"].append(_serialize_category_transaction(tx, category.name))
 
 
 def _serialize_categories(
@@ -415,16 +401,12 @@ def current_card_invoice_summary(
                     else None
                 ),
                 "balance_updated_at": (
-                    account.balance_updated_at.isoformat()
-                    if account.balance_updated_at
-                    else None
+                    account.balance_updated_at.isoformat() if account.balance_updated_at else None
                 ),
                 "latest_bill_id": latest.id if latest else None,
                 "latest_bill_amount": float(latest_amount),
                 "latest_bill_due_date": (
-                    latest.due_date.isoformat()
-                    if latest is not None and latest.due_date
-                    else None
+                    latest.due_date.isoformat() if latest is not None and latest.due_date else None
                 ),
                 "next_bill_id": next_bill.id if next_bill else None,
                 "next_bill_due_date": (
@@ -433,9 +415,7 @@ def current_card_invoice_summary(
                     else None
                 ),
                 "adjustments": adjustments,
-                "matched_payment_transactions": [
-                    _serialize_payment(tx) for tx in matched_payments
-                ],
+                "matched_payment_transactions": [_serialize_payment(tx) for tx in matched_payments],
                 "possible_refunds_total": float(
                     sum((Decimal(tx.amount) for tx in possible_refunds), Decimal("0"))
                 ),
@@ -449,9 +429,7 @@ def current_card_invoice_summary(
         (Decimal(str(tx["signed_amount"])) for tx in all_possible_refunds),
         Decimal("0"),
     )
-    categories, category_total, category_count = _serialize_categories(
-        grouped_categories
-    )
+    categories, category_total, category_count = _serialize_categories(grouped_categories)
 
     source_label = (
         "Fatura vigente ajustada"

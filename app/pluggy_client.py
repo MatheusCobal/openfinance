@@ -1,9 +1,13 @@
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
 from app.config import settings
+
+
+class PluggyCredentialError(RuntimeError):
+    pass
 
 
 class PluggyClient:
@@ -11,12 +15,21 @@ class PluggyClient:
         self.base_url = settings.pluggy_base_url
         self._api_key: Optional[str] = None
 
+    def _credentials(self) -> Tuple[str, str]:
+        if not settings.pluggy_client_id or not settings.pluggy_client_secret:
+            raise PluggyCredentialError(
+                "PLUGGY_CLIENT_ID and PLUGGY_CLIENT_SECRET must be configured "
+                "before using the Pluggy client."
+            )
+        return settings.pluggy_client_id, settings.pluggy_client_secret
+
     def _authenticate(self) -> None:
+        client_id, client_secret = self._credentials()
         response = httpx.post(
             f"{self.base_url}/auth",
             json={
-                "clientId": settings.pluggy_client_id,
-                "clientSecret": settings.pluggy_client_secret,
+                "clientId": client_id,
+                "clientSecret": client_secret,
             },
             timeout=30.0,
         )
@@ -63,9 +76,7 @@ class PluggyClient:
         results: List[Dict[str, Any]] = []
         page = 1
         while page <= MAX_PAGES:
-            response = self._request(
-                "GET", "/items", params={"pageSize": 100, "page": page}
-            )
+            response = self._request("GET", "/items", params={"pageSize": 100, "page": page})
             body = response.json()
             page_results = body.get("results", []) or []
             results.extend(page_results)

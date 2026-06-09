@@ -5,6 +5,7 @@ Revises: fadace8cdbc2
 Create Date: 2026-05-26 12:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -47,9 +48,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["category_id"], ["fixedcostcategory.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        op.f("ix_fixedcost_active"), "fixedcost", ["active"], unique=False
-    )
+    op.create_index(op.f("ix_fixedcost_active"), "fixedcost", ["active"], unique=False)
     op.create_index(
         op.f("ix_fixedcost_category_id"),
         "fixedcost",
@@ -86,9 +85,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_index(
-        op.f("ix_fixedcostoverride_year_month"), table_name="fixedcostoverride"
-    )
+    op.drop_index(op.f("ix_fixedcostoverride_year_month"), table_name="fixedcostoverride")
     op.drop_index(
         op.f("ix_fixedcostoverride_fixed_cost_id"),
         table_name="fixedcostoverride",

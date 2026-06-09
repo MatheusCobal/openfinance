@@ -37,8 +37,7 @@ def get_sync_status(session: Session) -> dict[str, Any]:
     bills = list(session.exec(select(CreditCardBill)).all())
 
     running = any(
-        item.sync_started_at is not None and item.sync_finished_at is None
-        for item in items
+        item.sync_started_at is not None and item.sync_finished_at is None for item in items
     )
     item_errors = [item.last_sync_error for item in items if item.last_sync_error]
     account_errors = [sync.last_error for sync in account_syncs if sync.last_error]

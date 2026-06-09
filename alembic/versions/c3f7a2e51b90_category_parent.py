@@ -5,6 +5,7 @@ Revises: b2c71d9e4f01
 Create Date: 2026-05-26 16:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -22,9 +23,7 @@ def upgrade() -> None:
         "category",
         sa.Column("parent_id", sa.Integer(), nullable=True),
     )
-    op.create_index(
-        op.f("ix_category_parent_id"), "category", ["parent_id"], unique=False
-    )
+    op.create_index(op.f("ix_category_parent_id"), "category", ["parent_id"], unique=False)
 
 
 def downgrade() -> None:

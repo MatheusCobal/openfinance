@@ -82,9 +82,7 @@ class FixedCostsTest(unittest.TestCase):
         self.assertFalse(patched["active"])
 
         self.assertEqual(self.client.get("/fixed-costs").json(), [])
-        all_rows = self.client.get(
-            "/fixed-costs", params={"include_inactive": True}
-        ).json()
+        all_rows = self.client.get("/fixed-costs", params={"include_inactive": True}).json()
         self.assertEqual(len(all_rows), 1)
 
         self.assertEqual(
@@ -92,9 +90,7 @@ class FixedCostsTest(unittest.TestCase):
             204,
         )
         self.assertEqual(
-            self.client.delete(
-                f"/fixed-cost-categories/{category['id']}"
-            ).status_code,
+            self.client.delete(f"/fixed-cost-categories/{category['id']}").status_code,
             204,
         )
 
@@ -113,9 +109,7 @@ class FixedCostsTest(unittest.TestCase):
             },
         ).json()
 
-        base = self.client.get(
-            "/fixed-costs/by-month", params={"year_month": "2026-06"}
-        ).json()
+        base = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-06"}).json()
         self.assertEqual(base["total"], 1800.0)
         self.assertFalse(base["entries"][0]["is_override"])
 
@@ -125,20 +119,14 @@ class FixedCostsTest(unittest.TestCase):
         ).json()
         self.assertEqual(override["amount"], 1950.0)
 
-        june = self.client.get(
-            "/fixed-costs/by-month", params={"year_month": "2026-06"}
-        ).json()
-        july = self.client.get(
-            "/fixed-costs/by-month", params={"year_month": "2026-07"}
-        ).json()
+        june = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-06"}).json()
+        july = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-07"}).json()
         self.assertEqual(june["total"], 1950.0)
         self.assertTrue(june["entries"][0]["is_override"])
         self.assertEqual(july["total"], 1800.0)
 
         self.assertEqual(
-            self.client.delete(
-                f"/fixed-costs/{cost['id']}/overrides/2026-06"
-            ).status_code,
+            self.client.delete(f"/fixed-costs/{cost['id']}/overrides/2026-06").status_code,
             204,
         )
         june_again = self.client.get(
@@ -194,18 +182,14 @@ class FixedCostsTest(unittest.TestCase):
                 )
             )
             session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
-            session.add(
-                Category(id=2, name="Transporte", color="#f97316", sort_order=2)
-            )
+            session.add(Category(id=2, name="Transporte", color="#f97316", sort_order=2))
             session.add(CategoryRule(pluggy_category="Shopping", category_id=1))
             session.add(CategoryRule(pluggy_category="Fuel", category_id=2))
             session.add(Budget(category_id=1, monthly_target=Decimal("1500")))
             session.add(Budget(category_id=2, monthly_target=Decimal("500")))
             session.commit()
 
-        category = self.client.post(
-            "/fixed-cost-categories", json={"name": "Casa"}
-        ).json()
+        category = self.client.post("/fixed-cost-categories", json={"name": "Casa"}).json()
         self.client.post(
             "/fixed-costs",
             json={
@@ -216,9 +200,7 @@ class FixedCostsTest(unittest.TestCase):
             },
         )
 
-        capacity = self.client.get(
-            "/spending-capacity", params={"year_month": "2026-05"}
-        ).json()
+        capacity = self.client.get("/spending-capacity", params={"year_month": "2026-05"}).json()
 
         self.assertEqual(capacity["expected_income_total"], 10000.0)
         self.assertEqual(capacity["receita_esperada"], 10000.0)
@@ -260,8 +242,7 @@ class FixedCostsTest(unittest.TestCase):
         )
 
         variable_items = {
-            item["category_name"]: item
-            for item in capacity["variable_budgets"]["items"]
+            item["category_name"]: item for item in capacity["variable_budgets"]["items"]
         }
         self.assertEqual(variable_items["Mercado"]["target_consumed"], 1200.0)
         self.assertEqual(variable_items["Mercado"]["remaining_target"], 300.0)
@@ -337,12 +318,8 @@ class FixedCostsTest(unittest.TestCase):
 
         # Before any fixed cost exists, the pharmacy purchase is just a
         # regular variable expense.
-        before = self.client.get(
-            "/budgets/progress", params={"year_month": "2026-05"}
-        ).json()
-        before_items = {
-            item["category_name"]: item for item in before["items"]
-        }
+        before = self.client.get("/budgets/progress", params={"year_month": "2026-05"}).json()
+        before_items = {item["category_name"]: item for item in before["items"]}
         self.assertEqual(before_items["Saúde"]["projected_spent"], 740.0)
 
         fixed_category = self.client.post(
@@ -361,12 +338,8 @@ class FixedCostsTest(unittest.TestCase):
 
         # Auto-match already excludes the transaction from the variable
         # budget (description + amount overlap with the new fixed cost).
-        after_auto = self.client.get(
-            "/budgets/progress", params={"year_month": "2026-05"}
-        ).json()
-        after_auto_items = {
-            item["category_name"]: item for item in after_auto["items"]
-        }
+        after_auto = self.client.get("/budgets/progress", params={"year_month": "2026-05"}).json()
+        after_auto_items = {item["category_name"]: item for item in after_auto["items"]}
         self.assertEqual(after_auto_items["Saúde"]["projected_spent"], 0.0)
 
         match = self.client.post(
@@ -394,22 +367,14 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(entry["fixed_cost_transaction_match_id"], match["id"])
         self.assertEqual(entry["matched_transaction"]["id"], "tx-venvanse")
 
-        progress = self.client.get(
-            "/budgets/progress", params={"year_month": "2026-05"}
-        ).json()
-        progress_items = {
-            item["category_name"]: item for item in progress["items"]
-        }
+        progress = self.client.get("/budgets/progress", params={"year_month": "2026-05"}).json()
+        progress_items = {item["category_name"]: item for item in progress["items"]}
         self.assertEqual(progress["summary"]["projected_spent"], 0.0)
-        self.assertEqual(
-            progress["summary"]["fixed_cost_matched_transaction_count"], 1
-        )
+        self.assertEqual(progress["summary"]["fixed_cost_matched_transaction_count"], 1)
         self.assertEqual(progress_items["Saúde"]["projected_spent"], 0.0)
         self.assertEqual(progress_items["Saúde"]["remaining_target"], 1000.0)
 
-        capacity = self.client.get(
-            "/spending-capacity", params={"year_month": "2026-05"}
-        ).json()
+        capacity = self.client.get("/spending-capacity", params={"year_month": "2026-05"}).json()
         # The R$ 740 pharmacy purchase is already counted as a fixed cost
         # (fixed_cost_total). It still belongs to the real card invoice
         # (gross), but must leave the planning invoice (discretionary) so
@@ -471,9 +436,7 @@ class FixedCostsTest(unittest.TestCase):
             json={"transaction_id": "tx-paid-venvanse", "year_month": "2026-05"},
         )
 
-        capacity = self.client.get(
-            "/spending-capacity", params={"year_month": "2026-05"}
-        ).json()
+        capacity = self.client.get("/spending-capacity", params={"year_month": "2026-05"}).json()
 
         self.assertEqual(capacity["invoice_mode"], "paid")
         self.assertEqual(capacity["card_invoice_gross_total"], 1200.0)
@@ -505,11 +468,18 @@ class FixedCostsTest(unittest.TestCase):
         ).json()
         cost = self.client.post(
             "/fixed-costs",
-            json={"category_id": cat["id"], "description": "Despesa Mensal", "amount": 620, "due_day": 8},
+            json={
+                "category_id": cat["id"],
+                "description": "Despesa Mensal",
+                "amount": 620,
+                "due_day": 8,
+            },
         ).json()
 
         # Before linking: no manual match exists
-        breakdown = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-05"}).json()
+        breakdown = self.client.get(
+            "/fixed-costs/by-month", params={"year_month": "2026-05"}
+        ).json()
         entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
         self.assertIsNone(entry["fixed_cost_transaction_match_id"])
         self.assertIsNone(entry["matched_transaction"])
@@ -524,7 +494,9 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(match["year_month"], "2026-05")
 
         # After linking: status is paid, source is manual, match_id is set
-        breakdown = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-05"}).json()
+        breakdown = self.client.get(
+            "/fixed-costs/by-month", params={"year_month": "2026-05"}
+        ).json()
         entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
         self.assertEqual(entry["status"], "paid")
         self.assertEqual(entry["match_source"], "manual")
@@ -538,7 +510,9 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(capacity["fixed_cost_actual_total"], 500.0)
 
         # GET matches endpoint also shows it
-        matches_list = self.client.get("/fixed-costs/matches", params={"year_month": "2026-05"}).json()
+        matches_list = self.client.get(
+            "/fixed-costs/matches", params={"year_month": "2026-05"}
+        ).json()
         self.assertEqual(len(matches_list), 1)
         self.assertEqual(matches_list[0]["id"], match["id"])
 
@@ -547,13 +521,17 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 204)
 
         # After unlinking: no manual match, transaction is free again
-        breakdown = self.client.get("/fixed-costs/by-month", params={"year_month": "2026-05"}).json()
+        breakdown = self.client.get(
+            "/fixed-costs/by-month", params={"year_month": "2026-05"}
+        ).json()
         entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
         self.assertNotEqual(entry["status"], "paid")
         self.assertIsNone(entry["fixed_cost_transaction_match_id"])
 
         # Matches list is empty
-        matches_list = self.client.get("/fixed-costs/matches", params={"year_month": "2026-05"}).json()
+        matches_list = self.client.get(
+            "/fixed-costs/matches", params={"year_month": "2026-05"}
+        ).json()
         self.assertEqual(len(matches_list), 0)
 
         # Deleting the same match again returns 404
@@ -597,9 +575,7 @@ class FixedCostsTest(unittest.TestCase):
 
     def test_validates_inputs(self):
         self.assertEqual(
-            self.client.post(
-                "/fixed-cost-categories", json={"name": ""}
-            ).status_code,
+            self.client.post("/fixed-cost-categories", json={"name": ""}).status_code,
             400,
         )
 
@@ -622,9 +598,7 @@ class FixedCostsTest(unittest.TestCase):
         )
         self.assertTrue(all(category["is_default"] for category in categories))
         self.assertEqual(
-            self.client.delete(
-                f"/fixed-cost-categories/{categories[0]['id']}"
-            ).status_code,
+            self.client.delete(f"/fixed-cost-categories/{categories[0]['id']}").status_code,
             400,
         )
 
@@ -657,9 +631,7 @@ class FixedCostsTest(unittest.TestCase):
             400,
         )
         self.assertEqual(
-            self.client.get(
-                "/fixed-costs/by-month", params={"year_month": "bad"}
-            ).status_code,
+            self.client.get("/fixed-costs/by-month", params={"year_month": "bad"}).status_code,
             400,
         )
 
@@ -772,21 +744,15 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             # 31-day month (May 2026), pin today at the 11th.
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 5, 11)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 11))
             self.assertEqual(capacity["days_remaining_in_month"], 21)  # 31 - 11 + 1
 
             # If today is BEFORE the month, full month of days.
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 4, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 4, 15))
             self.assertEqual(capacity["days_remaining_in_month"], 31)
 
             # If today is AFTER the month, zero days remaining.
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 7, 1)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 7, 1))
             self.assertEqual(capacity["days_remaining_in_month"], 0)
             self.assertEqual(capacity["daily_discretionary_remaining"], 0.0)
 
@@ -796,9 +762,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             # Mid-month with no expenses → all R$ 10k spread across 21 days.
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 5, 11)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 11))
             self.assertEqual(capacity["discretionary_available"], 10000.0)
             self.assertEqual(capacity["days_remaining_in_month"], 21)
             self.assertAlmostEqual(
@@ -810,9 +774,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
         # When discretionary goes negative, daily verba is clamped at 0
         # (you can't spend negative money per day). A fixed cost larger than
         # income pushes availability below zero.
-        cat = self.client.post(
-            "/fixed-cost-categories", json={"name": "Casa"}
-        ).json()
+        cat = self.client.post("/fixed-cost-categories", json={"name": "Casa"}).json()
         self.client.post(
             "/fixed-costs",
             json={
@@ -835,15 +797,11 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
         # Healthy: no expenses, everything is discretionary
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 5, 11)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 11))
             self.assertEqual(capacity["plan_status"], "healthy")
 
         # Tight: a fixed cost eats >90% of income (margin under 10%)
-        cat = self.client.post(
-            "/fixed-cost-categories", json={"name": "Casa"}
-        ).json()
+        cat = self.client.post("/fixed-cost-categories", json={"name": "Casa"}).json()
         cost = self.client.post(
             "/fixed-costs",
             json={
@@ -854,17 +812,13 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
             },
         ).json()
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 5, 11)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 11))
             self.assertEqual(capacity["plan_status"], "tight")
 
         # Over: fixed cost exceeds income, discretionary goes negative
         self.client.patch(f"/fixed-costs/{cost['id']}", json={"amount": 12000})
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 5, 11)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 11))
             self.assertEqual(capacity["plan_status"], "over")
 
     def test_plan_status_unknown_when_no_income(self):
@@ -876,16 +830,12 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
         with Session(self.engine) as session:
             session.exec(delete(ExpectedIncome))
             session.commit()
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=date(2026, 5, 11)
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 11))
             self.assertEqual(capacity["plan_status"], "unknown")
 
     def test_upcoming_months_projects_future_installments(self):
         """#8 — future-dated card purchases per month should be visible."""
-        category = self.client.post(
-            "/fixed-cost-categories", json={"name": "Casa"}
-        ).json()
+        category = self.client.post("/fixed-cost-categories", json={"name": "Casa"}).json()
         self.client.post(
             "/fixed-costs",
             json={
@@ -931,9 +881,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
         from app.services.planning import upcoming_months
 
         with Session(self.engine) as session:
-            months = upcoming_months(
-                session, "2026-06", months=3, today=date(2026, 5, 31)
-            )
+            months = upcoming_months(session, "2026-06", months=3, today=date(2026, 5, 31))
 
         by_month = {m["year_month"]: m for m in months}
         # June: aluguel R$ 2000 + 1 parcela R$ 300
@@ -968,15 +916,11 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             # Today is AFTER the transaction → not a future installment
-            summary = scheduled_installments_for_month(
-                session, "2026-05", today=date(2026, 5, 20)
-            )
+            summary = scheduled_installments_for_month(session, "2026-05", today=date(2026, 5, 20))
             self.assertEqual(summary["total"], 0.0)
 
             # Today is BEFORE the transaction → it counts
-            summary = scheduled_installments_for_month(
-                session, "2026-05", today=date(2026, 5, 5)
-            )
+            summary = scheduled_installments_for_month(session, "2026-05", today=date(2026, 5, 5))
             self.assertEqual(summary["total"], 400.0)
 
 
@@ -1000,26 +944,28 @@ class BankOutflowExcludesInvoicePaymentTest(unittest.TestCase):
         with Session(self.engine) as session:
             session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
             session.add(Account(id="bank-1", item_id="item-1", name="Bank", type="BANK"))
-            session.add_all([
-                # Regular PIX to a merchant — should be included
-                Transaction(
-                    id="tx-pix-mercado",
-                    account_id="bank-1",
-                    date=date(2026, 5, 10),
-                    amount=Decimal("-350.00"),
-                    description="PIX Mercado",
-                    category="Supermarket",
-                ),
-                # Bank-side credit card invoice payment — must be EXCLUDED
-                Transaction(
-                    id="tx-fatura-bank",
-                    account_id="bank-1",
-                    date=date(2026, 5, 15),
-                    amount=Decimal("-2500.00"),
-                    description="Pagamento fatura cartao",
-                    category="Credit card payment",
-                ),
-            ])
+            session.add_all(
+                [
+                    # Regular PIX to a merchant — should be included
+                    Transaction(
+                        id="tx-pix-mercado",
+                        account_id="bank-1",
+                        date=date(2026, 5, 10),
+                        amount=Decimal("-350.00"),
+                        description="PIX Mercado",
+                        category="Supermarket",
+                    ),
+                    # Bank-side credit card invoice payment — must be EXCLUDED
+                    Transaction(
+                        id="tx-fatura-bank",
+                        account_id="bank-1",
+                        date=date(2026, 5, 15),
+                        amount=Decimal("-2500.00"),
+                        description="Pagamento fatura cartao",
+                        category="Credit card payment",
+                    ),
+                ]
+            )
             session.commit()
 
     def test_invoice_payment_excluded_from_bank_outflows(self):
@@ -1045,9 +991,7 @@ class BankOutflowExcludesInvoicePaymentTest(unittest.TestCase):
         app.dependency_overrides[get_session] = override_get_session
         try:
             with Session(self.engine) as session:
-                capacity = spending_capacity_summary(
-                    session, "2026-05", today=date(2026, 5, 31)
-                )
+                capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 31))
             # Only the PIX (350) should appear — not the invoice payment (2500)
             self.assertAlmostEqual(capacity["bank_outflows_total"], 350.0, places=2)
         finally:
@@ -1110,9 +1054,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     # ----- helpers -----
 
     def _make_water_fixed_cost(self, amount=300):
-        category = self.client.post(
-            "/fixed-cost-categories", json={"name": "Casa"}
-        ).json()
+        category = self.client.post("/fixed-cost-categories", json={"name": "Casa"}).json()
         return self.client.post(
             "/fixed-costs",
             json={
@@ -1124,9 +1066,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         ).json()
 
     def _capacity(self, year_month="2026-06"):
-        return self.client.get(
-            "/spending-capacity", params={"year_month": year_month}
-        ).json()
+        return self.client.get("/spending-capacity", params={"year_month": year_month}).json()
 
     # ----- 1. Fixed cost pending -----
 
@@ -1175,9 +1115,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["fixed_cost_pending_total"], 0.0)
         self.assertEqual(capacity["fixed_cost_variance_total"], 0.0)
         self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
-        self.assertEqual(
-            capacity["budget_available_to_spend"], pending_available
-        )
+        self.assertEqual(capacity["budget_available_to_spend"], pending_available)
 
     # ----- 3. Fixed cost paid higher than planned -----
 
@@ -1215,18 +1153,14 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         )
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["fixed_cost_actual_total"], 370.0)
         self.assertEqual(capacity["fixed_cost_variance_total"], 70.0)
         self.assertEqual(capacity["fixed_cost_positive_variance_total"], 70.0)
         self.assertEqual(capacity["fixed_cost_reserved_total"], 370.0)
-        self.assertEqual(
-            capacity["budget_available_to_spend"], pending_available - 70.0
-        )
+        self.assertEqual(capacity["budget_available_to_spend"], pending_available - 70.0)
 
     # ----- 4. Fixed cost paid lower than planned -----
 
@@ -1264,18 +1198,14 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         )
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["fixed_cost_actual_total"], 270.0)
         self.assertEqual(capacity["fixed_cost_variance_total"], -30.0)
         self.assertEqual(capacity["fixed_cost_negative_variance_total"], 30.0)
         self.assertEqual(capacity["fixed_cost_reserved_total"], 270.0)
-        self.assertEqual(
-            capacity["budget_available_to_spend"], pending_available + 30.0
-        )
+        self.assertEqual(capacity["budget_available_to_spend"], pending_available + 30.0)
 
     # ----- 5. Variable budget: only consumed reduces availability -----
 
@@ -1286,9 +1216,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         regardless of when today falls in June.
         """
         with Session(self.engine) as session:
-            session.add(
-                Category(id=1, name="Mercado", color="#22c55e", sort_order=1)
-            )
+            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
             session.add(CategoryRule(pluggy_category="Supermarket", category_id=1))
             session.add(Budget(category_id=1, monthly_target=Decimal("1500")))
             session.add(
@@ -1322,9 +1250,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         Uses 2026-07 (reliably future) so the future-month formula applies.
         """
         with Session(self.engine) as session:
-            session.add(
-                Category(id=1, name="Mercado", color="#22c55e", sort_order=1)
-            )
+            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
             session.add(CategoryRule(pluggy_category="Supermarket", category_id=1))
             session.add(Budget(category_id=1, monthly_target=Decimal("1500")))
             session.add(
@@ -1358,9 +1284,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         Uses 2026-07 (reliably future) so the future-month formula applies.
         """
         with Session(self.engine) as session:
-            session.add(
-                Category(id=10, name="Saude", color="#38bdf8", sort_order=1)
-            )
+            session.add(Category(id=10, name="Saude", color="#38bdf8", sort_order=1))
             session.add(CategoryRule(pluggy_category="Pharmacy", category_id=10))
             session.add(Budget(category_id=10, monthly_target=Decimal("1000")))
             session.add(
@@ -1441,9 +1365,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         # Pin today inside the month so the window captures the txs.
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
         # Not in normal cash flows
         self.assertEqual(capacity["bank_outflows_total"], 0.0)
         self.assertEqual(capacity["bank_inflows_total"], 0.0)
@@ -1473,9 +1395,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             # Real-world setup: there IS a category mapping for the pluggy
             # category, so without explicit exclusion the PIX would consume
             # the "Casa variavel" envelope on top of the fixed cost.
-            session.add(
-                Category(id=50, name="Casa variavel", color="#0ea5e9", sort_order=1)
-            )
+            session.add(Category(id=50, name="Casa variavel", color="#0ea5e9", sort_order=1))
             session.add(CategoryRule(pluggy_category="Utilities", category_id=50))
             session.add(Budget(category_id=50, monthly_target=Decimal("1000")))
             session.add(
@@ -1559,9 +1479,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         """/spending-capacity/monthly must include the new headline field per
         month AND in the aggregate summary, alongside the legacy aliases."""
         self._make_water_fixed_cost(amount=300)
-        response = self.client.get(
-            "/spending-capacity/monthly", params={"months": 1}
-        )
+        response = self.client.get("/spending-capacity/monthly", params={"months": 1})
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -1572,10 +1490,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertIn("variable_budget_consumed", row)
         self.assertIn("budget_available_to_spend", payload["summary"])
         # Sanity: the new headline matches the legacy alias for backward compat
-        self.assertEqual(
-            row["budget_available_to_spend"], row["discretionary_available"]
-        )
-
+        self.assertEqual(row["budget_available_to_spend"], row["discretionary_available"])
 
     # ----- 10. Unbudgeted spend does NOT reduce disponível -----
 
@@ -1620,9 +1535,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         # Pin today=2026-06-30 → 2026-06 is current month (current-month formula).
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         # Unbudgeted NOT subtracted.
@@ -1656,13 +1569,12 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.add(CategoryRule(pluggy_category="Shopping", category_id=95))
             # Set up close_date so the cycle is 2026-05-05 → 2026-06-04
             acct = session.exec(
-                __import__("sqlmodel", fromlist=["select"]).select(
-                    __import__("app.models", fromlist=["Account"]).Account
-                ).where(
-                    __import__("app.models", fromlist=["Account"]).Account.id == "credit-1"
-                )
+                __import__("sqlmodel", fromlist=["select"])
+                .select(__import__("app.models", fromlist=["Account"]).Account)
+                .where(__import__("app.models", fromlist=["Account"]).Account.id == "credit-1")
             ).one()
             from datetime import date as _date
+
             acct.credit_balance_close_date = _date(2026, 6, 4)
             session.add(acct)
             # PENDING transaction inside cycle — will be the official open total
@@ -1701,9 +1613,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         # CreditCardBill NOT used — source is PENDING-based
@@ -1757,9 +1667,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertEqual(capacity["card_invoice_gross_total"], 2000.0)
@@ -1819,9 +1727,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self._make_water_fixed_cost(amount=300)
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # variable_budget_consumed reflects the installment (200).
@@ -1846,9 +1752,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # No official bill for 2026-07 → future_card_obligation_total must be 0.
@@ -1894,9 +1798,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         self.assertEqual(capacity["card_invoice_source"], "official_bill")
@@ -1933,9 +1835,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # Installment picked up as scheduled_installments fallback.
@@ -1975,9 +1875,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["future_card_obligation_source"], "scheduled_installments")
         self.assertEqual(capacity["future_card_obligation_count"], 2)
@@ -2043,9 +1941,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(installments["transactions"][0]["transaction_id"], "tx-future-pos")
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["future_card_obligation_source"], "scheduled_installments")
         self.assertEqual(capacity["future_card_obligation_total"], 800.0)
@@ -2079,9 +1975,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["future_card_obligation_source"], "official_bill")
         self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
@@ -2095,9 +1989,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         self.assertEqual(capacity["future_card_obligation_source"], "none")
@@ -2120,9 +2012,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         self.assertEqual(capacity["card_invoice_source"], "account_balance_due_month")
@@ -2146,9 +2036,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 15)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # credit_balance_due_date is in 2026-08, not 2026-07 → not used
@@ -2191,9 +2079,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self._make_water_fixed_cost(amount=200)
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         # CreditCardBill NOT used for current-month open invoice.
@@ -2286,9 +2172,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = planning_invoice_for_month(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            result = planning_invoice_for_month(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(result["source"], "open_invoice")
         # Both PENDING and null-status are counted → 300 + 500 = 800
@@ -2331,9 +2215,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = planning_invoice_for_month(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            result = planning_invoice_for_month(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(result["source"], "open_invoice")
         self.assertEqual(result["amount"], 100.0)
@@ -2373,9 +2255,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = planning_invoice_for_month(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            result = planning_invoice_for_month(session, "2026-06", today=date(2026, 6, 30))
 
         # Only the bill_id=null tx is in the open-invoice estimate
         self.assertEqual(result["source"], "open_invoice")
@@ -2404,9 +2284,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = planning_invoice_for_month(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            result = planning_invoice_for_month(session, "2026-06", today=date(2026, 6, 30))
 
         # The bill_id-filled tx is excluded from the open-invoice tier.
         self.assertNotEqual(result["source"], "open_invoice")
@@ -2430,9 +2308,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "current_month")
         self.assertNotEqual(capacity["card_invoice_source"], "official_bill")
@@ -2465,9 +2341,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = planning_invoice_for_month(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            result = planning_invoice_for_month(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(result["source"], "open_invoice")
         self.assertEqual(result["amount"], 250.0)
@@ -2489,18 +2363,14 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            result = planning_invoice_for_month(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            result = planning_invoice_for_month(session, "2026-06", today=date(2026, 6, 30))
 
         self.assertEqual(result["source"], "account_balance")
         self.assertEqual(result["amount"], 2500.0)
         self.assertEqual(result["transaction_count"], 0)
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-06", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
         self.assertEqual(capacity["card_invoice_source"], "account_balance")
         self.assertEqual(capacity["card_invoice_official_total"], 2500.0)
 
@@ -2523,9 +2393,7 @@ class CurrentOpenCardInvoiceTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(
-                session, "2026-07", today=date(2026, 6, 30)
-            )
+            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # Future month: CreditCardBill with due_date in that month IS still used

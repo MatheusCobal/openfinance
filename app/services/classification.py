@@ -75,10 +75,7 @@ class TransactionClassification:
     @property
     def is_real_bank_income(self) -> bool:
         # Only the Receitas ("salary") view respects bank_income_excluded.
-        return (
-            self.kind == TransactionKind.BANK_INCOME
-            and not self.bank_income_excluded
-        )
+        return self.kind == TransactionKind.BANK_INCOME and not self.bank_income_excluded
 
     @property
     def is_bank_cashflow(self) -> bool:
@@ -109,9 +106,7 @@ class TransactionClassifier:
 
     @classmethod
     def from_session(cls, session: Session) -> "TransactionClassifier":
-        accounts_by_id = {
-            account.id: account for account in session.exec(select(Account)).all()
-        }
+        accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
         ignored_patterns = [
             rule.pattern_normalized
             for rule in session.exec(select(IgnoredDescriptionRule)).all()
@@ -192,9 +187,7 @@ class TransactionClassifier:
         ignored: bool,
         account_type: Optional[str],
     ) -> TransactionClassification:
-        bank_income_excluded = (
-            tx.amount > 0 and self._matches_bank_income_exclusion(tx)
-        )
+        bank_income_excluded = tx.amount > 0 and self._matches_bank_income_exclusion(tx)
         cashflow_excluded = self._matches_bank_cashflow_exclusion(tx)
         if ignored:
             return TransactionClassification(
@@ -272,10 +265,7 @@ class TransactionClassifier:
         for rule in self.bank_income_rules:
             if rule.pluggy_category and tx.category == rule.pluggy_category:
                 return True
-            if (
-                rule.pattern_normalized
-                and rule.pattern_normalized in normalized_description
-            ):
+            if rule.pattern_normalized and rule.pattern_normalized in normalized_description:
                 return True
         return False
 
@@ -286,10 +276,7 @@ class TransactionClassifier:
                 continue
             if rule.pluggy_category and tx.category == rule.pluggy_category:
                 return True
-            if (
-                rule.pattern_normalized
-                and rule.pattern_normalized in normalized_description
-            ):
+            if rule.pattern_normalized and rule.pattern_normalized in normalized_description:
                 return True
         return False
 

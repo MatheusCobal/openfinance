@@ -158,8 +158,7 @@ def _serialize_fixed_cost_transaction_match(
 
 def _sync_default_categories(session: Session) -> None:
     existing_by_name = {
-        category.name: category
-        for category in session.exec(select(FixedCostCategory)).all()
+        category.name: category for category in session.exec(select(FixedCostCategory)).all()
     }
     default_names = {category["name"] for category in DEFAULT_FIXED_COST_CATEGORIES}
     changed = False
@@ -192,9 +191,7 @@ def _sync_default_categories(session: Session) -> None:
         if category.is_default and category.name not in default_names
     ]
     for category in stale_defaults:
-        in_use = session.exec(
-            select(FixedCost).where(FixedCost.category_id == category.id)
-        ).first()
+        in_use = session.exec(select(FixedCost).where(FixedCost.category_id == category.id)).first()
         if in_use is None:
             session.delete(category)
         else:
@@ -207,20 +204,13 @@ def _sync_default_categories(session: Session) -> None:
 
 def _custom_category_count(session: Session) -> int:
     return len(
-        session.exec(
-            select(FixedCostCategory).where(
-                FixedCostCategory.is_default.is_(False)
-            )
-        ).all()
+        session.exec(select(FixedCostCategory).where(FixedCostCategory.is_default.is_(False))).all()
     )
 
 
 def _categories_by_name(session: Session) -> dict[str, FixedCostCategory]:
     _sync_default_categories(session)
-    return {
-        category.name: category
-        for category in session.exec(select(FixedCostCategory)).all()
-    }
+    return {category.name: category for category in session.exec(select(FixedCostCategory)).all()}
 
 
 def list_fixed_cost_templates(session: Session) -> List[Dict[str, Any]]:
@@ -256,9 +246,7 @@ def create_fixed_cost_category(
 ) -> Dict[str, Any]:
     name = _validate_description(name)
     _sync_default_categories(session)
-    existing = session.exec(
-        select(FixedCostCategory).where(FixedCostCategory.name == name)
-    ).first()
+    existing = session.exec(select(FixedCostCategory).where(FixedCostCategory.name == name)).first()
     if existing is not None:
         raise FixedCostValidationError("category already exists")
     if _custom_category_count(session) >= MAX_CUSTOM_FIXED_COST_CATEGORIES:
@@ -305,9 +293,7 @@ def delete_fixed_cost_category(session: Session, category_id: int) -> bool:
         return False
     if category.is_default:
         raise FixedCostValidationError("default categories cannot be deleted")
-    in_use = session.exec(
-        select(FixedCost).where(FixedCost.category_id == category_id)
-    ).first()
+    in_use = session.exec(select(FixedCost).where(FixedCost.category_id == category_id)).first()
     if in_use is not None:
         raise FixedCostValidationError("category has fixed costs")
     session.delete(category)
@@ -321,8 +307,7 @@ def list_fixed_costs(
 ) -> List[Dict[str, Any]]:
     _sync_default_categories(session)
     categories = {
-        category.id: category
-        for category in session.exec(select(FixedCostCategory)).all()
+        category.id: category for category in session.exec(select(FixedCostCategory)).all()
     }
     query = select(FixedCost).order_by(FixedCost.due_day, FixedCost.description)
     if not include_inactive:
@@ -441,9 +426,7 @@ def delete_fixed_cost(session: Session, cost_id: int) -> bool:
     if cost is None:
         return False
     matches = session.exec(
-        select(FixedCostTransactionMatch).where(
-            FixedCostTransactionMatch.fixed_cost_id == cost_id
-        )
+        select(FixedCostTransactionMatch).where(FixedCostTransactionMatch.fixed_cost_id == cost_id)
     ).all()
     overrides = session.exec(
         select(FixedCostOverride).where(FixedCostOverride.fixed_cost_id == cost_id)
@@ -467,9 +450,7 @@ def _matches_for_month(
 ) -> list[FixedCostTransactionMatch]:
     _validate_month(year_month)
     return session.exec(
-        select(FixedCostTransactionMatch).where(
-            FixedCostTransactionMatch.year_month == year_month
-        )
+        select(FixedCostTransactionMatch).where(FixedCostTransactionMatch.year_month == year_month)
     ).all()
 
 
@@ -481,9 +462,7 @@ def _transactions_by_id(
         return {}
     return {
         tx.id: tx
-        for tx in session.exec(
-            select(Transaction).where(Transaction.id.in_(transaction_ids))
-        ).all()
+        for tx in session.exec(select(Transaction).where(Transaction.id.in_(transaction_ids))).all()
     }
 
 
@@ -492,17 +471,19 @@ def list_fixed_cost_transaction_matches(
     year_month: str,
 ) -> List[Dict[str, Any]]:
     matches = _matches_for_month(session, year_month)
-    transactions = _transactions_by_id(
-        session, {match.transaction_id for match in matches}
+    transactions = _transactions_by_id(session, {match.transaction_id for match in matches})
+    costs = (
+        {
+            cost.id: cost
+            for cost in session.exec(
+                select(FixedCost).where(
+                    FixedCost.id.in_({match.fixed_cost_id for match in matches})
+                )
+            ).all()
+        }
+        if matches
+        else {}
     )
-    costs = {
-        cost.id: cost
-        for cost in session.exec(
-            select(FixedCost).where(
-                FixedCost.id.in_({match.fixed_cost_id for match in matches})
-            )
-        ).all()
-    } if matches else {}
     return [
         _serialize_fixed_cost_transaction_match(
             match,
@@ -626,15 +607,12 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
         .order_by(FixedCost.due_day, FixedCost.description)
     ).all()
     categories = {
-        category.id: category
-        for category in session.exec(select(FixedCostCategory)).all()
+        category.id: category for category in session.exec(select(FixedCostCategory)).all()
     }
     overrides = {
         override.fixed_cost_id: override
         for override in session.exec(
-            select(FixedCostOverride).where(
-                FixedCostOverride.year_month == year_month
-            )
+            select(FixedCostOverride).where(FixedCostOverride.year_month == year_month)
         ).all()
     }
     month_transactions = session.exec(
@@ -759,9 +737,7 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
             "sort_order": category.sort_order,
             "total": float(category_totals.get(category.id, Decimal("0"))),
         }
-        for category in sorted(
-            categories.values(), key=lambda item: (item.sort_order, item.name)
-        )
+        for category in sorted(categories.values(), key=lambda item: (item.sort_order, item.name))
         if category.id in category_totals
     ]
     return {

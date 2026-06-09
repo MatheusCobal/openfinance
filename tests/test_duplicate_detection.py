@@ -14,13 +14,12 @@ Covers:
  11. Mark script --apply: writes and populates dedupe_key, refreshes snapshots
  12. Aggregates still exclude is_duplicate=True after marking
 """
+
 import sys
 import unittest
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
-from unittest.mock import patch
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -28,9 +27,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 # Ensure project root is on path for direct runs
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.database import get_session
 from app.models import Account, Item, Transaction
-from scripts.diagnose_duplicates import _is_active, _relaxed_matches
+from scripts.diagnose_duplicates import _is_active
 from scripts.mark_duplicate_transactions import (
     _build_active_index,
     _is_active as mark_is_active,
@@ -41,6 +39,7 @@ from scripts.mark_duplicate_transactions import (
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_engine():
     engine = create_engine(
@@ -54,8 +53,11 @@ def _make_engine():
 
 def _item(session, item_id, is_active=True):
     i = Item(
-        id=item_id, connector_id=1, connector_name="Bank",
-        status="UPDATED", is_active=is_active,
+        id=item_id,
+        connector_id=1,
+        connector_name="Bank",
+        status="UPDATED",
+        is_active=is_active,
     )
     session.add(i)
     return i
@@ -63,20 +65,32 @@ def _item(session, item_id, is_active=True):
 
 def _account(session, account_id, item_id, account_type="CREDIT", is_active=True):
     a = Account(
-        id=account_id, item_id=item_id, name=account_id,
-        type=account_type, is_active=is_active,
+        id=account_id,
+        item_id=item_id,
+        name=account_id,
+        type=account_type,
+        is_active=is_active,
     )
     session.add(a)
     return a
 
 
 def _tx(
-    tx_id, account_id, tx_date, amount, description="Buy",
-    installment_number=None, total_installments=None, is_duplicate=False,
+    tx_id,
+    account_id,
+    tx_date,
+    amount,
+    description="Buy",
+    installment_number=None,
+    total_installments=None,
+    is_duplicate=False,
 ):
     return Transaction(
-        id=tx_id, account_id=account_id, date=tx_date,
-        amount=amount, description=description,
+        id=tx_id,
+        account_id=account_id,
+        date=tx_date,
+        amount=amount,
+        description=description,
         installment_number=installment_number,
         total_installments=total_installments,
         is_duplicate=is_duplicate,
@@ -87,6 +101,7 @@ def _tx(
 # 1. Python 3.9 compatibility: Optional[Account] helper works
 # ---------------------------------------------------------------------------
 
+
 class TestPython39CompatOptionalAccount(unittest.TestCase):
     def test_is_active_helper_accepts_none(self):
         """_is_active(None, ...) must return False without TypeError."""
@@ -94,23 +109,17 @@ class TestPython39CompatOptionalAccount(unittest.TestCase):
         self.assertFalse(result)
 
     def test_is_active_helper_active_account(self):
-        account = Account(
-            id="acc-1", item_id="item-1", name="A", type="CREDIT", is_active=True
-        )
+        account = Account(id="acc-1", item_id="item-1", name="A", type="CREDIT", is_active=True)
         result = _is_active(account, {"item-1"})
         self.assertTrue(result)
 
     def test_is_active_helper_inactive_account(self):
-        account = Account(
-            id="acc-2", item_id="item-1", name="A", type="CREDIT", is_active=False
-        )
+        account = Account(id="acc-2", item_id="item-1", name="A", type="CREDIT", is_active=False)
         result = _is_active(account, {"item-1"})
         self.assertFalse(result)
 
     def test_is_active_helper_inactive_item(self):
-        account = Account(
-            id="acc-3", item_id="item-X", name="A", type="CREDIT", is_active=True
-        )
+        account = Account(id="acc-3", item_id="item-X", name="A", type="CREDIT", is_active=True)
         result = _is_active(account, set())  # empty = no active items
         self.assertFalse(result)
 
@@ -124,6 +133,7 @@ class TestPython39CompatOptionalAccount(unittest.TestCase):
 # 2. Exact strategy: inactive+active → mark inactive
 # ---------------------------------------------------------------------------
 
+
 class TestExactStrategyMarkInactive(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
@@ -133,9 +143,7 @@ class TestExactStrategyMarkInactive(unittest.TestCase):
 
     def _load_context(self, session):
         all_accounts = {a.id: a for a in session.exec(select(Account)).all()}
-        active_item_ids = {
-            item.id for item in session.exec(select(Item)).all() if item.is_active
-        }
+        active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
         return all_accounts, active_item_ids
 
     def test_active_index_built_correctly(self):
@@ -174,8 +182,7 @@ class TestExactStrategyMarkInactive(unittest.TestCase):
             _account(s, "acc-old", "item-old", is_active=False)
             s.add(_tx("tx-active", "acc-active", date(2026, 3, 10), Decimal("50")))
             # Already marked — should not be added to to_mark
-            s.add(_tx("tx-dup", "acc-old", date(2026, 3, 10), Decimal("50"),
-                      is_duplicate=True))
+            s.add(_tx("tx-dup", "acc-old", date(2026, 3, 10), Decimal("50"), is_duplicate=True))
             s.commit()
 
         with self.session() as s:
@@ -187,8 +194,12 @@ class TestExactStrategyMarkInactive(unittest.TestCase):
                 acc = all_accounts.get(tx.account_id)
                 atype = acc.type if acc else "UNKNOWN"
                 key = tx.dedupe_key or compute_dedupe_key(
-                    atype, tx.description, tx.date, tx.amount,
-                    tx.installment_number, tx.total_installments
+                    atype,
+                    tx.description,
+                    tx.date,
+                    tx.amount,
+                    tx.installment_number,
+                    tx.total_installments,
                 )
                 by_key[key].append(tx)
 
@@ -196,8 +207,16 @@ class TestExactStrategyMarkInactive(unittest.TestCase):
             for key, txs in by_key.items():
                 if len(txs) < 2:
                     continue
-                active_txs = [tx for tx in txs if mark_is_active(all_accounts.get(tx.account_id), active_item_ids)]
-                inactive_txs = [tx for tx in txs if not mark_is_active(all_accounts.get(tx.account_id), active_item_ids)]
+                active_txs = [
+                    tx
+                    for tx in txs
+                    if mark_is_active(all_accounts.get(tx.account_id), active_item_ids)
+                ]
+                inactive_txs = [
+                    tx
+                    for tx in txs
+                    if not mark_is_active(all_accounts.get(tx.account_id), active_item_ids)
+                ]
                 if active_txs and inactive_txs:
                     for tx in inactive_txs:
                         if not tx.is_duplicate:
@@ -212,6 +231,7 @@ class TestExactStrategyMarkInactive(unittest.TestCase):
 # 3. Exact strategy: all-inactive groups → skip
 # ---------------------------------------------------------------------------
 
+
 class TestExactStrategyOrphan(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
@@ -221,9 +241,7 @@ class TestExactStrategyOrphan(unittest.TestCase):
 
     def _load_context(self, session):
         all_accounts = {a.id: a for a in session.exec(select(Account)).all()}
-        active_item_ids = {
-            item.id for item in session.exec(select(Item)).all() if item.is_active
-        }
+        active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
         return all_accounts, active_item_ids
 
     def test_all_inactive_group_produces_no_marks(self):
@@ -249,8 +267,12 @@ class TestExactStrategyOrphan(unittest.TestCase):
                 acc = all_accounts.get(tx.account_id)
                 atype = acc.type if acc else "UNKNOWN"
                 key = tx.dedupe_key or compute_dedupe_key(
-                    atype, tx.description, tx.date, tx.amount,
-                    tx.installment_number, tx.total_installments
+                    atype,
+                    tx.description,
+                    tx.date,
+                    tx.amount,
+                    tx.installment_number,
+                    tx.total_installments,
                 )
                 by_key[key].append(tx)
 
@@ -258,8 +280,16 @@ class TestExactStrategyOrphan(unittest.TestCase):
             for key, txs in by_key.items():
                 if len(txs) < 2:
                     continue
-                active_txs = [tx for tx in txs if mark_is_active(all_accounts.get(tx.account_id), active_item_ids)]
-                inactive_txs = [tx for tx in txs if not mark_is_active(all_accounts.get(tx.account_id), active_item_ids)]
+                active_txs = [
+                    tx
+                    for tx in txs
+                    if mark_is_active(all_accounts.get(tx.account_id), active_item_ids)
+                ]
+                inactive_txs = [
+                    tx
+                    for tx in txs
+                    if not mark_is_active(all_accounts.get(tx.account_id), active_item_ids)
+                ]
                 if active_txs and inactive_txs:
                     for tx in inactive_txs:
                         to_mark.append(tx)
@@ -270,6 +300,7 @@ class TestExactStrategyOrphan(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # 4. Exact strategy: all-active groups → ambiguous (never mark)
 # ---------------------------------------------------------------------------
+
 
 class TestExactStrategyAmbiguous(unittest.TestCase):
     def setUp(self):
@@ -294,9 +325,7 @@ class TestExactStrategyAmbiguous(unittest.TestCase):
 
         with self.session() as s:
             all_accounts = {a.id: a for a in s.exec(select(Account)).all()}
-            active_item_ids = {
-                item.id for item in s.exec(select(Item)).all() if item.is_active
-            }
+            active_item_ids = {item.id for item in s.exec(select(Item)).all() if item.is_active}
             all_txs = s.exec(select(Transaction)).all()
 
             by_key = defaultdict(list)
@@ -304,8 +333,12 @@ class TestExactStrategyAmbiguous(unittest.TestCase):
                 acc = all_accounts.get(tx.account_id)
                 atype = acc.type if acc else "UNKNOWN"
                 key = tx.dedupe_key or compute_dedupe_key(
-                    atype, tx.description, tx.date, tx.amount,
-                    tx.installment_number, tx.total_installments
+                    atype,
+                    tx.description,
+                    tx.date,
+                    tx.amount,
+                    tx.installment_number,
+                    tx.total_installments,
                 )
                 by_key[key].append(tx)
 
@@ -314,8 +347,16 @@ class TestExactStrategyAmbiguous(unittest.TestCase):
             for key, txs in by_key.items():
                 if len(txs) < 2:
                     continue
-                active_txs = [tx for tx in txs if mark_is_active(all_accounts.get(tx.account_id), active_item_ids)]
-                inactive_txs = [tx for tx in txs if not mark_is_active(all_accounts.get(tx.account_id), active_item_ids)]
+                active_txs = [
+                    tx
+                    for tx in txs
+                    if mark_is_active(all_accounts.get(tx.account_id), active_item_ids)
+                ]
+                inactive_txs = [
+                    tx
+                    for tx in txs
+                    if not mark_is_active(all_accounts.get(tx.account_id), active_item_ids)
+                ]
                 if active_txs and not inactive_txs:
                     ambiguous.extend(active_txs)
                 elif active_txs and inactive_txs:
@@ -329,6 +370,7 @@ class TestExactStrategyAmbiguous(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # 5-7. Relaxed matching helpers
 # ---------------------------------------------------------------------------
+
 
 class TestRelaxedMatchHelper(unittest.TestCase):
     def setUp(self):
@@ -448,10 +490,24 @@ class TestRelaxedMatchHelper(unittest.TestCase):
         with self.session() as s:
             self._setup_accounts(s)
             # active: "Cobasicanoasbra 01/03", inactive: "Cobasicanoasbra 02/03"
-            s.add(_tx("tx-active", "acc-active", date(2026, 4, 15), Decimal("155.76"),
-                      "COBASICANOASBRA   01/03"))
-            s.add(_tx("tx-old", "acc-old", date(2026, 4, 15), Decimal("155.75"),
-                      "COBASICANOASBRA   02/03"))
+            s.add(
+                _tx(
+                    "tx-active",
+                    "acc-active",
+                    date(2026, 4, 15),
+                    Decimal("155.76"),
+                    "COBASICANOASBRA   01/03",
+                )
+            )
+            s.add(
+                _tx(
+                    "tx-old",
+                    "acc-old",
+                    date(2026, 4, 15),
+                    Decimal("155.75"),
+                    "COBASICANOASBRA   02/03",
+                )
+            )
             s.commit()
 
         with self.session() as s:
@@ -482,6 +538,7 @@ class TestRelaxedMatchHelper(unittest.TestCase):
 # 8. Relaxed strategy: installment mismatch blocks match
 # ---------------------------------------------------------------------------
 
+
 class TestRelaxedInstallmentMismatch(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
@@ -497,10 +554,28 @@ class TestRelaxedInstallmentMismatch(unittest.TestCase):
             _account(s, "acc-active", "item-a")
             _account(s, "acc-old", "item-b", is_active=False)
             # Active: installment 1/12; Inactive: 3/12 — different structured fields
-            s.add(_tx("tx-active", "acc-active", date(2026, 5, 17), Decimal("103.11"),
-                      "IG*EDZKAISERPL", installment_number=1, total_installments=12))
-            s.add(_tx("tx-old", "acc-old", date(2026, 5, 17), Decimal("103.11"),
-                      "IG*EDZKAISERPL", installment_number=3, total_installments=12))
+            s.add(
+                _tx(
+                    "tx-active",
+                    "acc-active",
+                    date(2026, 5, 17),
+                    Decimal("103.11"),
+                    "IG*EDZKAISERPL",
+                    installment_number=1,
+                    total_installments=12,
+                )
+            )
+            s.add(
+                _tx(
+                    "tx-old",
+                    "acc-old",
+                    date(2026, 5, 17),
+                    Decimal("103.11"),
+                    "IG*EDZKAISERPL",
+                    installment_number=3,
+                    total_installments=12,
+                )
+            )
             s.commit()
 
         with self.session() as s:
@@ -521,12 +596,28 @@ class TestRelaxedInstallmentMismatch(unittest.TestCase):
             _account(s, "acc-active", "item-a")
             _account(s, "acc-old", "item-b", is_active=False)
             # Active: no installment fields; Inactive: has 2/03
-            s.add(_tx("tx-active", "acc-active", date(2026, 4, 15), Decimal("155.75"),
-                      "COBASICANOASBRA   01/03",
-                      installment_number=None, total_installments=None))
-            s.add(_tx("tx-old", "acc-old", date(2026, 4, 15), Decimal("155.76"),
-                      "COBASICANOASBRA   02/03",
-                      installment_number=2, total_installments=3))
+            s.add(
+                _tx(
+                    "tx-active",
+                    "acc-active",
+                    date(2026, 4, 15),
+                    Decimal("155.75"),
+                    "COBASICANOASBRA   01/03",
+                    installment_number=None,
+                    total_installments=None,
+                )
+            )
+            s.add(
+                _tx(
+                    "tx-old",
+                    "acc-old",
+                    date(2026, 4, 15),
+                    Decimal("155.76"),
+                    "COBASICANOASBRA   02/03",
+                    installment_number=2,
+                    total_installments=3,
+                )
+            )
             s.commit()
 
         with self.session() as s:
@@ -545,6 +636,7 @@ class TestRelaxedInstallmentMismatch(unittest.TestCase):
 # 9. Relaxed strategy: tx already matched by exact is not re-matched
 # ---------------------------------------------------------------------------
 
+
 class TestRelaxedSkipsExactMatched(unittest.TestCase):
     def test_exact_matched_id_excluded_from_relaxed_pass(self):
         """The relaxed pass must skip IDs already in exact_matched_inactive_ids."""
@@ -561,11 +653,13 @@ class TestRelaxedSkipsExactMatched(unittest.TestCase):
 # 10. Mark script dry-run does not modify DB
 # ---------------------------------------------------------------------------
 
+
 class TestMarkScriptDryRun(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
         # Write a temp DB file for the script to use
         import tempfile
+
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmp_dir.name) / "test.db"
 
@@ -586,10 +680,11 @@ class TestMarkScriptDryRun(unittest.TestCase):
     def test_dry_run_does_not_change_is_duplicate(self):
         """Running the script without --apply must leave is_duplicate untouched."""
         import subprocess
+
         result = subprocess.run(
-            [sys.executable, "scripts/mark_duplicate_transactions.py",
-             "--db", str(self.db_path)],
-            capture_output=True, text=True,
+            [sys.executable, "scripts/mark_duplicate_transactions.py", "--db", str(self.db_path)],
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("DRY-RUN", result.stdout)
@@ -603,10 +698,11 @@ class TestMarkScriptDryRun(unittest.TestCase):
     def test_dry_run_prints_count(self):
         """Dry-run must print the count of transactions that WOULD be marked."""
         import subprocess
+
         result = subprocess.run(
-            [sys.executable, "scripts/mark_duplicate_transactions.py",
-             "--db", str(self.db_path)],
-            capture_output=True, text=True,
+            [sys.executable, "scripts/mark_duplicate_transactions.py", "--db", str(self.db_path)],
+            capture_output=True,
+            text=True,
         )
         # The test DB has exactly 1 inactive tx that matches 1 active tx
         self.assertIn("transações a marcar", result.stdout)
@@ -618,9 +714,11 @@ class TestMarkScriptDryRun(unittest.TestCase):
 # 11. Mark script --apply writes changes and populates dedupe_key
 # ---------------------------------------------------------------------------
 
+
 class TestMarkScriptApply(unittest.TestCase):
     def setUp(self):
         import tempfile
+
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmp_dir.name) / "test_apply.db"
 
@@ -640,10 +738,17 @@ class TestMarkScriptApply(unittest.TestCase):
 
     def test_apply_marks_inactive_as_duplicate(self):
         import subprocess
+
         result = subprocess.run(
-            [sys.executable, "scripts/mark_duplicate_transactions.py",
-             "--db", str(self.db_path), "--apply"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "scripts/mark_duplicate_transactions.py",
+                "--db",
+                str(self.db_path),
+                "--apply",
+            ],
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
@@ -657,10 +762,17 @@ class TestMarkScriptApply(unittest.TestCase):
 
     def test_apply_sets_duplicate_of_id(self):
         import subprocess
+
         subprocess.run(
-            [sys.executable, "scripts/mark_duplicate_transactions.py",
-             "--db", str(self.db_path), "--apply"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "scripts/mark_duplicate_transactions.py",
+                "--db",
+                str(self.db_path),
+                "--apply",
+            ],
+            capture_output=True,
+            text=True,
         )
 
         check_engine = create_engine(f"sqlite:///{self.db_path}")
@@ -671,10 +783,17 @@ class TestMarkScriptApply(unittest.TestCase):
 
     def test_apply_populates_dedupe_key(self):
         import subprocess
+
         subprocess.run(
-            [sys.executable, "scripts/mark_duplicate_transactions.py",
-             "--db", str(self.db_path), "--apply"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "scripts/mark_duplicate_transactions.py",
+                "--db",
+                str(self.db_path),
+                "--apply",
+            ],
+            capture_output=True,
+            text=True,
         )
 
         check_engine = create_engine(f"sqlite:///{self.db_path}")
@@ -686,10 +805,17 @@ class TestMarkScriptApply(unittest.TestCase):
 
     def test_apply_prints_snapshot_refresh(self):
         import subprocess
+
         result = subprocess.run(
-            [sys.executable, "scripts/mark_duplicate_transactions.py",
-             "--db", str(self.db_path), "--apply"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "scripts/mark_duplicate_transactions.py",
+                "--db",
+                str(self.db_path),
+                "--apply",
+            ],
+            capture_output=True,
+            text=True,
         )
         self.assertIn("refreshed_income_months", result.stdout)
         self.assertIn("refreshed_invoice_months", result.stdout)
@@ -699,6 +825,7 @@ class TestMarkScriptApply(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # 12. Aggregates still exclude is_duplicate=True
 # ---------------------------------------------------------------------------
+
 
 class TestAggregatesExcludeAfterMarking(unittest.TestCase):
     def setUp(self):

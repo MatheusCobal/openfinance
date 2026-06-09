@@ -273,12 +273,8 @@ class AccountSnapshotSyncTest(_SyncTestBase):
             bank = session.get(Account, "bank-1")
             self.assertEqual(bank.balance, Decimal("5000.0000000000"))
             self.assertEqual(bank.bank_closing_balance, Decimal("5000.0000000000"))
-            self.assertEqual(
-                bank.bank_automatically_invested_balance, Decimal("200.0000000000")
-            )
-            self.assertEqual(
-                bank.bank_overdraft_contracted_limit, Decimal("1000.0000000000")
-            )
+            self.assertEqual(bank.bank_automatically_invested_balance, Decimal("200.0000000000"))
+            self.assertEqual(bank.bank_overdraft_contracted_limit, Decimal("1000.0000000000"))
 
     def test_bills_and_investments_persisted(self):
         with Session(self.engine) as session:
@@ -341,9 +337,7 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
 
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=self.today
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=self.today)
             # CreditCardBill exists (from FakePluggy) but must NOT be the source
             self.assertNotEqual(capacity["card_invoice_source"], "official_bill")
             # Transaction-based: 1 tx in month with bill_id=null → open_invoice
@@ -369,9 +363,7 @@ class CreditCardBillVsReconstructedTest(_SyncTestBase):
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
 
-            capacity = spending_capacity_summary(
-                session, "2026-05", today=self.today
-            )
+            capacity = spending_capacity_summary(session, "2026-05", today=self.today)
             self.assertEqual(capacity["card_invoice_source"], "open_invoice")
             self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
 
@@ -412,9 +404,18 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
     regardless of the system clock."""
 
     REQUIRED_KEYS = (
-        "year_month", "amount", "source", "source_label", "is_estimated",
-        "due_dates", "cards", "transaction_count", "bill_count",
-        "account_count", "cycle_start", "cycle_end",
+        "year_month",
+        "amount",
+        "source",
+        "source_label",
+        "is_estimated",
+        "due_dates",
+        "cards",
+        "transaction_count",
+        "bill_count",
+        "account_count",
+        "cycle_start",
+        "cycle_end",
     )
 
     def _seed_credit(self, session, **kwargs):
@@ -428,6 +429,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_result_has_required_keys(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
@@ -441,6 +443,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
         """Current month uses the open invoice estimated from bill_id-null card
         transactions (NOT the official CreditCardBill)."""
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
@@ -453,9 +456,11 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
     def test_current_month_account_balance_fallback(self):
         """No bill_id-null transactions → fall back to Account.balance."""
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
             self._seed_credit(
-                session, balance=Decimal("1500"),
+                session,
+                balance=Decimal("1500"),
                 credit_balance_due_date=date(2026, 5, 17),
             )
             inv = planning_invoice_for_month(session, "2026-05", today=self.today)
@@ -466,13 +471,19 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_future_month_official_bill(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
-            self._seed_credit(session, balance=Decimal("999"),
-                              credit_balance_due_date=date(2026, 5, 17))
-            session.add(CreditCardBill(
-                id="bill-future", account_id="cc1",
-                due_date=date(2026, 6, 10), total_amount=Decimal("2500"),
-            ))
+            self._seed_credit(
+                session, balance=Decimal("999"), credit_balance_due_date=date(2026, 5, 17)
+            )
+            session.add(
+                CreditCardBill(
+                    id="bill-future",
+                    account_id="cc1",
+                    due_date=date(2026, 6, 10),
+                    total_amount=Decimal("2500"),
+                )
+            )
             session.commit()
             inv = planning_invoice_for_month(session, "2026-06", today=self.today)
         self.assertEqual(inv["source"], "official_bill")
@@ -485,22 +496,32 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
         """Account.balance is only used for a future month when the account's
         credit_balance_due_date falls in that month."""
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
-            self._seed_credit(session, balance=Decimal("900"),
-                              credit_balance_due_date=date(2026, 6, 17))
+            self._seed_credit(
+                session, balance=Decimal("900"), credit_balance_due_date=date(2026, 6, 17)
+            )
             inv = planning_invoice_for_month(session, "2026-06", today=self.today)
         self.assertEqual(inv["source"], "account_balance_due_month")
         self.assertEqual(inv["amount"], 900.0)
 
     def test_future_month_scheduled_installments(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
-            self._seed_credit(session, balance=Decimal("900"),
-                              credit_balance_due_date=date(2026, 5, 17))
-            session.add(Transaction(
-                id="parc-1", account_id="cc1", date=date(2026, 7, 15),
-                amount=Decimal("400"), description="parcela", category="Shopping",
-            ))
+            self._seed_credit(
+                session, balance=Decimal("900"), credit_balance_due_date=date(2026, 5, 17)
+            )
+            session.add(
+                Transaction(
+                    id="parc-1",
+                    account_id="cc1",
+                    date=date(2026, 7, 15),
+                    amount=Decimal("400"),
+                    description="parcela",
+                    category="Shopping",
+                )
+            )
             session.commit()
             inv = planning_invoice_for_month(session, "2026-07", today=self.today)
         self.assertEqual(inv["source"], "scheduled_installments")
@@ -509,9 +530,11 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_future_month_no_data_returns_none(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
-            self._seed_credit(session, balance=Decimal("900"),
-                              credit_balance_due_date=date(2026, 5, 17))
+            self._seed_credit(
+                session, balance=Decimal("900"), credit_balance_due_date=date(2026, 5, 17)
+            )
             inv = planning_invoice_for_month(session, "2026-09", today=self.today)
         self.assertEqual(inv["source"], "none")
         self.assertEqual(inv["amount"], 0.0)
@@ -520,12 +543,17 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_past_month_official_bill(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
             self._seed_credit(session)
-            session.add(CreditCardBill(
-                id="bill-past", account_id="cc1",
-                due_date=date(2026, 4, 15), total_amount=Decimal("777"),
-            ))
+            session.add(
+                CreditCardBill(
+                    id="bill-past",
+                    account_id="cc1",
+                    due_date=date(2026, 4, 15),
+                    total_amount=Decimal("777"),
+                )
+            )
             session.commit()
             inv = planning_invoice_for_month(session, "2026-04", today=self.today)
         self.assertEqual(inv["source"], "official_bill")
@@ -533,12 +561,19 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_past_month_transaction_fallback(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
             self._seed_credit(session)
-            session.add(Transaction(
-                id="t-past", account_id="cc1", date=date(2026, 4, 10),
-                amount=Decimal("-220"), description="compra", category="Shopping",
-            ))
+            session.add(
+                Transaction(
+                    id="t-past",
+                    account_id="cc1",
+                    date=date(2026, 4, 10),
+                    amount=Decimal("-220"),
+                    description="compra",
+                    category="Shopping",
+                )
+            )
             session.commit()
             inv = planning_invoice_for_month(session, "2026-04", today=self.today)
         self.assertEqual(inv["source"], "transaction_fallback")
@@ -548,6 +583,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_no_credit_card_data_returns_none(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
             inv = planning_invoice_for_month(session, "2026-05", today=self.today)
         self.assertEqual(inv["source"], "none")
@@ -556,14 +592,22 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_inactive_accounts_ignored(self):
         from app.services.credit_card_invoice import planning_invoice_for_month
+
         with Session(self.engine) as session:
-            session.add(Item(id="item-inactive", connector_id=200,
-                             status="UPDATED", is_active=False))
-            session.add(Account(
-                id="cc-inactive", item_id="item-inactive", name="CC",
-                type="CREDIT", is_active=False, balance=Decimal("5000"),
-                credit_balance_due_date=date(2026, 5, 17),
-            ))
+            session.add(
+                Item(id="item-inactive", connector_id=200, status="UPDATED", is_active=False)
+            )
+            session.add(
+                Account(
+                    id="cc-inactive",
+                    item_id="item-inactive",
+                    name="CC",
+                    type="CREDIT",
+                    is_active=False,
+                    balance=Decimal("5000"),
+                    credit_balance_due_date=date(2026, 5, 17),
+                )
+            )
             session.commit()
             inv = planning_invoice_for_month(session, "2026-05", today=self.today)
         self.assertEqual(inv["source"], "none")
@@ -574,6 +618,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_spending_capacity_includes_planning_invoice(self):
         from app.services.spending_capacity import spending_capacity_summary
+
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
@@ -587,6 +632,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
     def test_spending_capacity_compatibility_fields_present(self):
         from app.services.spending_capacity import spending_capacity_summary
+
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
@@ -687,9 +733,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
             capacity = spending_capacity_summary(session, "2026-06", today=self.today)
 
         self.assertEqual(capacity["planning_mode"], "future_month")
-        self.assertEqual(
-            capacity["card_invoice_source"], "active_open_invoice_transactions"
-        )
+        self.assertEqual(capacity["card_invoice_source"], "active_open_invoice_transactions")
         # The -1500 purchase in the forming cycle → +1500 invoice.
         self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
         self.assertEqual(capacity["future_card_obligation_total"], 1500.0)
@@ -722,9 +766,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
         # Forming cycle (2026-05-11 – 2026-06-10) holds credit-buy (1500) and
         # fresh-buy (200) → 1700, which differs from the frozen balance (1500).
-        self.assertEqual(
-            capacity["card_invoice_source"], "active_open_invoice_transactions"
-        )
+        self.assertEqual(capacity["card_invoice_source"], "active_open_invoice_transactions")
         self.assertEqual(capacity["card_invoice_official_total"], 1700.0)
         self.assertNotEqual(capacity["card_invoice_official_total"], balance)
 
@@ -740,12 +782,8 @@ class TransactionBillInstallmentTest(unittest.TestCase):
         )
         SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as session:
-            session.add(
-                Item(id="item-1", connector_id=1, connector_name="Test", status="UPDATED")
-            )
-            session.add(
-                Account(id="credit-1", item_id="item-1", name="Card", type="CREDIT")
-            )
+            session.add(Item(id="item-1", connector_id=1, connector_name="Test", status="UPDATED"))
+            session.add(Account(id="credit-1", item_id="item-1", name="Card", type="CREDIT"))
             session.commit()
 
     def test_upsert_transaction_persists_bill_installment_fields(self):

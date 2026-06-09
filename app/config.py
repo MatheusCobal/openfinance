@@ -1,9 +1,11 @@
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    pluggy_client_id: str
-    pluggy_client_secret: str
+    pluggy_client_id: Optional[str] = None
+    pluggy_client_secret: Optional[str] = None
     pluggy_base_url: str = "https://api.pluggy.ai"
     database_url: str = "sqlite:///./openfinance.db"
 

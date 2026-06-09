@@ -7,11 +7,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from app.models import (
+    Account,
     BankIncomeMonth,
     CreditCardInvoiceMonth,
     MonthlyBalanceMonth,
     Transaction,
 )
+from app.services.invoice_month import invoice_month_from_payment
 from app.services.transactions import (
     bank_income_transactions,
     credit_card_payment_transactions,
@@ -22,6 +24,7 @@ from app.services.transactions import (
 
 DEFAULT_CREDIT_CARD_PAYMENT_MONTHS = 12
 DEFAULT_MONTHLY_BALANCE_MONTHS = 12
+DEFAULT_CREDIT_CARD_DUE_DAY = 6
 
 
 def refresh_credit_card_invoice_snapshots(
@@ -38,9 +41,16 @@ def refresh_credit_card_invoice_snapshots(
         today,
     )
 
+    account_due_days: Dict[str, int] = {}
+    for acct in session.exec(select(Account)).all():
+        if acct.type == "CREDIT" and acct.credit_balance_due_date:
+            account_due_days[acct.id] = acct.credit_balance_due_date.day
+
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     for tx in payment_transactions:
-        by_month[month_key(tx.date)].append(tx)
+        due_day = account_due_days.get(tx.account_id, DEFAULT_CREDIT_CARD_DUE_DAY)
+        invoice_month = invoice_month_from_payment(tx.date, due_day)
+        by_month[invoice_month].append(tx)
 
     refreshed_count = 0
     now = datetime.utcnow()
@@ -170,19 +180,12 @@ def refresh_monthly_balance_snapshots(
         spend_txs = card_spend_by_month.get(month, [])
         income = income_snapshot.total if income_snapshot is not None else Decimal("0")
         income_transaction_count = income_snapshot.income_count if income_snapshot else 0
-        invoice_paid = (
-            invoice_snapshot.total if invoice_snapshot is not None else Decimal("0")
-        )
+        invoice_paid = invoice_snapshot.total if invoice_snapshot is not None else Decimal("0")
         invoice_payment_count = invoice_snapshot.payment_count if invoice_snapshot else 0
         card_spend = sum((abs(tx.amount) for tx in spend_txs), Decimal("0"))
         card_spend_count = len(spend_txs)
 
-        if (
-            month not in existing_months
-            and income == 0
-            and card_spend == 0
-            and invoice_paid == 0
-        ):
+        if month not in existing_months and income == 0 and card_spend == 0 and invoice_paid == 0:
             continue
 
         net_by_purchase_month = income - card_spend
