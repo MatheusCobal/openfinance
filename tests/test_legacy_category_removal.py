@@ -87,6 +87,10 @@ class LegacyCategoryRemovalTest(unittest.TestCase):
 
         self.assertIsNotNone(tx)
         self.assertEqual(tx.category, "Food delivery")
+        self.assertEqual(tx.pluggy_raw_category, "Food delivery")
+        self.assertEqual(tx.internal_category, "Alimentação")
+        self.assertEqual(tx.cashflow_type, "expense")
+        self.assertEqual(tx.classification_source, "pluggy_rule")
 
 
 if __name__ == "__main__":

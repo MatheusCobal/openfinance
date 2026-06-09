@@ -69,7 +69,7 @@ GET  /planning/month/{year_month}        agregado mensal do Planejamento
 GET  /upcoming                           parcelas futuras agrupadas por mês
 GET  /transactions                       lista de transações (filtros: from_date, to_date, include_future, include_ignored)
 GET  /stats                              totais agregados
-GET  /stats/monthly                      legado removido; retorna quebra vazia até a 10D-B
+GET  /stats/monthly                      quebra mensal pela classificação Pluggy-based
 
 GET  /fixed-costs                        custos fixos cadastrados
 GET  /fixed-costs/by-month               custos fixos por mês
@@ -118,9 +118,9 @@ openfinance/
     │   ├── expected_income.py receitas esperadas
     │   ├── credit_card.py     fatura do cartão
     │   ├── history.py         histórico financeiro
-    │   ├── transactions.py    transações e categorias
-    │   ├── rules.py           regras de categorização e exclusão
-    │   ├── budgets.py         metas por categoria
+    │   ├── transactions.py    transações e classificação Pluggy-based
+    │   ├── rules.py           regras de exclusão; categorização legada retorna 410
+    │   ├── budgets.py         metas legadas por categoria retornam 410
     │   ├── sync.py            sync Pluggy e conexões
     │   └── pluggy_webhooks.py recepção de webhooks Pluggy
     ├── services/              regras de negócio
@@ -136,7 +136,8 @@ openfinance/
     │   ├── sync.py            orquestra sync Pluggy
     │   ├── pluggy_snapshot.py persistência de dados vindos da Pluggy
     │   ├── rules.py           regras de exclusão bancária
-    │   ├── classification.py  classificação de transações
+    │   ├── classification.py  classificação operacional de fluxo
+    │   ├── transaction_classifier.py classificação Pluggy-based 10D-B
     │   └── transactions.py    consultas de transações
     ├── static/                frontend HTML/JS
     │   ├── dashboard.html    / dashboard.js

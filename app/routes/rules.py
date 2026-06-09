@@ -22,7 +22,7 @@ from app.services.rules import (
 router = APIRouter()
 LEGACY_CATEGORY_RULES_REMOVED_MESSAGE = (
     "legacy category description rules were removed in 10D-A; "
-    "TODO 10D-B: replace with Pluggy-based classification layer"
+    "TODO 10D-D: add user-owned rules for the Pluggy-based classification layer"
 )
 
 

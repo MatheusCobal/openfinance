@@ -18,8 +18,8 @@ from app.services.transaction_reports import (
 
 router = APIRouter()
 LEGACY_CATEGORY_REMOVED_MESSAGE = (
-    "legacy financial categories were removed in 10D-A; "
-    "TODO 10D-B: replace with Pluggy-based classification layer"
+    "legacy financial category endpoints were removed in 10D-A; "
+    "use transaction classification fields from the Pluggy-based 10D-B layer"
 )
 
 

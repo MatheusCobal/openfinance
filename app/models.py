@@ -133,6 +133,17 @@ class Transaction(SQLModel, table=True):
     # 10D-A: despite the generic column name, this is preserved as the raw
     # Pluggy category string. It must not be treated as an internal category.
     category: Optional[str] = None
+    pluggy_raw_category: Optional[str] = Field(default=None, index=True)
+    pluggy_raw_subcategory: Optional[str] = Field(default=None, index=True)
+    pluggy_raw_type: Optional[str] = Field(default=None, index=True)
+    pluggy_merchant: Optional[str] = Field(default=None, index=True)
+    internal_category: Optional[str] = Field(default=None, index=True)
+    cashflow_type: Optional[str] = Field(default=None, index=True)
+    classification_source: Optional[str] = Field(default=None, index=True)
+    classification_confidence: Optional[str] = Field(default=None, index=True)
+    classification_rule_key: Optional[str] = Field(default=None, index=True)
+    is_user_overridden: bool = Field(default=False, index=True)
+    ignored_from_totals: bool = Field(default=False, index=True)
     currency_code: str = "BRL"
     # Pluggy bill/installment metadata (CREDIT accounts)
     status: Optional[str] = None

@@ -13,7 +13,7 @@ from app.services.budgets import budget_progress_summary
 router = APIRouter()
 LEGACY_BUDGET_REMOVED_MESSAGE = (
     "legacy category budgets were removed in 10D-A; "
-    "TODO 10D-B: replace with Pluggy-based classification layer"
+    "TODO 10D-C: recreate variable targets on top of Pluggy-based classification"
 )
 
 

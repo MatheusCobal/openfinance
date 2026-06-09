@@ -127,7 +127,7 @@ class DeactivateItemEndpointTest(unittest.TestCase):
                     date=today,
                     amount=Decimal("-100"),
                     description="Pix Itau",
-                    category="Transfers",
+                    category="Shopping",
                 )
             )
             session.add(
@@ -137,7 +137,7 @@ class DeactivateItemEndpointTest(unittest.TestCase):
                     date=today,
                     amount=Decimal("-3000"),
                     description="Pix Caixa",
-                    category="Transfers",
+                    category="Shopping",
                 )
             )
             session.commit()

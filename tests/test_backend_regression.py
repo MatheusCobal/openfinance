@@ -541,11 +541,11 @@ class BackendRegressionTest(unittest.TestCase):
         payload = response.json()
         month = payload["months"][0]
         self.assertEqual(month["income"], 5000.01)
-        self.assertEqual(month["outflow"], 260.0)
+        self.assertEqual(month["outflow"], 0.0)
         self.assertEqual(month["income_count"], 2)
-        self.assertEqual(month["outflow_count"], 1)
+        self.assertEqual(month["outflow_count"], 0)
         self.assertEqual(
-            {"tx-salary", "tx-interest", "tx-bank-outflow"},
+            {"tx-salary", "tx-interest"},
             {tx["id"] for tx in month["transactions"]},
         )
 
@@ -564,8 +564,10 @@ class BackendRegressionTest(unittest.TestCase):
         month = response.json()["months"][0]
         self.assertEqual(month["income"], 5000.0)
         self.assertEqual(month["income_count"], 1)
+        self.assertEqual(month["outflow"], 0.0)
+        self.assertEqual(month["outflow_count"], 0)
         self.assertEqual(
-            {"tx-salary", "tx-bank-outflow"},
+            {"tx-salary"},
             {tx["id"] for tx in month["transactions"]},
         )
 

@@ -119,7 +119,7 @@ class BankOutflowExcludesInactiveTest(unittest.TestCase):
                     date=today,
                     amount=Decimal("-100"),
                     description="Pix enviado Itau",
-                    category="Transfers",
+                    category="Shopping",
                 )
             )
             session.add(
@@ -129,7 +129,7 @@ class BankOutflowExcludesInactiveTest(unittest.TestCase):
                     date=today,
                     amount=Decimal("-3000"),
                     description="Pix enviado Caixa",
-                    category="Transfers",
+                    category="Shopping",
                 )
             )
             session.commit()
@@ -469,7 +469,7 @@ class BankCashflowMonthlyExcludesInactiveTest(unittest.TestCase):
                     date=today,
                     amount=Decimal("-100"),
                     description="Pix enviado",
-                    category="Transfers",
+                    category="Shopping",
                 )
             )
             session.add(
@@ -489,7 +489,7 @@ class BankCashflowMonthlyExcludesInactiveTest(unittest.TestCase):
                     date=today,
                     amount=Decimal("-500"),
                     description="Pix Caixa",
-                    category="Transfers",
+                    category="Shopping",
                 )
             )
             session.commit()

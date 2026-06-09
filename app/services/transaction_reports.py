@@ -5,8 +5,9 @@ from typing import Any, Dict, Optional
 
 from sqlmodel import Session, select
 
-from app.models import Transaction
+from app.models import Account, Transaction
 from app.services.classification import TransactionClassifier
+from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
     TRACKED_ACCOUNT_TYPES,
@@ -17,6 +18,35 @@ from app.services.transactions import (
     ignored_description_patterns,
     is_ignored_transaction,
 )
+
+
+def _accounts_by_id(session: Session) -> dict[str, Account]:
+    return {account.id: account for account in session.exec(select(Account)).all()}
+
+
+def _classification_fields(
+    tx: Transaction,
+    accounts_by_id: dict[str, Account],
+) -> dict[str, Any]:
+    account = accounts_by_id.get(tx.account_id)
+    return serialize_transaction_classification(
+        tx,
+        account_type=account.type if account is not None else None,
+    )
+
+
+def _serialize_transaction_row(
+    tx: Transaction,
+    accounts_by_id: dict[str, Account],
+    ignored: bool = False,
+) -> dict[str, Any]:
+    classification = _classification_fields(tx, accounts_by_id)
+    return {
+        **tx.model_dump(mode="json"),
+        "pluggy_category": classification["pluggy_raw_category"],
+        "ignored": ignored,
+        **classification,
+    }
 
 
 def _transaction_list_query(
@@ -97,14 +127,15 @@ def enriched_transactions(
             tx for tx in transactions if not is_ignored_transaction(tx, ignored_patterns)
         ]
 
+    accounts = _accounts_by_id(session)
     rows = []
     for tx in transactions:
         rows.append(
-            {
-                **tx.model_dump(mode="json"),
-                "pluggy_category": tx.category,
-                "ignored": is_ignored_transaction(tx, ignored_patterns),
-            }
+            _serialize_transaction_row(
+                tx,
+                accounts,
+                ignored=is_ignored_transaction(tx, ignored_patterns),
+            )
         )
 
     return rows
@@ -132,6 +163,7 @@ def upcoming_summary(
     )
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
+    accounts = _accounts_by_id(session)
     for tx in future_txs:
         # Exclude credits / refunds / cancellations (amount <= 0) so they
         # don't inflate the scheduled invoice total via abs(amount).
@@ -144,31 +176,63 @@ def upcoming_summary(
     for month in sorted(by_month.keys()):
         txs = by_month[month]
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        serialized_transactions = [
+            {
+                "id": tx.id,
+                "date": tx.date.isoformat(),
+                "amount": float(abs(tx.amount)),
+                "description": tx.description,
+                "pluggy_category": _classification_fields(tx, accounts)[
+                    "pluggy_raw_category"
+                ],
+                **_classification_fields(tx, accounts),
+            }
+            for tx in txs
+        ]
+        categories_by_name: Dict[str, dict[str, Any]] = {}
+        for tx in serialized_transactions:
+            if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
+                continue
+            name = tx.get("internal_category") or "Outros"
+            bucket = categories_by_name.setdefault(
+                name,
+                {
+                    "id": name,
+                    "name": name,
+                    "total": Decimal("0"),
+                    "count": 0,
+                    "transactions": [],
+                    "source": "pluggy_based_classification",
+                },
+            )
+            bucket["total"] += Decimal(str(tx["amount"]))
+            bucket["count"] += 1
+            bucket["transactions"].append(tx)
         months_out.append(
             {
                 "month": month,
                 "total": float(month_total),
                 "count": len(txs),
-                "categories": [],
-                "transactions": [
+                "categories": [
                     {
-                        "id": tx.id,
-                        "date": tx.date.isoformat(),
-                        "amount": float(abs(tx.amount)),
-                        "description": tx.description,
-                        "pluggy_category": tx.category,
+                        **bucket,
+                        "total": float(bucket["total"]),
                     }
-                    for tx in txs
+                    for bucket in sorted(
+                        categories_by_name.values(),
+                        key=lambda item: item["total"],
+                        reverse=True,
+                    )
                 ],
-                "legacy_category_breakdown_removed": True,
+                "transactions": serialized_transactions,
+                "legacy_category_breakdown_removed": False,
             }
         )
 
     return {
         "total_count": len(future_txs),
         "months": months_out,
-        "legacy_category_breakdown_removed": True,
-        "todo": "TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.",
+        "legacy_category_breakdown_removed": False,
     }
 
 
@@ -176,11 +240,58 @@ def monthly_stats_summary(
     session: Session,
     include_ignored: bool = False,
 ) -> Dict[str, Any]:
+    today = date.today()
+    start = date(today.year, today.month, 1)
+    txs = session.exec(
+        select(Transaction)
+        .where(Transaction.date >= start, Transaction.date <= today, _non_duplicate_clause())
+        .order_by(Transaction.date.asc())
+    ).all()
+    txs = filter_transactions_by_account_type(txs, session, SPENDING_ACCOUNT_TYPES)
+    txs = filter_ignored_transactions(txs, session, include_ignored)
+    accounts = _accounts_by_id(session)
+
+    totals_by_category: Dict[str, dict[str, Any]] = {}
+    totals_by_month: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    for tx in txs:
+        classification = _classification_fields(tx, accounts)
+        if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
+            continue
+        amount = abs(tx.amount)
+        category_name = classification["internal_category"] or "Outros"
+        month = tx.date.strftime("%Y-%m")
+        totals_by_month[month] += amount
+        bucket = totals_by_category.setdefault(
+            category_name,
+            {
+                "id": category_name,
+                "name": category_name,
+                "total": Decimal("0"),
+                "count": 0,
+                "cashflow_type": "expense",
+                "source": "pluggy_based_classification",
+            },
+        )
+        bucket["total"] += amount
+        bucket["count"] += 1
+
     return {
-        "months": [],
-        "categories": [],
-        "legacy_category_breakdown_removed": True,
-        "todo": "TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.",
+        "months": [
+            {"month": month, "total": float(total)}
+            for month, total in sorted(totals_by_month.items())
+        ],
+        "categories": [
+            {
+                **bucket,
+                "total": float(bucket["total"]),
+            }
+            for bucket in sorted(
+                totals_by_category.values(),
+                key=lambda item: item["total"],
+                reverse=True,
+            )
+        ],
+        "legacy_category_breakdown_removed": False,
     }
 
 
@@ -373,11 +484,17 @@ def stats_summary(
         )
 
     totals_by_month: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    totals_by_cashflow: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     total_spent = Decimal("0")
+    accounts = _accounts_by_id(session)
 
     for tx in past_transactions:
+        classification = _classification_fields(tx, accounts)
+        if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
+            continue
         amount = abs(tx.amount)
         totals_by_month[tx.date.strftime("%Y-%m")] += amount
+        totals_by_cashflow[classification["cashflow_type"]] += amount
         total_spent += amount
 
     months = [
@@ -391,7 +508,11 @@ def stats_summary(
         "transaction_count": len(past_transactions),
         "future_transaction_count": future_count,
         "categories": [],
-        "legacy_category_breakdown_removed": True,
+        "cashflow_types": [
+            {"type": key, "total": float(value)}
+            for key, value in sorted(totals_by_cashflow.items())
+        ],
+        "legacy_category_breakdown_removed": False,
         "months": months,
         "invoice_mode": invoice["invoice_mode"],
         "invoice_total": invoice["invoice_total"],

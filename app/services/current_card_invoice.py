@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from app.categorization import normalize_description
 from app.models import Account, CreditCardBill, Item, Transaction
+from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.transactions import (
     _non_duplicate_clause,
     credit_card_payment_transactions,
@@ -221,13 +222,16 @@ def _category_window_start(
 
 
 def _serialize_current_invoice_transaction(tx: Transaction) -> dict[str, Any]:
+    classification = serialize_transaction_classification(tx, account_type="CREDIT")
     return {
         "id": tx.id,
         "date": tx.date.isoformat(),
         "description": tx.description,
         "amount": float(abs(tx.amount)),
         "signed_amount": float(tx.amount),
-        "pluggy_category": tx.category,
+        "pluggy_category": classification["pluggy_raw_category"],
+        "category": classification["internal_category"],
+        **classification,
         "status": tx.status,
         "bill_id": tx.bill_id,
         "installment_number": tx.installment_number,
@@ -377,6 +381,40 @@ def current_card_invoice_summary(
     )
     category_total = Decimal("0")
     category_count = 0
+    categories_by_name: dict[str, dict[str, Any]] = {}
+    for tx in raw_purchase_transactions:
+        if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
+            continue
+        name = tx.get("internal_category") or "Outros"
+        amount = Decimal(str(tx.get("amount") or 0))
+        bucket = categories_by_name.setdefault(
+            name,
+            {
+                "id": name,
+                "name": name,
+                "color": "#64748b",
+                "total": Decimal("0"),
+                "count": 0,
+                "transactions": [],
+                "source": "pluggy_based_classification",
+            },
+        )
+        bucket["total"] += amount
+        bucket["count"] += 1
+        bucket["transactions"].append(tx)
+        category_total += amount
+        category_count += 1
+    categories = [
+        {
+            **bucket,
+            "total": float(bucket["total"]),
+        }
+        for bucket in sorted(
+            categories_by_name.values(),
+            key=lambda item: item["total"],
+            reverse=True,
+        )
+    ]
 
     source_label = (
         "Fatura vigente ajustada"
@@ -392,12 +430,11 @@ def current_card_invoice_summary(
         "confidence": confidence,
         "account_count": len(cards),
         "cards": cards,
-        "categories": [],
+        "categories": categories,
         "category_total": float(category_total),
         "category_count": category_count,
         "raw_purchase_transactions": raw_purchase_transactions,
-        "legacy_category_breakdown_removed": True,
-        "todo": "TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.",
+        "legacy_category_breakdown_removed": False,
         "possible_refunds_total": float(possible_refunds_total),
         "possible_refund_transactions": all_possible_refunds,
         "source_detail": {
@@ -409,10 +446,10 @@ def current_card_invoice_summary(
             "category_total": float(category_total),
             "refund_total": float(possible_refunds_total),
             "refund_abs_total": float(abs(possible_refunds_total)),
-            "amount_minus_category_total": None,
+            "amount_minus_category_total": float(adjusted_total - category_total),
             "refunds_affect_amount": False,
             "refunds_are_diagnostic_only": True,
-            "legacy_category_breakdown_removed": True,
+            "legacy_category_breakdown_removed": False,
             "source_label": source_label,
         },
     }

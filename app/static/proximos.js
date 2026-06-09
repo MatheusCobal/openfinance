@@ -224,7 +224,8 @@ function transactionRows(transactions) {
             <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
             <p class="text-xs text-slate-500 mt-0.5">
               ${formatDayLabel(tx.date)}
-              ${tx.category_name ? ` · ${escapeHtml(tx.category_name)}` : ''}
+              ${tx.internal_category ? ` · ${escapeHtml(tx.internal_category)}` : ''}
+              ${tx.cashflow_type ? ` · ${escapeHtml(tx.cashflow_type)}` : ''}
               ${tx.pluggy_category ? ` · ${escapeHtml(tx.pluggy_category)}` : ''}
             </p>
           </div>
@@ -258,14 +259,31 @@ function renderCategories() {
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
             </svg>
           </span>
-          <span class="font-medium text-slate-900 flex-1">Sem classificação</span>
+          <span class="font-medium text-slate-900 flex-1">Classificação Pluggy-based</span>
           <span class="text-xs text-slate-500 tabular">${pluralParcelas(month.count)}</span>
           <span class="font-semibold tabular text-slate-900 ml-3">${currency.format(month.total)}</span>
         </summary>
         <ul>${rows}</ul>
       </details>
-      <p class="text-xs text-slate-400 px-1">TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.</p>
     `;
+    return;
+  }
+  if (month.categories?.length) {
+    container.innerHTML = month.categories.map((category) => `
+      <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" open>
+        <summary class="flex items-center gap-3 px-5 py-4 hover:bg-slate-50">
+          <span class="chevron text-slate-400">
+            <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </span>
+          <span class="font-medium text-slate-900 flex-1">${escapeHtml(category.name || 'Outros')}</span>
+          <span class="text-xs text-slate-500 tabular">${pluralParcelas(category.count || 0)}</span>
+          <span class="font-semibold tabular text-slate-900 ml-3">${currency.format(category.total || 0)}</span>
+        </summary>
+        <ul>${transactionRows(category.transactions || [])}</ul>
+      </details>
+    `).join('');
     return;
   }
   container.innerHTML = `

@@ -328,14 +328,14 @@ function renderInvoiceReconciliation() {
       </div>
       <div class="flex items-center justify-between gap-4">
         <span class="text-slate-500">Classificação por categoria</span>
-        <span class="tabular font-medium text-slate-500">pendente 10D-B</span>
+        <span class="tabular font-medium text-slate-900">${escapeHtml(fmt(rec.category_total ?? 0))}</span>
       </div>
       <div class="flex items-center justify-between gap-4">
         <span class="text-slate-500">Reembolsos/estornos detectados</span>
         <span class="tabular font-medium text-emerald-600">- ${escapeHtml(fmt(rec.refund_abs_total))}</span>
       </div>
     </div>
-    <p class="text-xs text-slate-400 mt-3 leading-relaxed">A fatura usa o saldo Pluggy ajustado. A quebra por categoria antiga foi removida; TODO 10D-B: substituir por classificação baseada na Pluggy.</p>
+    <p class="text-xs text-slate-400 mt-3 leading-relaxed">A fatura usa o saldo Pluggy ajustado. A quebra por categoria usa a classificação Pluggy-based da 10D-B; diferenças podem existir por pagamentos, estornos e ciclo da fatura.</p>
   `;
 }
 
@@ -410,7 +410,9 @@ function renderCategoryTransactions(category) {
   list.innerHTML = transactions.map(tx => {
     const installment = formatInstallment(tx);
     const metaParts = [];
-    if (tx.category) metaParts.push(escapeHtml(tx.category));
+    if (tx.cashflow_type) metaParts.push(escapeHtml(tx.cashflow_type));
+    if (tx.classification_confidence) metaParts.push(escapeHtml(tx.classification_confidence));
+    if (tx.pluggy_category) metaParts.push(`Pluggy: ${escapeHtml(tx.pluggy_category)}`);
     if (installment) metaParts.push(escapeHtml(installment));
     if (tx.status) metaParts.push(escapeHtml(tx.status));
     const metaStr = metaParts.join(' · ');
@@ -448,16 +450,52 @@ function _categoryModalKeyHandler(e) {
 function renderCategories() {
   const container = document.getElementById('categories-grid');
   const invoiceAmount = asMoneyNumber(currentCardInvoice?.amount);
+  const categories = Array.isArray(currentCardInvoice?.categories)
+    ? currentCardInvoice.categories
+    : [];
 
-  const message = invoiceAmount > 0
-    ? 'A fatura vigente continua disponível, mas a quebra por categoria antiga foi removida na 10D-A.'
-    : 'Nenhuma compra classificada para exibir nesta etapa.';
-  container.innerHTML = `
-    <div class="text-sm text-slate-500 col-span-full rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-6">
-      <p>${escapeHtml(message)}</p>
-      <p class="mt-1 text-xs text-slate-400">TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.</p>
-    </div>
-  `;
+  if (!categories.length) {
+    const message = invoiceAmount > 0
+      ? 'A fatura vigente continua disponível, mas ainda não há compras classificadas pela nova camada.'
+      : 'Nenhuma compra classificada para exibir nesta etapa.';
+    container.innerHTML = `
+      <div class="text-sm text-slate-500 col-span-full rounded-lg border border-dashed border-slate-200 bg-white px-5 py-6">
+        <p>${escapeHtml(message)}</p>
+        <p class="mt-1 text-xs text-slate-400">Classificação Pluggy-based 10D-B ativa.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = categories.map((category) => {
+    const countLabel = (category.count ?? 0) === 1 ? '1 compra' : `${category.count ?? 0} compras`;
+    const pct = invoiceAmount > 0 ? Math.min(100, ((category.total ?? 0) / invoiceAmount) * 100) : 0;
+    return `
+      <button
+        type="button"
+        class="category-card text-left rounded-lg border border-slate-200 bg-white px-4 py-3 hover:border-blue-200 hover:bg-blue-50/40 transition-colors"
+        data-category-id="${escapeHtml(category.id)}"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-slate-900 truncate">${escapeHtml(category.name)}</p>
+            <p class="mt-0.5 text-xs text-slate-500">${escapeHtml(countLabel)} · Pluggy-based</p>
+          </div>
+          <p class="text-sm font-semibold tabular text-slate-900 shrink-0">${escapeHtml(fmt(category.total ?? 0))}</p>
+        </div>
+        <div class="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+          <div class="h-full bg-blue-700" style="width:${pct.toFixed(1)}%"></div>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  container.querySelectorAll('button.category-card').forEach((button) => {
+    button.addEventListener('click', () => {
+      const category = categories.find((item) => String(item.id) === button.dataset.categoryId);
+      if (category) openCategoryModal(category);
+    });
+  });
 }
 
 const PLUGGY_CONNECT_SDK_URL = 'https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js';

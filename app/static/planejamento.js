@@ -1442,7 +1442,7 @@ function renderBudgetList(progress) {
     list.innerHTML = `
       <div class="py-8 px-4 text-sm text-slate-500 text-center rounded-xl border border-dashed border-slate-200 bg-white">
         <p>Metas variáveis por categoria foram removidas na 10D-A.</p>
-        <p class="mt-1 text-xs text-slate-400">TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.</p>
+        <p class="mt-1 text-xs text-slate-400">TODO 10D-C: recriar metas variáveis sobre a classificação Pluggy-based.</p>
       </div>
     `;
     return;

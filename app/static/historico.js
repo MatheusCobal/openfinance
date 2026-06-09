@@ -73,6 +73,17 @@ function cashflowDirectionLabel(direction) {
   return 'Entradas e saídas';
 }
 
+function classificationMeta(tx) {
+  const parts = [];
+  if (tx.internal_category) parts.push(tx.internal_category);
+  if (tx.cashflow_type) parts.push(tx.cashflow_type);
+  if (tx.classification_source && tx.classification_confidence) {
+    parts.push(`${tx.classification_source}/${tx.classification_confidence}`);
+  }
+  if (tx.pluggy_category) parts.push(`Pluggy: ${tx.pluggy_category}`);
+  return parts.map(escapeHtml).join(' · ');
+}
+
 function planStatusLabel(status) {
   const labels = {
     healthy: 'Saudável',
@@ -221,6 +232,7 @@ function openInvoiceDrilldown(monthData) {
           <div class="min-w-0 flex-1 pr-4">
             <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
             <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
+            ${classificationMeta(tx) ? `<p class="text-[11px] text-slate-400 mt-0.5">${classificationMeta(tx)}</p>` : ''}
           </div>
           <p class="text-sm font-medium tabular text-slate-900 shrink-0">
             ${currency.format(Number(tx.amount_abs))}
@@ -438,8 +450,8 @@ function openIncomeDrilldown(monthData) {
         <p class="text-xs text-slate-500 mt-0.5">
           ${formatDayLabel(tx.date)}
           ${tx.account_name ? ` · ${escapeHtml(tx.account_name)}` : ''}
-          ${tx.pluggy_category ? ` · ${escapeHtml(tx.pluggy_category)}` : ''}
         </p>
+        ${classificationMeta(tx) ? `<p class="text-[11px] text-slate-400 mt-0.5">${classificationMeta(tx)}</p>` : ''}
       </div>
       <p class="text-sm font-semibold tabular text-emerald-700 shrink-0">
         ${currency.format(Math.abs(Number(tx.amount)))}
@@ -792,6 +804,7 @@ function openCashflowDrilldown(monthData) {
             ${formatDayLabel(tx.date)}
             ${tx.account_name ? ` · ${escapeHtml(tx.account_name)}` : ''}
           </p>
+          ${classificationMeta(tx) ? `<p class="text-[11px] text-slate-400 mt-0.5">${classificationMeta(tx)}</p>` : ''}
         </div>
         <p class="text-sm font-semibold tabular ${color} shrink-0">
           ${sign}${currency.format(Math.abs(Number(tx.amount)))}

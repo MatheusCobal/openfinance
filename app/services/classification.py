@@ -12,6 +12,7 @@ from app.models import (
     IgnoredDescriptionRule,
     Transaction,
 )
+from app.services.transaction_classifier import classify_transaction
 
 
 TRACKED_ACCOUNT_TYPES = {"CREDIT", "BANK"}
@@ -36,13 +37,21 @@ CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS = tuple(
 INVESTMENT_NOISE_CATEGORIES: set[str] = {"Fixed income"}
 INVESTMENT_NOISE_DESCRIPTION_PATTERNS: tuple[str, ...] = ()
 
-# Same rationale as INVESTMENT_NOISE: hardcoding categories here removes user
-# control. "Same person transfer" from Pluggy often means money moving between
-# your OWN accounts (which isn't real cash flow), but it also catches PIX from
-# people sharing your first/last name and gets false positives. Better to let
-# the user decide: empty by default; they can add a BankCashflowExclusionRule
-# for anything they actually want filtered.
+# 10D-B handles Pluggy transfer categories in transaction_classifier.py as a
+# structural flow type. Keep this manual list empty unless we need a temporary
+# compatibility exception outside the new classifier.
 INTERNAL_TRANSFER_CATEGORIES: set[str] = set()
+NON_INCOME_CASHFLOW_TYPES = {
+    "expense",
+    "transfer",
+    "credit_card_payment",
+    "refund",
+    "investment",
+    "cash_withdrawal",
+    "adjustment",
+    "ignored",
+    "unknown",
+}
 
 
 class TransactionKind(str, Enum):
@@ -187,7 +196,11 @@ class TransactionClassifier:
         ignored: bool,
         account_type: Optional[str],
     ) -> TransactionClassification:
-        bank_income_excluded = tx.amount > 0 and self._matches_bank_income_exclusion(tx)
+        classified_cashflow_type = _cashflow_type(tx, account_type)
+        bank_income_excluded = tx.amount > 0 and (
+            self._matches_bank_income_exclusion(tx)
+            or classified_cashflow_type in NON_INCOME_CASHFLOW_TYPES
+        )
         cashflow_excluded = self._matches_bank_cashflow_exclusion(tx)
         if ignored:
             return TransactionClassification(
@@ -247,11 +260,13 @@ class TransactionClassifier:
         tx: Transaction,
         account_type: Optional[str],
     ) -> bool:
+        if _cashflow_type(tx, account_type) == "credit_card_payment":
+            return True
         if account_type is not None and account_type != "CREDIT":
             return False
         if tx.amount >= 0:
             return False
-        if tx.category in CREDIT_CARD_PAYMENT_CATEGORIES:
+        if _pluggy_category(tx) in CREDIT_CARD_PAYMENT_CATEGORIES:
             return True
         normalized_description = normalize_description(tx.description)
         return any(
@@ -263,7 +278,7 @@ class TransactionClassifier:
     def _matches_bank_income_exclusion(self, tx: Transaction) -> bool:
         normalized_description = normalize_description(tx.description)
         for rule in self.bank_income_rules:
-            if rule.pluggy_category and tx.category == rule.pluggy_category:
+            if rule.pluggy_category and _pluggy_category(tx) == rule.pluggy_category:
                 return True
             if rule.pattern_normalized and rule.pattern_normalized in normalized_description:
                 return True
@@ -274,7 +289,7 @@ class TransactionClassifier:
         for rule in self.bank_cashflow_rules:
             if not self._cashflow_rule_matches_direction(tx, rule):
                 continue
-            if rule.pluggy_category and tx.category == rule.pluggy_category:
+            if rule.pluggy_category and _pluggy_category(tx) == rule.pluggy_category:
                 return True
             if rule.pattern_normalized and rule.pattern_normalized in normalized_description:
                 return True
@@ -294,7 +309,9 @@ class TransactionClassifier:
 
     @staticmethod
     def _looks_like_investment_noise(tx: Transaction) -> bool:
-        if tx.category in INVESTMENT_NOISE_CATEGORIES:
+        if _cashflow_type(tx) == "investment":
+            return True
+        if _pluggy_category(tx) in INVESTMENT_NOISE_CATEGORIES:
             return True
         normalized_description = normalize_description(tx.description)
         return any(
@@ -305,4 +322,19 @@ class TransactionClassifier:
 
     @staticmethod
     def _looks_like_internal_transfer(tx: Transaction) -> bool:
-        return tx.category in INTERNAL_TRANSFER_CATEGORIES
+        if _cashflow_type(tx) == "transfer":
+            return True
+        return _pluggy_category(tx) in INTERNAL_TRANSFER_CATEGORIES
+
+
+def _pluggy_category(tx: Transaction) -> Optional[str]:
+    return tx.pluggy_raw_category or tx.category
+
+
+def _cashflow_type(
+    tx: Transaction,
+    account_type: Optional[str] = None,
+) -> Optional[str]:
+    if tx.cashflow_type:
+        return tx.cashflow_type
+    return classify_transaction(tx, account_type=account_type).cashflow_type

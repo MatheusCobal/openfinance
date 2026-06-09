@@ -25,7 +25,8 @@ def budget_progress_summary(
 ):
     # 10D-A: variable budgets were coupled to the removed legacy financial
     # category system. Keep the response shape stable, but do not resolve or
-    # group transactions until 10D-B introduces a Pluggy-based layer.
+    # group transactions until a 10D-C planning layer defines variable targets
+    # on top of the Pluggy-based classification fields.
     if fixed_cost_accounted_transaction_ids is None:
         from app.services.fixed_costs import accounted_transaction_ids_for_month
 
@@ -59,5 +60,5 @@ def budget_progress_summary(
         },
         "items": [],
         "legacy_category_budget_removed": True,
-        "todo": "TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.",
+        "todo": "TODO 10D-C: recreate variable budget targets on top of Pluggy-based classification.",
     }

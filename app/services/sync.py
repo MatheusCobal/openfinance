@@ -16,6 +16,10 @@ from app.services.pluggy_snapshot import (
     sync_investments,
 )
 from app.services.snapshots import refresh_monthly_balance_snapshots
+from app.services.transaction_classifier import (
+    classification_payload_fields,
+    classify_pluggy_payload,
+)
 from app.services.transactions import TRACKED_ACCOUNT_TYPES
 
 SYNC_LOOKBACK_DAYS = 7
@@ -192,12 +196,17 @@ def upsert_transaction(
         "total_amount": Decimal(str(raw_total)) if raw_total is not None else None,
         "dedupe_key": dedupe_key,
     }
+    values.update(classification_payload_fields(raw_tx))
+    classification = classify_pluggy_payload(raw_tx, account_type=account_type)
+    classification_values = classification.transaction_values()
     existing = session.get(Transaction, raw_tx["id"])
     if existing is None:
-        session.add(Transaction(id=raw_tx["id"], **values))
+        session.add(Transaction(id=raw_tx["id"], **values, **classification_values))
         return True, False, tx_date
 
     changed = False
+    if not existing.is_user_overridden:
+        values.update(classification_values)
     for field, value in values.items():
         if getattr(existing, field) != value:
             setattr(existing, field, value)
