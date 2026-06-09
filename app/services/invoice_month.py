@@ -2,6 +2,9 @@ import calendar
 from datetime import date
 
 
+DEFAULT_CREDIT_CARD_DUE_DAY = 6
+
+
 def invoice_month_from_payment(payment_date: date, due_day: int) -> str:
     """Return the YYYY-MM of the invoice that a payment belongs to.
 

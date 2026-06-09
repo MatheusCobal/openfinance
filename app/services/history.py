@@ -13,7 +13,10 @@ from app.models import (
     Transaction,
 )
 from app.services.classification import TransactionClassifier
-from app.services.invoice_month import invoice_month_from_payment
+from app.services.invoice_month import (
+    DEFAULT_CREDIT_CARD_DUE_DAY,
+    invoice_month_from_payment,
+)
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
     _non_duplicate_clause,
@@ -26,10 +29,8 @@ from app.services.transactions import (
     is_ignored_transaction,
     last_month_keys,
     month_key,
+    shift_month,
 )
-
-
-_DEFAULT_DUE_DAY = 6  # fallback when account has no credit_balance_due_date
 
 
 def ignored_transactions_monthly_summary(session: Session):
@@ -94,7 +95,7 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
-    start_date = date(int(first_year), int(first_month), 1)
+    start_date = shift_month(date(int(first_year), int(first_month), 1), -1)
     payment_transactions = credit_card_payment_transactions(
         session,
         start_date,
@@ -111,7 +112,7 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
     tx_invoice_month: Dict[str, str] = {}  # tx.id → invoice_month
     for tx in payment_transactions:
-        due_day = account_due_days.get(tx.account_id, _DEFAULT_DUE_DAY)
+        due_day = account_due_days.get(tx.account_id, DEFAULT_CREDIT_CARD_DUE_DAY)
         inv_month = invoice_month_from_payment(tx.date, due_day)
         tx_invoice_month[tx.id] = inv_month
         if inv_month in by_month:
@@ -339,11 +340,12 @@ def monthly_balance_summary(session: Session, months: int):
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
     start_date = date(int(first_year), int(first_month), 1)
+    payment_start_date = shift_month(start_date, -1)
     income_transactions = bank_income_transactions(session, start_date, today)
     card_transactions = credit_card_spend_transactions(session, start_date, today)
     payment_transactions = credit_card_payment_transactions(
         session,
-        start_date,
+        payment_start_date,
         today,
     )
 
@@ -362,7 +364,7 @@ def monthly_balance_summary(session: Session, months: int):
         if (month := month_key(tx.date)) in card_by_month:
             card_by_month[month].append(tx)
     for tx in payment_transactions:
-        due_day = account_due_days.get(tx.account_id, _DEFAULT_DUE_DAY)
+        due_day = account_due_days.get(tx.account_id, DEFAULT_CREDIT_CARD_DUE_DAY)
         invoice_month = invoice_month_from_payment(tx.date, due_day)
         if invoice_month in payments_by_month:
             payments_by_month[invoice_month].append(tx)

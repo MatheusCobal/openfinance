@@ -20,12 +20,16 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
-from app.models import Account, CreditCardInvoiceMonth, Item, Transaction
+from app.models import Account, CreditCardInvoiceMonth, Item, MonthlyBalanceMonth, Transaction
 from app.services.history import (
     credit_card_payments_monthly_summary,
-    invoice_month_from_payment,
+    monthly_balance_summary,
 )
-from app.services.snapshots import refresh_credit_card_invoice_snapshots
+from app.services.invoice_month import invoice_month_from_payment
+from app.services.snapshots import (
+    refresh_credit_card_invoice_snapshots,
+    refresh_monthly_balance_snapshots,
+)
 from app.services.transactions import credit_card_payment_transactions
 
 
@@ -128,6 +132,26 @@ def _add_bank_transaction(
     session.commit()
 
 
+def _add_income_transaction(
+    session: Session,
+    *,
+    tx_id: str,
+    transaction_date: datetime.date,
+    amount: Decimal,
+) -> None:
+    session.add(
+        Transaction(
+            id=tx_id,
+            account_id=BANK_ACCOUNT_ID,
+            date=transaction_date,
+            amount=abs(amount),
+            description="Salary",
+            category="Salary",
+        )
+    )
+    session.commit()
+
+
 class TestInvoiceMonthFromPayment(unittest.TestCase):
     """A. invoice_month_from_payment helper."""
 
@@ -164,6 +188,14 @@ class TestInvoiceMonthFromPayment(unittest.TestCase):
     def test_payment_after_due_day_6_maps_to_june(self):
         result = invoice_month_from_payment(datetime.date(2026, 5, 30), due_day=6)
         self.assertEqual(result, "2026-06")
+
+    def test_payment_after_due_day_4_maps_to_next_month(self):
+        result = invoice_month_from_payment(datetime.date(2026, 5, 5), due_day=4)
+        self.assertEqual(result, "2026-06")
+
+    def test_due_day_31_uses_last_day_in_february(self):
+        result = invoice_month_from_payment(datetime.date(2026, 2, 28), due_day=31)
+        self.assertEqual(result, "2026-02")
 
 
 class TestCreditCardPaymentsMonthly(unittest.TestCase):
@@ -236,6 +268,31 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
         self.assertIsNotNone(may)
         self.assertEqual(may["count"], 1)
         self.assertEqual(may["transactions"][0]["invoice_month"], "2026-05")
+
+    def test_may_window_includes_april_payment_before_due_date(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 5, 4))
+            _add_payment(
+                session,
+                tx_id="pay-apr29-window",
+                payment_date=datetime.date(2026, 4, 29),
+                amount=Decimal("16120.06"),
+            )
+            with patch("app.services.history.date") as mock_date:
+                mock_date.today.return_value = datetime.date(2026, 6, 9)
+                mock_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_payments_monthly_summary(session, months=2)
+
+        months_by_key = {m["month"]: m for m in result["months"]}
+        may = months_by_key["2026-05"]
+        june = months_by_key["2026-06"]
+        self.assertEqual(may["count"], 1)
+        self.assertAlmostEqual(may["total"], 16120.06, places=2)
+        self.assertEqual(may["transactions"][0]["invoice_month"], "2026-05")
+        self.assertEqual(june["count"], 0)
 
     def test_total_is_sum_of_all_payments(self):
         """Grand total is consistent across all bucketed transactions."""
@@ -386,7 +443,7 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
             with patch("app.services.snapshots.date") as mock_date:
                 mock_date.today.return_value = datetime.date(2026, 6, 9)
                 mock_date.side_effect = lambda *args, **kwargs: datetime.date(*args, **kwargs)
-                refresh_credit_card_invoice_snapshots(session, months=3)
+                refresh_credit_card_invoice_snapshots(session, months=2)
 
             may = session.get(CreditCardInvoiceMonth, "2026-05")
             april = session.get(CreditCardInvoiceMonth, "2026-04")
@@ -395,6 +452,104 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
         self.assertEqual(may.payment_count, 1)
         self.assertAlmostEqual(float(may.total), 16120.06, places=2)
         self.assertIsNone(april)
+
+    def test_snapshot_refresh_uses_invoice_month_for_same_month_before_due_payment(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 5, 4))
+            _add_payment(
+                session,
+                tx_id="pay-may3-snapshot",
+                payment_date=datetime.date(2026, 5, 3),
+                amount=Decimal("2000.00"),
+            )
+            with patch("app.services.snapshots.date") as mock_date:
+                mock_date.today.return_value = datetime.date(2026, 6, 9)
+                mock_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                refresh_credit_card_invoice_snapshots(session, months=2)
+
+            may = session.get(CreditCardInvoiceMonth, "2026-05")
+
+        self.assertIsNotNone(may)
+        self.assertEqual(may.payment_count, 1)
+        self.assertAlmostEqual(float(may.total), 2000.00, places=2)
+
+    def test_monthly_balance_snapshot_uses_invoice_month_for_paid_invoice(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 5, 4))
+            _add_bank_account(session)
+            _add_income_transaction(
+                session,
+                tx_id="income-may",
+                transaction_date=datetime.date(2026, 5, 10),
+                amount=Decimal("5000.00"),
+            )
+            _add_payment(
+                session,
+                tx_id="pay-apr29-balance",
+                payment_date=datetime.date(2026, 4, 29),
+                amount=Decimal("1000.00"),
+            )
+            with patch("app.services.snapshots.date") as mock_date:
+                mock_date.today.return_value = datetime.date(2026, 6, 9)
+                mock_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                refresh_monthly_balance_snapshots(session, months=2)
+
+            may = session.get(MonthlyBalanceMonth, "2026-05")
+            april = session.get(MonthlyBalanceMonth, "2026-04")
+
+        self.assertIsNotNone(may)
+        self.assertIsNone(april)
+        self.assertAlmostEqual(float(may.income), 5000.00, places=2)
+        self.assertAlmostEqual(float(may.card_spend), 0.00, places=2)
+        self.assertAlmostEqual(float(may.invoice_paid), 1000.00, places=2)
+        self.assertAlmostEqual(float(may.net_by_purchase_month), 5000.00, places=2)
+        self.assertAlmostEqual(float(may.net_cashflow), 4000.00, places=2)
+        self.assertEqual(may.income_count, 1)
+        self.assertEqual(may.invoice_payment_count, 1)
+
+    def test_live_monthly_balance_matches_snapshot_invoice_month(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 5, 4))
+            _add_bank_account(session)
+            _add_income_transaction(
+                session,
+                tx_id="income-live-may",
+                transaction_date=datetime.date(2026, 5, 10),
+                amount=Decimal("5000.00"),
+            )
+            _add_payment(
+                session,
+                tx_id="pay-apr29-live",
+                payment_date=datetime.date(2026, 4, 29),
+                amount=Decimal("1000.00"),
+            )
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 9)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                live = monthly_balance_summary(session, months=2)
+            with patch("app.services.snapshots.date") as snapshots_date:
+                snapshots_date.today.return_value = datetime.date(2026, 6, 9)
+                snapshots_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                refresh_monthly_balance_snapshots(session, months=2)
+            snapshot = session.get(MonthlyBalanceMonth, "2026-05")
+
+        live_may = {m["month"]: m for m in live["months"]}["2026-05"]
+        self.assertIsNotNone(snapshot)
+        self.assertAlmostEqual(live_may["invoice_paid"], float(snapshot.invoice_paid), places=2)
+        self.assertEqual(live_may["invoice_payment_count"], snapshot.invoice_payment_count)
+        self.assertAlmostEqual(live_may["net_cashflow"], float(snapshot.net_cashflow), places=2)
 
 
 class TestHistoricoPageLoads(unittest.TestCase):

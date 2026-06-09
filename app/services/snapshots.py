@@ -13,18 +13,21 @@ from app.models import (
     MonthlyBalanceMonth,
     Transaction,
 )
-from app.services.invoice_month import invoice_month_from_payment
+from app.services.invoice_month import (
+    DEFAULT_CREDIT_CARD_DUE_DAY,
+    invoice_month_from_payment,
+)
 from app.services.transactions import (
     bank_income_transactions,
     credit_card_payment_transactions,
     credit_card_spend_transactions,
     last_month_keys,
     month_key,
+    shift_month,
 )
 
 DEFAULT_CREDIT_CARD_PAYMENT_MONTHS = 12
 DEFAULT_MONTHLY_BALANCE_MONTHS = 12
-DEFAULT_CREDIT_CARD_DUE_DAY = 6
 
 
 def refresh_credit_card_invoice_snapshots(
@@ -34,7 +37,7 @@ def refresh_credit_card_invoice_snapshots(
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
-    start_date = date(int(first_year), int(first_month), 1)
+    start_date = shift_month(date(int(first_year), int(first_month), 1), -1)
     payment_transactions = credit_card_payment_transactions(
         session,
         start_date,
