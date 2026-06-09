@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.config import settings
+from app.config import get_pluggy_settings
 from app.database import get_session
 from app.models import Account, AccountSync, Item, Transaction
 from app.pluggy_client import PluggyCredentialError, pluggy
@@ -35,6 +35,7 @@ class ConnectTokenRequest(BaseModel):
 def connect_token(body: Optional[ConnectTokenRequest] = None):
     body = body or ConnectTokenRequest()
     # Log enough to diagnose credential/environment problems without leaking secrets.
+    settings = get_pluggy_settings()
     _masked_id = (settings.pluggy_client_id[:4] + "…") if settings.pluggy_client_id else "<not set>"
     logger.info(
         "connect-token request base_url=%s client_id=%s item_id=%s",

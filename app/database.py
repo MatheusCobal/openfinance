@@ -2,17 +2,25 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from sqlalchemy.engine import make_url
 from sqlalchemy import inspect, text
 from sqlmodel import Session, create_engine
 
-from app.config import settings
+from app.config import database_settings
 
 ALEMBIC_BASE_REVISION = "1ca8aba92fd3"
 
+
+def _connect_args_for_database_url(database_url: str) -> dict:
+    if make_url(database_url).get_backend_name() == "sqlite":
+        return {"check_same_thread": False}
+    return {}
+
+
 engine = create_engine(
-    settings.database_url,
+    database_settings.database_url,
     echo=False,
-    connect_args={"check_same_thread": False},
+    connect_args=_connect_args_for_database_url(database_settings.database_url),
 )
 
 
@@ -20,7 +28,7 @@ def _alembic_config() -> Config:
     project_root = Path(__file__).resolve().parent.parent
     cfg = Config(str(project_root / "alembic.ini"))
     cfg.set_main_option("script_location", str(project_root / "alembic"))
-    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    cfg.set_main_option("sqlalchemy.url", database_settings.database_url)
     return cfg
 
 

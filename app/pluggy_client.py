@@ -3,25 +3,20 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from app.config import settings
+from app.config import MissingPluggyCredentialsError, get_pluggy_settings
 
 
-class PluggyCredentialError(RuntimeError):
-    pass
+PluggyCredentialError = MissingPluggyCredentialsError
 
 
 class PluggyClient:
     def __init__(self) -> None:
-        self.base_url = settings.pluggy_base_url
+        self.base_url = get_pluggy_settings().pluggy_base_url
         self._api_key: Optional[str] = None
 
     def _credentials(self) -> Tuple[str, str]:
-        if not settings.pluggy_client_id or not settings.pluggy_client_secret:
-            raise PluggyCredentialError(
-                "PLUGGY_CLIENT_ID and PLUGGY_CLIENT_SECRET must be configured "
-                "before using the Pluggy client."
-            )
-        return settings.pluggy_client_id, settings.pluggy_client_secret
+        pluggy_settings = get_pluggy_settings().require_credentials()
+        return pluggy_settings.pluggy_client_id, pluggy_settings.pluggy_client_secret
 
     def _authenticate(self) -> None:
         client_id, client_secret = self._credentials()
