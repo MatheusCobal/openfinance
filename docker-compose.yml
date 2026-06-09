@@ -1,0 +1,37 @@
+services:
+  openfinance:
+    build: .
+    # Bind only to loopback — never expose directly to 0.0.0.0 without a reverse proxy.
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Secrets and optional config (PLUGGY_*, OPENFINANCE_ADMIN_TOKEN, etc.) come from .env.
+    # Create .env from .env.example before running.
+    env_file:
+      - .env
+    environment:
+      # Override DATABASE_URL with the container-internal volume path.
+      # This takes precedence over any DATABASE_URL set in .env.
+      DATABASE_URL: sqlite:////data/openfinance.db
+    volumes:
+      # Named volume for SQLite — survives docker compose down.
+      # Database file: /data/openfinance.db inside the container.
+      - openfinance_data:/data
+      # Named volume for backups — also survives docker compose down.
+      # Backup files: /app/backups/ inside the container.
+      # Access backups: docker compose exec openfinance ls /app/backups/
+      - openfinance_backups:/app/backups
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  openfinance_data:
+  openfinance_backups:

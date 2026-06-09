@@ -1,0 +1,39 @@
+# Version control
+.git/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local development secrets — never bake into the image
+.env
+
+# Local database files — data lives in the openfinance_data Docker volume
+openfinance.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Local backup files — backups live in the openfinance_backups Docker volume
+backups/
+
+# Coverage and test artifacts
+htmlcov/
+.coverage
+
+# IDE and OS
+.DS_Store
+*.swp
+*.swo
+.claude/

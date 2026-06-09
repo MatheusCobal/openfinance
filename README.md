@@ -307,6 +307,117 @@ rclone copy backups/ remote:openfinance-backups/
 
 ---
 
+## Deploy local com Docker Compose
+
+> ⚠️ Este setup é para uso **local** apenas. Não expor publicamente sem reverse proxy e HTTPS (etapa 10B).
+
+### Pré-requisitos
+
+- Docker e Docker Compose v2 instalados.
+- Arquivo `.env` criado a partir de `.env.example` (ver abaixo).
+
+### Criar o `.env`
+
+```bash
+cp .env.example .env
+# Editar .env com suas credenciais Pluggy e, se quiser auth, o OPENFINANCE_ADMIN_TOKEN
+```
+
+Exemplo mínimo de `.env` para teste local sem Pluggy:
+
+```
+DATABASE_URL=sqlite:///./openfinance.db   # ignorado pelo Docker; o compose usa /data/
+PLUGGY_CLIENT_ID=
+PLUGGY_CLIENT_SECRET=
+OPENFINANCE_ENV=local
+OPENFINANCE_REQUIRE_AUTH=false
+OPENFINANCE_ADMIN_TOKEN=
+OPENFINANCE_WEBHOOK_SECRET=
+```
+
+O `docker-compose.yml` sobrescreve `DATABASE_URL` com `sqlite:////data/openfinance.db` (volume persistente). O valor em `.env` é irrelevante para o container.
+
+### Subir
+
+```bash
+docker compose up --build -d
+```
+
+### Acessar
+
+```
+http://127.0.0.1:8000
+```
+
+### Verificar health
+
+```bash
+curl -f http://127.0.0.1:8000/health
+```
+
+### Logs
+
+```bash
+docker compose logs -f openfinance
+docker compose logs --tail=100 openfinance
+```
+
+### Parar
+
+```bash
+docker compose down
+# NUNCA usar down -v — apagaria o banco e os backups nos volumes.
+```
+
+### Volumes persistentes
+
+| Volume | Caminho no container | Conteúdo |
+|---|---|---|
+| `openfinance_data` | `/data` | `openfinance.db` (banco SQLite) |
+| `openfinance_backups` | `/app/backups` | arquivos de backup gerados pelo app |
+
+O banco e os backups sobrevivem a `docker compose down` e `docker compose up --build`.
+
+### Backup via Docker
+
+```bash
+# Backup manual
+docker compose exec openfinance python scripts/backup_database.py --reason manual
+
+# Poda de backups antigos
+docker compose exec openfinance python scripts/backup_database.py --prune-only --keep-last 14
+
+# Ver backups existentes
+docker compose exec openfinance ls -lh /app/backups/
+```
+
+### Restore via Docker
+
+```bash
+# 1. Parar o app
+docker compose down
+
+# 2. Restaurar (o compose run monta os mesmos volumes)
+docker compose run --rm openfinance python scripts/restore_database.py --from /app/backups/<arquivo>.db
+
+# 3. Subir de novo
+docker compose up -d
+```
+
+### Ativar autenticação (recomendado antes de qualquer exposição externa)
+
+No `.env`:
+
+```
+OPENFINANCE_ENV=production
+OPENFINANCE_REQUIRE_AUTH=true
+OPENFINANCE_ADMIN_TOKEN=<token forte gerado com: python -c "import secrets; print(secrets.token_urlsafe(32))">
+```
+
+O app recusa iniciar se `OPENFINANCE_ENV=production` sem auth configurada corretamente.
+
+---
+
 ## Testes
 
 ```bash
