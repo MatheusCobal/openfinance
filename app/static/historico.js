@@ -84,6 +84,208 @@ function classificationMeta(tx) {
   return parts.map(escapeHtml).join(' · ');
 }
 
+// ── Manual classification override (10D-C) ──────────────────────────────
+
+let classificationOptions = null;
+const drilldownTxById = new Map();
+
+async function ensureClassificationOptions() {
+  if (classificationOptions) return classificationOptions;
+  classificationOptions = await fetchJson('/transactions/classification-options');
+  return classificationOptions;
+}
+
+function registerDrilldownTxs(transactions) {
+  drilldownTxById.clear();
+  (transactions || []).forEach((tx) => {
+    if (tx && tx.id) drilldownTxById.set(tx.id, tx);
+  });
+}
+
+function classificationBadges(tx) {
+  const badges = [];
+  if (tx.is_user_overridden) {
+    badges.push(
+      '<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-medium">Manual</span>',
+    );
+  } else if (tx.classification_source === 'fallback' && tx.classification_confidence === 'low') {
+    badges.push(
+      '<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-medium">Revisar</span>',
+    );
+  }
+  if (tx.ignored_from_totals) {
+    badges.push(
+      '<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">Ignorada dos totais</span>',
+    );
+  }
+  return badges.join(' ');
+}
+
+function txEditButton(tx) {
+  if (!tx || !tx.id) return '';
+  return `
+    <button type="button" class="tx-edit-btn text-[11px] text-blue-600 hover:text-blue-800 hover:underline"
+      data-tx-id="${escapeHtml(tx.id)}">Editar classificação</button>
+  `;
+}
+
+function txClassificationFooter(tx) {
+  const meta = classificationMeta(tx);
+  const badges = classificationBadges(tx);
+  if (!meta && !badges && !(tx && tx.id)) return '';
+  return `
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
+      ${badges}
+      ${meta ? `<span class="text-[11px] text-slate-400">${meta}</span>` : ''}
+      ${txEditButton(tx)}
+    </div>
+  `;
+}
+
+function classificationEditorHtml(tx, options) {
+  const categoryOptions = options.internal_categories
+    .map((name) => `<option value="${escapeHtml(name)}" ${name === tx.internal_category ? 'selected' : ''}>${escapeHtml(name)}</option>`)
+    .join('');
+  const cashflowOptions = options.cashflow_types
+    .map((name) => `<option value="${escapeHtml(name)}" ${name === tx.cashflow_type ? 'selected' : ''}>${escapeHtml(name)}</option>`)
+    .join('');
+  const rawParts = [
+    tx.pluggy_raw_category ? `Categoria: ${tx.pluggy_raw_category}` : null,
+    tx.pluggy_raw_subcategory ? `Subcategoria: ${tx.pluggy_raw_subcategory}` : null,
+    tx.pluggy_raw_type ? `Tipo: ${tx.pluggy_raw_type}` : null,
+    tx.pluggy_merchant ? `Merchant: ${tx.pluggy_merchant}` : null,
+  ].filter(Boolean);
+  const sourceParts = [
+    tx.classification_source ? `Origem: ${tx.classification_source}` : null,
+    tx.classification_confidence ? `Confiança: ${tx.classification_confidence}` : null,
+  ].filter(Boolean);
+  return `
+    <div class="tx-editor mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2" data-tx-id="${escapeHtml(tx.id)}">
+      <div class="flex flex-col sm:flex-row gap-2">
+        <label class="flex-1 text-xs text-slate-600">
+          Categoria interna
+          <select class="tx-editor-category mt-1 w-full text-sm rounded-lg border border-slate-300 px-2 py-1.5 bg-white outline-none focus:border-blue-500">
+            ${categoryOptions}
+          </select>
+        </label>
+        <label class="flex-1 text-xs text-slate-600">
+          Tipo de fluxo
+          <select class="tx-editor-cashflow mt-1 w-full text-sm rounded-lg border border-slate-300 px-2 py-1.5 bg-white outline-none focus:border-blue-500">
+            ${cashflowOptions}
+          </select>
+        </label>
+      </div>
+      <label class="flex items-center gap-2 text-xs text-slate-700">
+        <input type="checkbox" class="tx-editor-ignored rounded border-slate-300" ${tx.ignored_from_totals ? 'checked' : ''} />
+        Ignorar dos totais
+      </label>
+      ${sourceParts.length ? `<p class="text-[11px] text-slate-400">${sourceParts.map(escapeHtml).join(' · ')}</p>` : ''}
+      ${rawParts.length ? `<p class="text-[11px] text-slate-400">Pluggy bruto — ${rawParts.map(escapeHtml).join(' · ')}</p>` : ''}
+      <div class="flex flex-wrap items-center gap-2 pt-1">
+        <button type="button" class="tx-editor-save text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-lg px-3 py-1.5">Salvar</button>
+        ${tx.is_user_overridden
+          ? '<button type="button" class="tx-editor-reset text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg px-3 py-1.5">Restaurar automático</button>'
+          : ''}
+        <button type="button" class="tx-editor-cancel text-xs text-slate-500 hover:text-slate-700 px-2 py-1.5">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+
+async function openClassificationEditor(button) {
+  const txId = button.dataset.txId;
+  const tx = drilldownTxById.get(txId);
+  if (!tx) return;
+  let options;
+  try {
+    options = await ensureClassificationOptions();
+  } catch (err) {
+    console.error(err);
+    showToast('Não foi possível carregar as opções de classificação.', 'error');
+    return;
+  }
+  const row = button.closest('li');
+  if (!row) return;
+  const existing = row.querySelector('.tx-editor');
+  if (existing) {
+    existing.remove();
+    return;
+  }
+  // Only one editor open at a time inside the drilldown.
+  document.querySelectorAll('#drilldown-body .tx-editor').forEach((el) => el.remove());
+  const host = row.querySelector('.min-w-0') || row;
+  host.insertAdjacentHTML('beforeend', classificationEditorHtml(tx, options));
+
+  const editor = host.querySelector('.tx-editor');
+  const cashflowSelect = editor.querySelector('.tx-editor-cashflow');
+  const ignoredCheckbox = editor.querySelector('.tx-editor-ignored');
+  cashflowSelect.addEventListener('change', () => {
+    const suggested = options.suggested_ignored_from_totals[cashflowSelect.value];
+    if (typeof suggested === 'boolean') ignoredCheckbox.checked = suggested;
+  });
+}
+
+async function saveClassificationOverride(editor) {
+  const txId = editor.dataset.txId;
+  const body = {
+    internal_category: editor.querySelector('.tx-editor-category').value,
+    cashflow_type: editor.querySelector('.tx-editor-cashflow').value,
+    ignored_from_totals: editor.querySelector('.tx-editor-ignored').checked,
+  };
+  try {
+    const response = await fetch(`/transactions/${encodeURIComponent(txId)}/classification`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      showToast(err.detail || `Falha ao salvar (HTTP ${response.status})`, 'error');
+      return;
+    }
+    closeDrilldown();
+    await loadData();
+    showToast('Classificação manual salva.', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast('Erro ao salvar classificação.', 'error');
+  }
+}
+
+async function resetClassificationOverride(editor) {
+  const txId = editor.dataset.txId;
+  try {
+    const response = await fetch(
+      `/transactions/${encodeURIComponent(txId)}/classification-override`,
+      { method: 'DELETE' },
+    );
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      showToast(err.detail || `Falha ao restaurar (HTTP ${response.status})`, 'error');
+      return;
+    }
+    closeDrilldown();
+    await loadData();
+    showToast('Classificação automática restaurada.', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast('Erro ao restaurar classificação.', 'error');
+  }
+}
+
+document.getElementById('drilldown-body').addEventListener('click', (e) => {
+  const editBtn = e.target.closest('.tx-edit-btn');
+  if (editBtn) {
+    openClassificationEditor(editBtn);
+    return;
+  }
+  const editor = e.target.closest('.tx-editor');
+  if (!editor) return;
+  if (e.target.closest('.tx-editor-save')) saveClassificationOverride(editor);
+  else if (e.target.closest('.tx-editor-reset')) resetClassificationOverride(editor);
+  else if (e.target.closest('.tx-editor-cancel')) editor.remove();
+});
+
 function planStatusLabel(status) {
   const labels = {
     healthy: 'Saudável',
@@ -225,6 +427,7 @@ function openInvoiceDrilldown(monthData) {
   document.getElementById('drilldown-subtitle').textContent =
     `${currency.format(monthData.total)} · ${pluralFaturas(monthData.count)}`;
 
+  registerDrilldownTxs(monthData.transactions);
   const rows = monthData.transactions
     .map(
       (tx) => `
@@ -232,7 +435,7 @@ function openInvoiceDrilldown(monthData) {
           <div class="min-w-0 flex-1 pr-4">
             <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
             <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
-            ${classificationMeta(tx) ? `<p class="text-[11px] text-slate-400 mt-0.5">${classificationMeta(tx)}</p>` : ''}
+            ${txClassificationFooter(tx)}
           </div>
           <p class="text-sm font-medium tabular text-slate-900 shrink-0">
             ${currency.format(Number(tx.amount_abs))}
@@ -443,6 +646,7 @@ function openIncomeDrilldown(monthData) {
   document.getElementById('drilldown-subtitle').textContent =
     `${currency.format(monthData.income)} · ${pluralRecebimentos(monthData.count)}`;
 
+  registerDrilldownTxs(monthData.transactions);
   const rows = (monthData.transactions || []).map((tx) => `
     <li class="flex items-baseline justify-between px-6 py-3 border-t border-slate-100">
       <div class="min-w-0 flex-1 pr-4">
@@ -451,7 +655,7 @@ function openIncomeDrilldown(monthData) {
           ${formatDayLabel(tx.date)}
           ${tx.account_name ? ` · ${escapeHtml(tx.account_name)}` : ''}
         </p>
-        ${classificationMeta(tx) ? `<p class="text-[11px] text-slate-400 mt-0.5">${classificationMeta(tx)}</p>` : ''}
+        ${txClassificationFooter(tx)}
       </div>
       <p class="text-sm font-semibold tabular text-emerald-700 shrink-0">
         ${currency.format(Math.abs(Number(tx.amount)))}
@@ -793,6 +997,7 @@ function openCashflowDrilldown(monthData) {
   document.getElementById('drilldown-subtitle').textContent =
     `Entradas ${currency.format(monthData.entradas)} · Saídas ${currency.format(monthData.saidas)} · Saldo ${netSign}${currency.format(Math.abs(monthData.net))}`;
 
+  registerDrilldownTxs([...monthData.entradas_txs, ...monthData.saidas_txs]);
   const renderTxs = (txs, color, sign) => txs
     .slice()
     .sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)))
@@ -804,7 +1009,7 @@ function openCashflowDrilldown(monthData) {
             ${formatDayLabel(tx.date)}
             ${tx.account_name ? ` · ${escapeHtml(tx.account_name)}` : ''}
           </p>
-          ${classificationMeta(tx) ? `<p class="text-[11px] text-slate-400 mt-0.5">${classificationMeta(tx)}</p>` : ''}
+          ${txClassificationFooter(tx)}
         </div>
         <p class="text-sm font-semibold tabular ${color} shrink-0">
           ${sign}${currency.format(Math.abs(Number(tx.amount)))}

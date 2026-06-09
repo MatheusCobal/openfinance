@@ -4,11 +4,18 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.database import get_session
 from app.models import Account
 from app.pluggy_client import pluggy
+from app.services.classification_override import (
+    apply_manual_classification,
+    classification_options,
+    reset_manual_classification,
+)
+from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.transaction_reports import (
     enriched_transactions,
     monthly_stats_summary,
@@ -53,6 +60,62 @@ def list_transactions(
 @router.get("/categories")
 def list_categories(session: Session = Depends(get_session)):
     raise HTTPException(410, LEGACY_CATEGORY_REMOVED_MESSAGE)
+
+
+class ClassificationOverridePayload(BaseModel):
+    internal_category: str
+    cashflow_type: str
+    # None lets the backend derive the flag from the cashflow type.
+    ignored_from_totals: Optional[bool] = None
+
+
+def _classification_response(tx, session: Session) -> dict:
+    account = session.get(Account, tx.account_id)
+    return {
+        "id": tx.id,
+        **serialize_transaction_classification(
+            tx,
+            account_type=account.type if account is not None else None,
+        ),
+    }
+
+
+@router.get("/transactions/classification-options")
+def transaction_classification_options():
+    return classification_options()
+
+
+@router.patch("/transactions/{transaction_id}/classification")
+def override_transaction_classification(
+    transaction_id: str,
+    payload: ClassificationOverridePayload,
+    session: Session = Depends(get_session),
+):
+    try:
+        tx = apply_manual_classification(
+            session,
+            transaction_id,
+            internal_category=payload.internal_category,
+            cashflow_type=payload.cashflow_type,
+            ignored_from_totals=payload.ignored_from_totals,
+        )
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return _classification_response(tx, session)
+
+
+@router.delete("/transactions/{transaction_id}/classification-override")
+def reset_transaction_classification(
+    transaction_id: str,
+    session: Session = Depends(get_session),
+):
+    try:
+        tx = reset_manual_classification(session, transaction_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    return _classification_response(tx, session)
 
 
 @router.get("/upcoming")
