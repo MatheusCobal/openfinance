@@ -247,11 +247,11 @@ Quando `OPENFINANCE_WEBHOOK_SECRET` está definido, a validação do token é ap
 
 ---
 
-## Backup local do SQLite
+## Backup, restore e retenção do SQLite
 
 O helper de backup cobre apenas bancos SQLite baseados em arquivo (`sqlite:///...`). URLs em memória (`sqlite://` ou `sqlite:///:memory:`) e outros bancos, como PostgreSQL, são ignorados.
 
-Para criar um backup manual:
+### Backup manual
 
 ```bash
 .venv/bin/python scripts/backup_database.py --reason manual
@@ -259,7 +259,51 @@ Para criar um backup manual:
 
 Os arquivos são salvos em `backups/`, com nome do banco, timestamp e razão sanitizada. O diretório é gitignored.
 
-O app também tenta criar backup automaticamente antes de migrações Alembic executadas por `init_db()` e antes do refresh explícito `POST /history/snapshots/refresh`, quando `DATABASE_URL` aponta para um arquivo SQLite existente. Antes de syncs Pluggy pesados ou manutenções locais, rode o backup manualmente.
+O app também cria backup automaticamente antes de migrações Alembic executadas por `init_db()` e antes do refresh explícito `POST /history/snapshots/refresh`. Antes de syncs Pluggy pesados ou manutenções locais, rode o backup manualmente.
+
+### Restore
+
+> **IMPORTANTE:** pare o app antes de restaurar o banco.
+
+```bash
+.venv/bin/python scripts/restore_database.py --from backups/<arquivo>.db
+```
+
+O script:
+1. Valida que o arquivo de backup é um SQLite válido (`PRAGMA integrity_check`).
+2. Cria um backup de segurança do banco atual com razão `pre-restore` antes de sobrescrever.
+3. Copia o backup para um arquivo temporário no mesmo diretório do banco.
+4. Valida o temporário e substitui o banco destino atomicamente.
+5. Não apaga o arquivo de backup usado como origem.
+
+> **Regra:** um backup só conta depois que um restore foi testado com sucesso.
+
+### Retenção/poda de backups
+
+Para evitar crescimento infinito de `backups/`, rode poda explicitamente:
+
+```bash
+# Criar backup e já podar os antigos
+.venv/bin/python scripts/backup_database.py --reason manual --prune
+
+# Podar sem criar novo backup
+.venv/bin/python scripts/backup_database.py --prune-only
+
+# Controlar quantos manter (padrão: 14 mais recentes + 1 por mês)
+.venv/bin/python scripts/backup_database.py --prune-only --keep-last 30
+.venv/bin/python scripts/backup_database.py --prune-only --keep-last 14 --no-keep-monthly
+```
+
+Apenas arquivos com o padrão de timestamp gerado pelo app são removidos. Arquivos fora do padrão são sempre preservados.
+
+### Backup offsite
+
+Backups em `backups/` protegem contra erro humano, mas não contra falha de disco. Para dados financeiros, recomenda-se copiar backups para um destino externo (ex.: `rclone` com Google Drive ou Backblaze B2, de preferência criptografado). Configure um job cron ou systemd timer para rodar periodicamente:
+
+```bash
+.venv/bin/python scripts/backup_database.py --reason daily --prune
+rclone copy backups/ remote:openfinance-backups/
+```
 
 ---
 

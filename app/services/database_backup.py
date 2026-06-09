@@ -7,6 +7,9 @@ from urllib.parse import unquote, urlsplit
 
 DEFAULT_BACKUP_DIR = Path("backups")
 
+# Matches the timestamp embedded by backup_sqlite_database: .YYYYMMDD-HHMMSS-ffffff.
+_BACKUP_TS_PATTERN = re.compile(r"\.(\d{8}-\d{6}-\d+)\.")
+
 
 def sqlite_database_path(database_url: str) -> Optional[Path]:
     """Return a file path for SQLite URLs that point to an on-disk database."""
@@ -70,3 +73,69 @@ def backup_sqlite_database(
             source.backup(target)
 
     return target_path
+
+
+def _backup_timestamp(path: Path) -> Optional[datetime]:
+    """Extract the embedded timestamp from a backup filename, or None if not parseable."""
+    m = _BACKUP_TS_PATTERN.search(path.name)
+    if m is None:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y%m%d-%H%M%S-%f")
+    except ValueError:
+        return None
+
+
+def prune_sqlite_backups(
+    backup_dir: Union[str, Path],
+    keep_last: int = 14,
+    keep_monthly: bool = True,
+) -> list[Path]:
+    """Remove old backup files, keeping the most recent and optionally one per calendar month.
+
+    Only files whose names contain the app's timestamp pattern are considered.
+    Files that do not match are always preserved. Temp files (.restore-tmp.) are skipped.
+    Returns a list of deleted paths.
+    """
+    backup_dir = Path(backup_dir)
+    if not backup_dir.exists():
+        return []
+
+    parsed: list[tuple[datetime, Path]] = []
+    for path in backup_dir.iterdir():
+        if not path.is_file():
+            continue
+        if ".restore-tmp." in path.name:
+            continue
+        ts = _backup_timestamp(path)
+        if ts is not None:
+            parsed.append((ts, path))
+
+    if not parsed:
+        return []
+
+    parsed.sort(key=lambda x: x[0])
+
+    keep: set[Path] = set()
+
+    for _, path in parsed[-keep_last:]:
+        keep.add(path)
+
+    if keep_monthly:
+        seen: set[tuple[int, int]] = set()
+        for ts, path in parsed:
+            key = (ts.year, ts.month)
+            if key not in seen:
+                seen.add(key)
+                keep.add(path)
+
+    deleted: list[Path] = []
+    for _, path in parsed:
+        if path not in keep:
+            try:
+                path.unlink()
+                deleted.append(path)
+            except OSError:
+                pass
+
+    return deleted
