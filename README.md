@@ -418,6 +418,93 @@ O app recusa iniciar se `OPENFINANCE_ENV=production` sem auth configurada corret
 
 ---
 
+## Deploy em VPS com Caddy — scaffold
+
+> ⚠️ Esta seção é um **scaffold** (arquivos prontos para deploy futuro). Não há deploy automático. O deploy real exige uma VPS acessível, domínio configurado e execução manual dos comandos abaixo.
+
+### Arquivos do scaffold
+
+| Arquivo | Descrição |
+|---|---|
+| `docker-compose.prod.yml` | Compose de produção: `openfinance` + `caddy` |
+| `Caddyfile` | Reverse proxy com HTTPS automático via Let's Encrypt |
+| `.env.production.example` | Template de variáveis de produção (sem segredos reais) |
+
+### Pré-requisitos para deploy real
+
+- VPS com Docker e Docker Compose v2 instalados.
+- Domínio ou subdomínio apontando para o IP público da VPS.
+- Portas `80` e `443` abertas no firewall da VPS.
+- Porta `8000` **bloqueada** no firewall (não deve ser acessível de fora).
+- `.env.production` criado no servidor a partir de `.env.production.example`.
+
+### Criar `.env.production` no servidor
+
+```bash
+cp .env.production.example .env.production
+# Gerar tokens fortes e únicos:
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Editar .env.production com domínio, email e tokens reais
+```
+
+`OPENFINANCE_ADMIN_TOKEN` e `OPENFINANCE_WEBHOOK_SECRET` devem ser **diferentes entre si**. Nunca commitar `.env.production`.
+
+### Subir em produção
+
+```bash
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+### Verificar
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail=100 openfinance
+docker compose -f docker-compose.prod.yml logs --tail=100 caddy
+curl -f https://SEU_DOMINIO/health
+```
+
+### Parar
+
+```bash
+docker compose -f docker-compose.prod.yml down
+# NUNCA usar down -v — apaga volumes (banco + backups + certificados TLS).
+```
+
+### Backup e restore em produção
+
+```bash
+# Backup manual
+docker compose -f docker-compose.prod.yml exec openfinance python scripts/backup_database.py --reason manual
+
+# Poda de backups antigos
+docker compose -f docker-compose.prod.yml exec openfinance python scripts/backup_database.py --prune-only --keep-last 14
+
+# Restore (parar app primeiro)
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml run --rm openfinance python scripts/restore_database.py --from /app/backups/<arquivo>.db
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### Webhook Pluggy
+
+Registre no dashboard Pluggy:
+
+```
+https://SEU_DOMINIO/webhooks/pluggy?token=<OPENFINANCE_WEBHOOK_SECRET>
+```
+
+> ⚠️ **Risco:** o token aparece na query string da URL e pode ficar registrado em logs de infraestrutura (firewall, CDN, load balancer). Mitigações: (1) os access logs do Caddy estão desativados por padrão nesta configuração; (2) use um `OPENFINANCE_WEBHOOK_SECRET` forte e rotacione se houver suspeita de exposição; (3) se o Pluggy futuramente suportar header secreto ou assinatura HMAC, migre para esse mecanismo.
+
+### Segurança
+
+- `OPENFINANCE_ENV=production` obriga `REQUIRE_AUTH=true` e token não-vazio — o app recusa iniciar se misconfigured.
+- O container `openfinance` não publica porta no host (`expose` é apenas documentação interna no Compose). Apenas o Caddy escuta em `80`/`443`.
+- HTTPS gerenciado automaticamente pelo Caddy via Let's Encrypt (certificados em `caddy_data`).
+- Nunca commitar `.env.production`. Nunca usar `down -v`.
+
+---
+
 ## Testes
 
 ```bash

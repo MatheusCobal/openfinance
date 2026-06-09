@@ -16,8 +16,11 @@ build/
 .venv/
 venv/
 
-# Local development secrets — never bake into the image
+# Environment files — never bake secrets into the image
 .env
+.env.local
+.env.production
+.env.*.local
 
 # Local database files — data lives in the openfinance_data Docker volume
 openfinance.db

@@ -1,0 +1,23 @@
+# OpenFinance — Caddy reverse proxy configuration
+#
+# Variables are substituted from the container environment (set via .env.production):
+#   OPENFINANCE_DOMAIN — the public domain/subdomain (e.g. finance.example.com)
+#   ACME_EMAIL         — email for Let's Encrypt certificate notifications
+#
+# Caddy obtains and renews TLS certificates automatically via Let's Encrypt.
+# Certificates are stored in the caddy_data Docker volume.
+
+{
+    # Email for ACME (Let's Encrypt) registration and expiry notifications.
+    email {$ACME_EMAIL}
+}
+
+{$OPENFINANCE_DOMAIN} {
+    # Proxy all requests to the openfinance container on the internal Docker network.
+    reverse_proxy openfinance:8000
+
+    # Access logs are intentionally disabled.
+    # The Pluggy webhook uses a secret in the query string (?token=...).
+    # Enabling access logs that include the full URL would leak the token to log files.
+    # If you need access logs, enable query-string redaction before turning them on.
+}

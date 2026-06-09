@@ -1,0 +1,50 @@
+services:
+  openfinance:
+    build: .
+    # No ports binding — the app is only reachable inside the Compose network.
+    # Caddy proxies to openfinance:8000; port 8000 is never exposed to the host.
+    expose:
+      - "8000"
+    env_file:
+      - .env.production
+    environment:
+      # Always override DATABASE_URL with the persistent volume path.
+      DATABASE_URL: sqlite:////data/openfinance.db
+    volumes:
+      - openfinance_data:/data
+      - openfinance_backups:/app/backups
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - openfinance
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Caddyfile is read-only; edit locally and restart caddy to reload.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # caddy_data stores TLS certificates — must persist across restarts.
+      - caddy_data:/data
+      - caddy_config:/config
+    # Passes OPENFINANCE_DOMAIN and ACME_EMAIL to Caddyfile variable substitution.
+    env_file:
+      - .env.production
+    restart: unless-stopped
+
+volumes:
+  openfinance_data:
+  openfinance_backups:
+  caddy_data:
+  caddy_config:
