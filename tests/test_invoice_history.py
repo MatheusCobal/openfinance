@@ -22,8 +22,11 @@ from app.database import get_session
 from app.main import app
 from app.models import Account, CreditCardInvoiceMonth, Item, MonthlyBalanceMonth, Transaction
 from app.services.history import (
+    bank_income_history_summary,
     credit_card_payments_monthly_summary,
+    credit_card_payments_history_summary,
     monthly_balance_summary,
+    monthly_balance_history_summary,
 )
 from app.services.invoice_month import invoice_month_from_payment
 from app.services.snapshots import (
@@ -550,6 +553,30 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
         self.assertAlmostEqual(live_may["invoice_paid"], float(snapshot.invoice_paid), places=2)
         self.assertEqual(live_may["invoice_payment_count"], snapshot.invoice_payment_count)
         self.assertAlmostEqual(live_may["net_cashflow"], float(snapshot.net_cashflow), places=2)
+
+
+class TestHistorySummariesAreReadOnly(unittest.TestCase):
+    def setUp(self):
+        self.engine = _make_engine()
+
+    def test_history_summary_functions_do_not_refresh_snapshots(self):
+        with Session(self.engine) as session:
+            with (
+                patch(
+                    "app.services.snapshots.refresh_credit_card_invoice_snapshots",
+                ) as credit_refresh,
+                patch("app.services.snapshots.refresh_bank_income_snapshots") as income_refresh,
+                patch(
+                    "app.services.snapshots.refresh_monthly_balance_snapshots"
+                ) as balance_refresh,
+            ):
+                credit_card_payments_history_summary(session)
+                bank_income_history_summary(session)
+                monthly_balance_history_summary(session)
+
+        credit_refresh.assert_not_called()
+        income_refresh.assert_not_called()
+        balance_refresh.assert_not_called()
 
 
 class TestHistoricoPageLoads(unittest.TestCase):

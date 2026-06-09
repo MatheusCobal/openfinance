@@ -15,6 +15,7 @@ from app.services.history import (
 from app.services.snapshots import (
     DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
     DEFAULT_MONTHLY_BALANCE_MONTHS,
+    refresh_monthly_balance_snapshots,
 )
 
 router = APIRouter()
@@ -79,3 +80,23 @@ def monthly_balance(
 @router.get("/monthly-balance/history")
 def monthly_balance_history(session: Session = Depends(get_session)):
     return monthly_balance_history_summary(session)
+
+
+@router.post("/history/snapshots/refresh")
+def refresh_history_snapshots(
+    months: int = DEFAULT_MONTHLY_BALANCE_MONTHS,
+    session: Session = Depends(get_session),
+):
+    _validate_month_window(months)
+    bank_income, credit_card_invoice, monthly_balance = refresh_monthly_balance_snapshots(
+        session,
+        months,
+    )
+    return {
+        "status": "ok",
+        "refreshed": {
+            "bank_income": bank_income,
+            "credit_card_invoice": credit_card_invoice,
+            "monthly_balance": monthly_balance,
+        },
+    }

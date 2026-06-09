@@ -1,6 +1,7 @@
 import unittest
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -432,6 +433,7 @@ class BackendRegressionTest(unittest.TestCase):
 
     def test_read_endpoints_do_not_create_snapshot_rows(self):
         endpoints = [
+            ("/credit-card-payments/monthly", {"months": 1}),
             ("/bank-income/monthly", {"months": 1}),
             ("/monthly-balance", {"months": 1}),
             ("/expected-income/forecast", {"year_month": self.current_month}),
@@ -449,6 +451,58 @@ class BackendRegressionTest(unittest.TestCase):
             self.assertEqual(session.exec(select(BankIncomeMonth)).all(), [])
             self.assertEqual(session.exec(select(CreditCardInvoiceMonth)).all(), [])
             self.assertEqual(session.exec(select(MonthlyBalanceMonth)).all(), [])
+
+    def test_history_get_endpoints_do_not_call_snapshot_refresh(self):
+        endpoints = [
+            ("/credit-card-payments/history", {}),
+            ("/bank-income/history", {}),
+            ("/monthly-balance", {"months": 1}),
+            ("/monthly-balance/history", {}),
+        ]
+
+        with (
+            patch("app.services.snapshots.refresh_credit_card_invoice_snapshots") as credit_refresh,
+            patch("app.services.snapshots.refresh_bank_income_snapshots") as income_refresh,
+            patch("app.services.snapshots.refresh_monthly_balance_snapshots") as balance_refresh,
+        ):
+            for path, params in endpoints:
+                with self.subTest(path=path):
+                    response = self.client.get(path, params=params)
+                    self.assertEqual(response.status_code, 200)
+
+        credit_refresh.assert_not_called()
+        income_refresh.assert_not_called()
+        balance_refresh.assert_not_called()
+
+    def test_history_snapshots_refresh_requires_post(self):
+        response = self.client.get("/history/snapshots/refresh", params={"months": 1})
+        self.assertEqual(response.status_code, 405)
+
+    def test_history_snapshots_refresh_post_creates_snapshots(self):
+        response = self.client.post("/history/snapshots/refresh", params={"months": 1})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(
+            set(payload["refreshed"].keys()),
+            {"bank_income", "credit_card_invoice", "monthly_balance"},
+        )
+        self.assertGreaterEqual(payload["refreshed"]["bank_income"], 1)
+        self.assertGreaterEqual(payload["refreshed"]["credit_card_invoice"], 1)
+        self.assertGreaterEqual(payload["refreshed"]["monthly_balance"], 1)
+
+        with Session(self.engine) as session:
+            bank_income = session.get(BankIncomeMonth, self.current_month)
+            invoice = session.get(CreditCardInvoiceMonth, self.current_month)
+            balance = session.get(MonthlyBalanceMonth, self.current_month)
+
+        self.assertIsNotNone(bank_income)
+        self.assertIsNotNone(invoice)
+        self.assertIsNotNone(balance)
+        self.assertAlmostEqual(float(bank_income.total), 5000.01, places=2)
+        self.assertAlmostEqual(float(invoice.total), 150.0, places=2)
+        self.assertAlmostEqual(float(balance.invoice_paid), 150.0, places=2)
 
     def test_bank_cashflow_includes_ignored_and_respects_cashflow_rules(self):
         response = self.client.get("/bank-cashflow/monthly", params={"months": 1})
