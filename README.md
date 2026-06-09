@@ -213,6 +213,18 @@ Exceções (públicas mesmo com auth ativa):
 - `/static/*` — sempre público (não contém segredos);
 - `/health` — público quando `OPENFINANCE_PUBLIC_HEALTH=true` (padrão); defina `false` para exigir auth também nele.
 
+### Checklist mínimo antes de expor publicamente
+
+1. `OPENFINANCE_ENV=production` — ativa os guardrails de startup.
+2. `OPENFINANCE_REQUIRE_AUTH=true` — ativa o Basic Auth.
+3. `OPENFINANCE_ADMIN_TOKEN=<token forte e único>` — senha do Basic Auth.
+4. `OPENFINANCE_WEBHOOK_SECRET=<segredo forte e diferente>` — se usar webhook Pluggy.
+5. Não exponha sem HTTPS (use Caddy, Nginx ou Cloudflare Tunnel como reverse proxy).
+6. Prefira também proteger no reverse proxy como defesa em profundidade.
+
+> O app recusa iniciar se `OPENFINANCE_ENV=production` e `OPENFINANCE_REQUIRE_AUTH=false`
+> ou `OPENFINANCE_ADMIN_TOKEN` vazio. A validação roda no startup, antes de aceitar conexões.
+
 ### Webhook Pluggy
 
 O `/webhooks/pluggy` **não** usa Basic Auth (a Pluggy não envia essas credenciais). Ele é protegido por um segredo próprio na URL:
@@ -227,7 +239,9 @@ Configure no painel Pluggy/ngrok a URL com o token na query string:
 https://SEU_DOMINIO/webhooks/pluggy?token=<OPENFINANCE_WEBHOOK_SECRET>
 ```
 
-Sem o token correto, o webhook é rejeitado (403) antes de processar qualquer payload, acionar sync ou alterar o banco. O `OPENFINANCE_ADMIN_TOKEN` **não** funciona como token de webhook. Com `OPENFINANCE_REQUIRE_AUTH=true` e `OPENFINANCE_WEBHOOK_SECRET` vazio, o webhook rejeita tudo.
+Sem o token correto, o webhook é rejeitado (403) antes de processar qualquer payload, acionar sync ou alterar o banco. O `OPENFINANCE_ADMIN_TOKEN` **não** funciona como token de webhook.
+
+Quando `OPENFINANCE_WEBHOOK_SECRET` está definido, a validação do token é aplicada **sempre** — inclusive em modo local com `OPENFINANCE_REQUIRE_AUTH=false`. Assim, uma instância local com webhook configurado nunca fica aberta acidentalmente. Com `OPENFINANCE_WEBHOOK_SECRET` vazio e `OPENFINANCE_REQUIRE_AUTH=false`, o endpoint fica aberto (comportamento conveniente para desenvolvimento local sem webhook).
 
 > Em deploy futuro (VPS, Caddy/Nginx, Cloudflare Tunnel), recomenda-se também proteger no reverse proxy como defesa em profundidade. Não implementado aqui.
 
@@ -347,6 +361,7 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 ## Limitações intencionais
 
 - Auth desativada por padrão (local-first); proteção mínima via Basic Auth disponível — veja [Autenticação](#autenticação-antes-de-expor-publicamente) antes de expor publicamente
+- Em `OPENFINANCE_ENV=production`, app recusa iniciar se auth estiver desativada ou admin token vazio (guardrail de startup)
 - Filtro de contas hardcoded em `type == "CREDIT"` (foco em cartão; conta corrente fica de fora)
 - Sync incremental com janela de segurança de 7 dias para capturar alterações recentes
 - Webhooks dependem do ngrok rodando junto com o app local

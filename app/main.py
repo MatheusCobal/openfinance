@@ -5,7 +5,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.security import OpenFinanceAuthMiddleware
+from app.security import (
+    OpenFinanceAuthMiddleware,
+    get_security_settings,
+    validate_security_configuration,
+)
 from app.routes import (
     bank,
     budgets,
@@ -26,6 +30,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_security_configuration(get_security_settings())
     init_db()
     yield
 

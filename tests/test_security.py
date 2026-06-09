@@ -46,6 +46,43 @@ def basic_header(token, username="anyuser"):
     return {"Authorization": "Basic " + base64.b64encode(raw).decode("ascii")}
 
 
+class ConfigValidationTest(unittest.TestCase):
+    """Tests for validate_security_configuration (Item 9B guardrails)."""
+
+    def test_production_without_auth_raises(self):
+        settings = make_settings(env="production", require_auth=False)
+        with self.assertRaises(security.SecurityConfigurationError) as ctx:
+            security.validate_security_configuration(settings)
+        self.assertIn("OPENFINANCE_REQUIRE_AUTH", str(ctx.exception))
+
+    def test_production_with_auth_but_empty_token_raises(self):
+        settings = make_settings(env="production", require_auth=True, admin_token="")
+        with self.assertRaises(security.SecurityConfigurationError) as ctx:
+            security.validate_security_configuration(settings)
+        self.assertIn("OPENFINANCE_ADMIN_TOKEN", str(ctx.exception))
+
+    def test_production_secure_passes(self):
+        settings = make_settings(env="production", require_auth=True, admin_token=ADMIN_TOKEN)
+        security.validate_security_configuration(settings)  # must not raise
+
+    def test_local_default_passes(self):
+        settings = make_settings(env="local", require_auth=False)
+        security.validate_security_configuration(settings)  # must not raise
+
+    def test_require_auth_without_token_raises_outside_production(self):
+        settings = make_settings(env="local", require_auth=True, admin_token="")
+        with self.assertRaises(security.SecurityConfigurationError) as ctx:
+            security.validate_security_configuration(settings)
+        self.assertIn("OPENFINANCE_ADMIN_TOKEN", str(ctx.exception))
+
+    def test_production_env_case_insensitive(self):
+        for env_value in ("Production", " production ", "PRODUCTION", " Production "):
+            with self.subTest(env=env_value):
+                settings = make_settings(env=env_value, require_auth=False)
+                with self.assertRaises(security.SecurityConfigurationError):
+                    security.validate_security_configuration(settings)
+
+
 class SecuritySettingsTest(unittest.TestCase):
     def test_defaults_are_local_and_open(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -259,6 +296,38 @@ class AuthMiddlewareTest(unittest.TestCase):
                 "/webhooks/pluggy?token=anything", json={"event": "ignored/event"}
             )
         self.assertIn(response.status_code, (401, 403))
+
+    # ── 9B: webhook secret enforced even when require_auth=False ────────────
+
+    def test_webhook_local_mode_no_secret_is_open(self):
+        """In local/dev mode with no webhook secret the route is open (no token needed)."""
+        with self._use(require_auth=False, webhook_secret=""):
+            response = self.client.post("/webhooks/pluggy", json={"event": "ignored/event"})
+        # Reached the route — benign event returns 202.
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json().get("action"), "ignored")
+
+    def test_webhook_local_mode_with_secret_requires_token(self):
+        """When require_auth=False but a webhook secret is set, the token is still required."""
+        with self._use(require_auth=False, webhook_secret=WEBHOOK_SECRET):
+            response = self.client.post("/webhooks/pluggy", json={"event": "ignored/event"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_webhook_local_mode_with_secret_wrong_token_rejected(self):
+        with self._use(require_auth=False, webhook_secret=WEBHOOK_SECRET):
+            response = self.client.post(
+                "/webhooks/pluggy?token=wrong", json={"event": "ignored/event"}
+            )
+        self.assertEqual(response.status_code, 403)
+
+    def test_webhook_local_mode_with_secret_correct_token_passes(self):
+        with self._use(require_auth=False, webhook_secret=WEBHOOK_SECRET):
+            response = self.client.post(
+                f"/webhooks/pluggy?token={WEBHOOK_SECRET}",
+                json={"event": "ignored/event"},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json().get("action"), "ignored")
 
 
 if __name__ == "__main__":

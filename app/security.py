@@ -9,8 +9,9 @@ local machine with lower risk. It is intentionally simple:
 * ``/static/*`` is always public (no secrets live there).
 * ``/health`` is public when ``OPENFINANCE_PUBLIC_HEALTH`` is true.
 * ``/webhooks/pluggy`` is validated by its OWN secret in the query string
-  (``?token=...``), never by the admin token — so the admin credential is never
-  shared with Pluggy.
+  (``?token=...``).  Once a webhook secret is configured it is enforced
+  regardless of ``OPENFINANCE_REQUIRE_AUTH``, so the route is never open while
+  a secret exists — even in local/dev mode.
 
 Security settings are read PER REQUEST through ``get_security_settings`` so tests
 can patch the function directly, avoiding global-state ordering problems.
@@ -51,8 +52,44 @@ class SecuritySettings(BaseSettings):
     model_config = CONFIG_MODEL
 
 
+class SecurityConfigurationError(RuntimeError):
+    """Raised when the security configuration is unsafe to start the application."""
+
+
 def get_security_settings() -> SecuritySettings:
     return SecuritySettings()
+
+
+def _is_production(env: str) -> bool:
+    return env.strip().lower() == "production"
+
+
+def validate_security_configuration(settings: SecuritySettings) -> None:
+    """Raise SecurityConfigurationError if the configuration is unsafe.
+
+    Conditions checked (in order):
+    1. production + require_auth=false  → unsafe: auth must be enabled.
+    2. production + empty admin token   → unsafe: token must be set.
+    3. require_auth=true + empty token  → unsafe: token must be set (any env).
+
+    Webhook secret is NOT required to start: a missing secret means the webhook
+    path rejects all calls, which is safe — the route simply won't accept Pluggy
+    callbacks until the secret is configured.
+    """
+    is_prod = _is_production(settings.openfinance_env)
+
+    if is_prod and not settings.openfinance_require_auth:
+        raise SecurityConfigurationError(
+            "OPENFINANCE_REQUIRE_AUTH must be true when OPENFINANCE_ENV=production."
+        )
+    if is_prod and not settings.openfinance_admin_token:
+        raise SecurityConfigurationError(
+            "OPENFINANCE_ADMIN_TOKEN must be set when OPENFINANCE_ENV=production."
+        )
+    if settings.openfinance_require_auth and not settings.openfinance_admin_token:
+        raise SecurityConfigurationError(
+            "OPENFINANCE_ADMIN_TOKEN must be set when authentication is required."
+        )
 
 
 def is_static_path(path: str) -> bool:
@@ -124,34 +161,50 @@ def _auth_misconfigured() -> Response:
 class OpenFinanceAuthMiddleware(BaseHTTPMiddleware):
     """Gate requests according to the security settings.
 
-    Order of evaluation:
-      1. Auth disabled -> pass everything (preserves local dev and existing tests).
-      2. ``/static/*`` -> public.
-      3. ``/health`` -> public when OPENFINANCE_PUBLIC_HEALTH is true.
-      4. ``/webhooks/pluggy`` -> validate its own secret only (never Basic Auth).
-      5. Fail-safe: auth required but no admin token -> 500.
-      6. Everything else -> require valid Basic Auth.
+    Dispatch order:
+      1. Webhook path: handled independently of the global auth toggle.
+         - If a webhook secret is configured: always require the correct token
+           (even in local/dev mode with require_auth=false) so the route is
+           never open while a secret is set.
+         - If no secret is set and require_auth=false: pass through (local dev).
+         - If no secret is set and require_auth=true: deny (misconfigured).
+      2. Auth disabled → pass everything else (local dev / test suite).
+      3. ``/static/*`` → public.
+      4. ``/health`` → public when OPENFINANCE_PUBLIC_HEALTH is true.
+      5. Fail-safe: auth required but no admin token → 500.
+      6. Everything else → require valid Basic Auth.
     """
 
     async def dispatch(self, request: Request, call_next):
         settings = get_security_settings()
+        path = request.url.path
 
+        # Step 1: webhook path is evaluated first, independently of require_auth.
+        if path == WEBHOOK_PATH:
+            if settings.openfinance_webhook_secret:
+                # Secret is configured: always validate the token regardless of
+                # the global auth toggle.
+                token = request.query_params.get("token")
+                if verify_webhook_token(token, settings.openfinance_webhook_secret):
+                    return await call_next(request)
+                return _webhook_denied()
+            # No secret configured.
+            if not settings.openfinance_require_auth:
+                # Local/dev mode with no secret: pass through for easy development.
+                return await call_next(request)
+            # Auth is required but no secret is set: deny the webhook.
+            return _webhook_denied()
+
+        # Step 2: auth disabled → open to everything.
         if not settings.openfinance_require_auth:
             return await call_next(request)
 
-        path = request.url.path
-
+        # Steps 3-6: auth is required.
         if is_static_path(path):
             return await call_next(request)
 
         if is_public_health(path, settings):
             return await call_next(request)
-
-        if path == WEBHOOK_PATH:
-            token = request.query_params.get("token")
-            if verify_webhook_token(token, settings.openfinance_webhook_secret):
-                return await call_next(request)
-            return _webhook_denied()
 
         if not settings.openfinance_admin_token:
             return _auth_misconfigured()
