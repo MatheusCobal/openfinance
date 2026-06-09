@@ -103,6 +103,8 @@ POST /webhooks/pluggy                    recebe eventos do Pluggy
 openfinance/
 ├── pyproject.toml
 ├── alembic/                   migrações de schema
+├── scripts/
+│   └── backup_database.py     backup manual do SQLite local
 ├── seed_categories.py         popula categorias e regras base
 ├── openfinance.db             SQLite local (gitignored)
 └── app/
@@ -123,6 +125,7 @@ openfinance/
     │   ├── sync.py            sync Pluggy e conexões
     │   └── pluggy_webhooks.py recepção de webhooks Pluggy
     ├── services/              regras de negócio
+    │   ├── database_backup.py backup seguro do SQLite local
     │   ├── planning.py        agregador do Planejamento mensal
     │   ├── spending_capacity.py cálculo de disponibilidade
     │   ├── credit_card_invoice.py lógica de fatura/cartão
@@ -179,6 +182,22 @@ DATABASE_URL           URL do banco SQLite (padrão: sqlite:///./openfinance.db)
 ```
 
 Importar a aplicação, rodar testes e executar migrações Alembic não exigem credenciais Pluggy. As credenciais só são validadas quando o cliente Pluggy é usado, por exemplo em `/connect-token` ou no sync.
+
+---
+
+## Backup local do SQLite
+
+O helper de backup cobre apenas bancos SQLite baseados em arquivo (`sqlite:///...`). URLs em memória (`sqlite://` ou `sqlite:///:memory:`) e outros bancos, como PostgreSQL, são ignorados.
+
+Para criar um backup manual:
+
+```bash
+.venv/bin/python scripts/backup_database.py --reason manual
+```
+
+Os arquivos são salvos em `backups/`, com nome do banco, timestamp e razão sanitizada. O diretório é gitignored.
+
+O app também tenta criar backup automaticamente antes de migrações Alembic executadas por `init_db()` e antes do refresh explícito `POST /history/snapshots/refresh`, quando `DATABASE_URL` aponta para um arquivo SQLite existente. Antes de syncs Pluggy pesados ou manutenções locais, rode o backup manualmente.
 
 ---
 
@@ -277,7 +296,7 @@ Como o app não mantém uma tabela dedicada de execuções de sync, `last_sync_s
 ## Roadmap técnico
 
 - Adicionar GitHub Actions para rodar testes automaticamente
-- Criar rotina segura de backup do banco local
+- Expandir política operacional de backup/sync quando necessário
 - Melhorar documentação de sync Pluggy
 - Revisar e mover scripts auxiliares para `scripts/`
 - Continuar simplificando services grandes quando necessário

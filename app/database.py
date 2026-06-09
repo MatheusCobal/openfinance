@@ -7,8 +7,10 @@ from sqlalchemy import inspect, text
 from sqlmodel import Session, create_engine
 
 from app.config import database_settings
+from app.services.database_backup import backup_sqlite_database, sqlite_database_path
 
 ALEMBIC_BASE_REVISION = "1ca8aba92fd3"
+_startup_backup_done = False
 
 
 def _connect_args_for_database_url(database_url: str) -> dict:
@@ -61,10 +63,23 @@ def _prepare_legacy_database_for_alembic(cfg: Config) -> None:
     command.stamp(cfg, ALEMBIC_BASE_REVISION)
 
 
+def _backup_before_migrations_once() -> None:
+    global _startup_backup_done
+    if _startup_backup_done:
+        return
+    database_path = sqlite_database_path(database_settings.database_url)
+    if database_path is None or not database_path.exists():
+        _startup_backup_done = True
+        return
+    backup_sqlite_database(database_settings.database_url, "alembic-upgrade")
+    _startup_backup_done = True
+
+
 def init_db() -> None:
     # Apply any pending Alembic migrations. Existing pre-Alembic databases are
     # stamped after receiving the columns introduced with the baseline revision.
     cfg = _alembic_config()
+    _backup_before_migrations_once()
     _prepare_legacy_database_for_alembic(cfg)
     command.upgrade(cfg, "head")
 

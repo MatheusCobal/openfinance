@@ -478,6 +478,29 @@ class BackendRegressionTest(unittest.TestCase):
         response = self.client.get("/history/snapshots/refresh", params={"months": 1})
         self.assertEqual(response.status_code, 405)
 
+    def test_history_snapshots_refresh_backs_up_before_refresh(self):
+        calls = []
+        with (
+            patch(
+                "app.routes.history.backup_sqlite_database",
+                side_effect=lambda *args, **kwargs: calls.append("backup"),
+            ) as backup,
+            patch(
+                "app.routes.history.refresh_monthly_balance_snapshots",
+                side_effect=lambda *args, **kwargs: calls.append("refresh") or (1, 2, 3),
+            ) as refresh,
+        ):
+            response = self.client.post("/history/snapshots/refresh", params={"months": 1})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["refreshed"]["bank_income"], 1)
+        self.assertEqual(response.json()["refreshed"]["credit_card_invoice"], 2)
+        self.assertEqual(response.json()["refreshed"]["monthly_balance"], 3)
+        backup.assert_called_once()
+        self.assertEqual(backup.call_args.args[1], "snapshot-refresh")
+        refresh.assert_called_once()
+        self.assertEqual(calls, ["backup", "refresh"])
+
     def test_history_snapshots_refresh_post_creates_snapshots(self):
         response = self.client.post("/history/snapshots/refresh", params={"months": 1})
 

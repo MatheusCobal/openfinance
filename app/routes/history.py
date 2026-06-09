@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
+from app.config import database_settings
 from app.database import get_session
 from app.services.history import (
     bank_cashflow_monthly_summary,
@@ -12,6 +13,7 @@ from app.services.history import (
     monthly_balance_history_summary,
     monthly_balance_summary,
 )
+from app.services.database_backup import backup_sqlite_database
 from app.services.snapshots import (
     DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
     DEFAULT_MONTHLY_BALANCE_MONTHS,
@@ -88,6 +90,7 @@ def refresh_history_snapshots(
     session: Session = Depends(get_session),
 ):
     _validate_month_window(months)
+    backup_sqlite_database(database_settings.database_url, "snapshot-refresh")
     bank_income, credit_card_invoice, monthly_balance = refresh_monthly_balance_snapshots(
         session,
         months,
