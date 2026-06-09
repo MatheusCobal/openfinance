@@ -48,19 +48,6 @@ def _non_duplicate_clause():
     )
 
 
-def filter_non_duplicate_transactions(
-    transactions: list[Transaction],
-    include_duplicates: bool = False,
-) -> list[Transaction]:
-    """In-memory filter: removes transactions where is_duplicate=True.
-
-    Always a no-op when include_duplicates=True (e.g. debug endpoints).
-    """
-    if include_duplicates:
-        return transactions
-    return [tx for tx in transactions if not tx.is_duplicate]
-
-
 # ---------------------------------------------------------------------------
 # Misc helpers
 # ---------------------------------------------------------------------------
@@ -208,18 +195,6 @@ def bank_cashflow_exclusion_rules(
     session: Session,
 ) -> list[BankCashflowExclusionRule]:
     return session.exec(select(BankCashflowExclusionRule)).all()
-
-
-def _cashflow_rule_matches_direction(
-    tx: Transaction,
-    rule: BankCashflowExclusionRule,
-) -> bool:
-    direction = (rule.direction or "ALL").upper()
-    if direction == "IN":
-        return tx.amount > 0
-    if direction == "OUT":
-        return tx.amount < 0
-    return True
 
 
 def is_excluded_bank_cashflow_transaction(
