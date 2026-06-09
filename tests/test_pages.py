@@ -401,5 +401,124 @@ class ConnectTokenEndpointTest(unittest.TestCase):
         self.assertEqual(response.json()["accessToken"], "token-no-body")
 
 
+class DashboardCapacityTest(unittest.TestCase):
+    """Tests that the dashboard uses currentCardInvoice.amount in capacity calculations."""
+
+    def setUp(self):
+        self.engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        def override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+        self.client = TestClient(app, follow_redirects=False)
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
+    def _get_js(self):
+        response = self.client.get("/static/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        return response.text
+
+    def _extract_fn(self, js, name):
+        start = js.index(f"function {name}")
+        end = js.index("\nfunction ", start + 1)
+        return js[start:end]
+
+    def test_dashboard_html_uses_v16(self):
+        response = self.client.get("/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("dashboard.js?v=16", response.text)
+
+    def test_dashboard_js_has_build_dashboard_capacity(self):
+        js = self._get_js()
+        self.assertIn("function buildDashboardCapacity", js)
+
+    def test_build_dashboard_capacity_uses_current_invoice_amount(self):
+        js = self._get_js()
+        fn_body = self._extract_fn(js, "buildDashboardCapacity")
+        self.assertIn("cardInvoice?.amount", fn_body)
+        self.assertNotIn("card_invoice_remaining_to_include", fn_body)
+        self.assertNotIn("planning_invoice", fn_body)
+
+    def test_build_dashboard_capacity_formula(self):
+        js = self._get_js()
+        fn_body = self._extract_fn(js, "buildDashboardCapacity")
+        self.assertIn(
+            "availableToSpend = expectedIncome - fixedCosts - currentInvoiceAmount - variableBudget",
+            fn_body,
+        )
+
+    def test_build_dashboard_capacity_variable_remaining_formula(self):
+        js = self._get_js()
+        fn_body = self._extract_fn(js, "buildDashboardCapacity")
+        self.assertIn("variableRemaining = variableBudget - variableUsed", fn_body)
+
+    def test_build_dashboard_capacity_negative_status_is_over(self):
+        js = self._get_js()
+        fn_body = self._extract_fn(js, "buildDashboardCapacity")
+        self.assertIn("availableToSpend >= 0", fn_body)
+        self.assertIn("status = 'over'", fn_body)
+
+    def test_render_hero_uses_build_dashboard_capacity(self):
+        js = self._get_js()
+        hero_body = self._extract_fn(js, "renderHero")
+        self.assertIn("buildDashboardCapacity", hero_body)
+        self.assertNotIn("capacity.budget_available_to_spend", hero_body)
+        self.assertNotIn("capacity.plan_status", hero_body)
+
+    def test_render_hero_shows_fatura_vigente_no_calculo(self):
+        js = self._get_js()
+        self.assertIn("Fatura vigente no cálculo", js)
+        self.assertNotIn("No cálculo:", js)
+
+    def test_render_summary_cards_variable_used_does_not_use_invoice_fields(self):
+        js = self._get_js()
+        summary_body = self._extract_fn(js, "renderSummaryCards")
+        self.assertNotIn("credit_card_invoice", summary_body)
+        self.assertNotIn("planning_invoice", summary_body)
+        self.assertNotIn("invoiceIncludedAmount", summary_body)
+
+    def test_planning_month_and_invoice_endpoints_still_fetched(self):
+        js = self._get_js()
+        self.assertIn("/planning/month/", js)
+        self.assertIn("fetchJson('/credit-card/current-invoice')", js)
+        self.assertIn("fetchJson('/bank/balance-summary')", js)
+
+    def test_planning_month_route_backend_unchanged(self):
+        response = self.client.get("/planning/month/2026-07")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("capacity", data)
+
+    def test_current_invoice_endpoint_still_reachable(self):
+        response = self.client.get("/credit-card/current-invoice")
+        self.assertEqual(response.status_code, 200)
+
+    def test_bank_balance_endpoint_still_reachable(self):
+        response = self.client.get("/bank/balance-summary")
+        self.assertEqual(response.status_code, 200)
+
+    def test_dashboard_js_does_not_use_stats_monthly(self):
+        js = self._get_js()
+        self.assertNotIn("fetchJson('/stats/monthly')", js)
+
+    def test_static_files_no_indigo_classes(self):
+        static_dir = Path("app/static")
+        offenders = []
+        for path in static_dir.iterdir():
+            if path.is_file() and path.suffix in {".html", ".js", ".css"}:
+                if "indigo" in path.read_text(encoding="utf-8"):
+                    offenders.append(str(path))
+        self.assertEqual(offenders, [], "app/static must not contain indigo classes")
+
+
 if __name__ == "__main__":
     unittest.main()

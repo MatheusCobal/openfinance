@@ -107,6 +107,7 @@ function invoiceIncludedAmount(capacity) {
 // capacity flow keeps its own inline copy with colour classes; this is the
 // canonical label source for the Dashboard.)
 const PLAN_STATUS_LABELS = {
+  comfortable: 'Confortável',
   healthy: 'Saudável',
   tight: 'Apertado',
   over: 'Estourado',

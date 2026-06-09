@@ -2,7 +2,7 @@
 
 // Version marker — change this whenever dashboard.js is modified so the
 // DevTools console confirms the new file is actually executing.
-const DASHBOARD_JS_VERSION = 'dashboard-hero-reorder-v16';
+const DASHBOARD_JS_VERSION = 'dashboard-current-invoice-capacity-v16';
 window.DASHBOARD_JS_VERSION = DASHBOARD_JS_VERSION;
 console.log('[Dashboard] JS carregado:', DASHBOARD_JS_VERSION);
 
@@ -39,9 +39,10 @@ function monthLabelLong(ym) {
 
 function planStatusBadge(status) {
   const cls = {
-    over: 'bg-red-500/20 text-red-300',
-    tight: 'bg-amber-500/20 text-amber-300',
+    comfortable: 'bg-emerald-500/20 text-emerald-300',
     healthy: 'bg-emerald-500/20 text-emerald-300',
+    tight: 'bg-amber-500/20 text-amber-300',
+    over: 'bg-red-500/20 text-red-300',
     unknown: 'bg-white/10 text-slate-400',
   }[status] || 'bg-white/10 text-slate-400';
   return `<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(planStatusLabel(status))}</span>`;
@@ -128,24 +129,59 @@ function renderDashboard() {
   renderCategories();
 }
 
+function buildDashboardCapacity(planningCapacity, cardInvoice) {
+  const isFuture = (planningCapacity.planning_mode || (planningCapacity.is_future_month ? 'future_month' : 'current_month')) === 'future_month';
+  const expectedIncome = planningCapacity.expected_income_total ?? 0;
+  const fixedCosts = isFuture
+    ? (planningCapacity.fixed_cost_planned_total ?? 0)
+    : (planningCapacity.fixed_cost_reserved_total ?? 0);
+  const variableBudget = planningCapacity.variable_budget_total ?? 0;
+  const currentInvoiceAmount = asMoneyNumber(cardInvoice?.amount);
+  const variableUsed = planningCapacity.variable_budget_consumed ?? 0;
+  const variableRemaining = variableBudget - variableUsed;
+  const availableToSpend = expectedIncome - fixedCosts - currentInvoiceAmount - variableBudget;
+
+  let status;
+  if (expectedIncome <= 0) {
+    status = 'unknown';
+  } else if (availableToSpend > 1000) {
+    status = 'comfortable';
+  } else if (availableToSpend >= 0) {
+    status = 'tight';
+  } else {
+    status = 'over';
+  }
+
+  return {
+    expectedIncome,
+    fixedCosts,
+    currentInvoiceAmount,
+    variableBudget,
+    variableUsed,
+    variableRemaining,
+    availableToSpend,
+    status,
+    isFuture,
+  };
+}
+
 function renderHero() {
-  // Exact same "sobra" resolution as Planejamento renderCapacityFlow().
-  const sobra = capacity.budget_available_to_spend ?? capacity.discretionary_available ?? capacity.available_to_spend ?? 0;
-  const status = capacity.plan_status ?? 'unknown';
+  const dashCap = buildDashboardCapacity(capacity, currentCardInvoice);
   const days = capacity.days_remaining_in_month ?? 0;
 
   document.getElementById('hero-card').innerHTML = `
     <div class="flex h-full flex-col justify-between gap-5">
       <div class="flex items-center gap-2">
         <p class="text-sm font-medium text-slate-300">Disponível para gastar</p>
-        ${planStatusBadge(status)}
+        ${planStatusBadge(dashCap.status)}
       </div>
       <div>
-        <p class="text-3xl font-semibold tabular leading-tight">${escapeHtml(fmt(sobra))}</p>
+        <p class="text-3xl font-semibold tabular leading-tight">${escapeHtml(fmt(dashCap.availableToSpend))}</p>
         <div class="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-400">
           <span>${escapeHtml(monthLabelLong(planningYM))}</span>
           <span>${days} dias restantes</span>
         </div>
+        <p class="mt-2 text-xs text-slate-400">Fatura vigente no cálculo: <span class="font-medium text-slate-300">${escapeHtml(fmt(dashCap.currentInvoiceAmount))}</span></p>
       </div>
       <p class="text-sm text-slate-400">Plano em <a href="/planejamento" class="text-white font-medium hover:underline">Planejamento</a></p>
     </div>
@@ -155,8 +191,6 @@ function renderHero() {
 function renderInvoiceCard() {
   const invoice = currentCardInvoice || {};
   const invoiceAmount = invoice.amount ?? 0;
-  // Amount actually subtracted in the available-to-spend calculation.
-  const includedAmount = invoiceIncludedAmount(capacity);
   const adjustedCard = (invoice.cards || []).find(card => (card.adjustments || []).length > 0);
   const subtitle = adjustedCard
     ? `Saldo Pluggy ajustado: ${fmt(adjustedCard.raw_balance)} - fatura anterior ${fmt(adjustedCard.latest_bill_amount)}`
@@ -171,7 +205,7 @@ function renderInvoiceCard() {
       <div class="space-y-1">
         <p class="text-sm text-slate-600">${escapeHtml(invoice.source_label || 'Fatura vigente ajustada')}</p>
         <p class="text-xs leading-relaxed text-slate-500">${escapeHtml(subtitle)}</p>
-        <p class="text-xs text-slate-400">No cálculo: <span class="font-medium text-slate-600">${escapeHtml(fmt(includedAmount))}</span></p>
+        <p class="text-xs text-slate-400">Fatura vigente no cálculo: <span class="font-medium text-slate-600">${escapeHtml(fmt(invoiceAmount))}</span></p>
       </div>
     </div>
   `;
