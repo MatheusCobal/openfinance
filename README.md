@@ -208,6 +208,7 @@ O app também tenta criar backup automaticamente antes de migrações Alembic ex
 .venv/bin/ruff format --check
 .venv/bin/python -m compileall app tests
 .venv/bin/python -m unittest discover -s tests
+.venv/bin/python -m pytest
 DATABASE_URL=sqlite:////tmp/openfinance-ci.db .venv/bin/alembic upgrade head
 ```
 
