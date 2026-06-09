@@ -68,32 +68,14 @@
 
       <main class="flex-1 px-8 py-6 space-y-6 max-w-5xl">
 
-        <!-- Descrição → categoria -->
+        <!-- Regras legadas removidas -->
         <section class="bg-white rounded-lg border border-slate-200 p-6">
           <div class="flex items-baseline justify-between mb-1">
-            <h2 class="text-base font-semibold text-slate-900">Descrição → categoria</h2>
-            <span class="text-xs text-slate-500" id="desc-cat-count">—</span>
+            <h2 class="text-base font-semibold text-slate-900">Categorização removida</h2>
+            <span class="text-xs text-slate-500">10D-A</span>
           </div>
-          <p class="text-xs text-slate-500 mb-4">Quando a descrição da transação contém o padrão, ela é categorizada conforme a regra.</p>
-
-          <form id="desc-cat-form" class="flex flex-col sm:flex-row gap-2 mb-4">
-            <input id="desc-cat-pattern" type="text" required placeholder="Padrão na descrição (ex: Uber)" class="flex-1 text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50" />
-            <select id="desc-cat-category" required class="text-sm rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50"></select>
-            <button type="submit" class="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg px-4 py-2">Adicionar</button>
-          </form>
-
-          <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 mb-5">
-            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-              <div>
-                <h3 class="text-sm font-semibold text-slate-900">Sugestões por repetição</h3>
-                <p class="text-xs text-slate-500 mt-0.5">Descrições recorrentes sem regra ainda.</p>
-              </div>
-              <button id="desc-cat-suggestions-refresh" type="button" class="text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg px-3 py-1.5 transition-colors">Atualizar</button>
-            </div>
-            <ul id="desc-cat-suggestions" class="space-y-2 text-sm"></ul>
-          </div>
-
-          <ul id="desc-cat-list" class="divide-y divide-slate-100 text-sm"></ul>
+          <p class="text-sm text-slate-600 leading-relaxed">As regras antigas de descrição para categoria interna foram desativadas para impedir que a nova classificação seja construída sobre a taxonomia legada.</p>
+          <p class="mt-2 text-xs text-slate-400">TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.</p>
         </section>
 
       </main>

@@ -29,6 +29,8 @@ from app.services.transaction_reports import (
     monthly_stats_summary,
     upcoming_summary,
 )
+
+LEGACY_CATEGORY_TEST_REMOVED = "10D-A removed monthly category stats; replace in 10D-B"
 from app.services.transactions import (
     discretionary_spend_transactions,
 )
@@ -177,6 +179,7 @@ class TestMonthlyStatsSummaryExcludesMarkedDuplicate(unittest.TestCase):
     def session(self):
         return Session(self.engine)
 
+    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
     def test_category_total_ignores_is_duplicate(self):
         """Category total R$100 with a R$100 marked duplicate → total = 100."""
         d = date(2026, 5, 15)
@@ -203,6 +206,7 @@ class TestMonthlyStatsSummaryExcludesMarkedDuplicate(unittest.TestCase):
         entertainment_total = sum(cat["by_month"].get("2026-05", 0) for cat in result["categories"])
         self.assertAlmostEqual(entertainment_total, 100.0, places=2)
 
+    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
     def test_no_duplicate_category_total_stays_full(self):
         """Without any duplicate flag the full amount must appear."""
         d = date(2026, 5, 15)
@@ -443,6 +447,7 @@ class TestEndpointsExcludeMarkedDuplicates(unittest.TestCase):
         self.assertNotIn("tx-dup", ids)
         self.assertEqual(len(ids), 1)
 
+    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
     def test_get_stats_monthly_excludes_marked_duplicate(self):
         self._seed_with_dup()
         resp = self.client.get("/stats/monthly")

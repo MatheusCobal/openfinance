@@ -6,7 +6,6 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from app.categorization import CategoryResolver
 from app.database import get_session
 from app.models import Account
 from app.pluggy_client import pluggy
@@ -18,6 +17,10 @@ from app.services.transaction_reports import (
 )
 
 router = APIRouter()
+LEGACY_CATEGORY_REMOVED_MESSAGE = (
+    "legacy financial categories were removed in 10D-A; "
+    "TODO 10D-B: replace with Pluggy-based classification layer"
+)
 
 
 @router.get("/transactions")
@@ -31,12 +34,13 @@ def list_transactions(
     include_ignored: bool = False,
     session: Session = Depends(get_session),
 ):
+    if category_id is not None:
+        raise HTTPException(410, "legacy category_id filter removed in 10D-A")
     try:
         return enriched_transactions(
             session,
             account_id=account_id,
             account_type=account_type,
-            category_id=category_id,
             from_date=from_date,
             to_date=to_date,
             include_future=include_future,
@@ -48,7 +52,7 @@ def list_transactions(
 
 @router.get("/categories")
 def list_categories(session: Session = Depends(get_session)):
-    return CategoryResolver(session).all_categories()
+    raise HTTPException(410, LEGACY_CATEGORY_REMOVED_MESSAGE)
 
 
 @router.get("/upcoming")

@@ -1,6 +1,6 @@
 # OpenFinance
 
-Aplicativo pessoal de planejamento financeiro integrado à [Pluggy](https://pluggy.ai), com foco em visibilidade mensal de receitas, custos fixos, faturas futuras do cartão, histórico financeiro e regras de categorização.
+Aplicativo pessoal de planejamento financeiro integrado à [Pluggy](https://pluggy.ai), com foco em visibilidade mensal de receitas, custos fixos, faturas futuras do cartão e histórico financeiro.
 
 Backend em FastAPI + SQLModel/SQLAlchemy + SQLite; frontend em HTML estático + Tailwind + Chart.js, sem build step.
 
@@ -14,7 +14,7 @@ Tela inicial do app. Resumo executivo com:
 - Fatura vigente do cartão via `/credit-card/current-invoice`
 - Saldo bancário
 - Entradas, saídas, custos fixos e uso de orçamento variável
-- Compras por categoria da fatura vigente
+- Fatura vigente ajustada
 
 ### Planejamento (`/planejamento`)
 Tela de planejamento e controle mensal. Visão mensal futura com:
@@ -35,9 +35,8 @@ Tela de planejamento e controle mensal. Visão mensal futura com:
 - Histórico de receitas bancárias
 
 ### Regras (`/regras`)
-- Regras de categorização de transações por descrição
-- Regras de exclusão de transações (ex: pagamento de fatura)
-- Regras de exclusão de receitas bancárias
+- Tela temporária: regras antigas de categorização foram removidas na 10D-A
+- Regras de exclusão de receitas bancárias e fluxo de caixa ficam no Histórico
 
 ### Sync Pluggy
 - Sincronização de dados via API Pluggy preservada no backend
@@ -68,9 +67,9 @@ GET /orcamento     → redirect legado para /planejamento
 GET  /planning/month/{year_month}        agregado mensal do Planejamento
 
 GET  /upcoming                           parcelas futuras agrupadas por mês
-GET  /transactions                       lista de transações (filtros: category_id, from_date, to_date, include_future, include_ignored)
+GET  /transactions                       lista de transações (filtros: from_date, to_date, include_future, include_ignored)
 GET  /stats                              totais agregados
-GET  /stats/monthly                      matriz categoria × mês
+GET  /stats/monthly                      legado removido; retorna quebra vazia até a 10D-B
 
 GET  /fixed-costs                        custos fixos cadastrados
 GET  /fixed-costs/by-month               custos fixos por mês
@@ -86,7 +85,7 @@ GET  /credit-card/invoice/{year_month}   fatura do cartão de crédito
 GET  /credit-card/current-invoice         fatura vigente ajustada para o Dashboard
 
 GET  /history/...                        histórico financeiro (ver routes/history.py)
-GET  /rules/...                          regras de categorização e exclusão
+GET  /rules/...                          regras de exclusão bancária; categorização legada retorna 410
 
 GET  /items                              conexões Pluggy
 GET  /accounts                           contas conectadas
@@ -105,7 +104,7 @@ openfinance/
 ├── alembic/                   migrações de schema
 ├── scripts/
 │   └── backup_database.py     backup manual do SQLite local
-├── seed_categories.py         popula categorias e regras base
+├── seed_categories.py         no-op; seed legado de categorias desativado na 10D-A
 ├── openfinance.db             SQLite local (gitignored)
 └── app/
     ├── config.py              variáveis de ambiente via pydantic-settings
@@ -136,7 +135,7 @@ openfinance/
     │   ├── transaction_reports.py agrupamentos de transações
     │   ├── sync.py            orquestra sync Pluggy
     │   ├── pluggy_snapshot.py persistência de dados vindos da Pluggy
-    │   ├── rules.py           regras de categorização
+    │   ├── rules.py           regras de exclusão bancária
     │   ├── classification.py  classificação de transações
     │   └── transactions.py    consultas de transações
     ├── static/                frontend HTML/JS
@@ -160,7 +159,7 @@ pip install -e .
 cp .env.example .env
 # editar .env com PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET para usar o Pluggy
 
-.venv/bin/python seed_categories.py   # popula categorias e regras base (idempotente)
+.venv/bin/python seed_categories.py   # no-op: seed legado de categorias desativado
 
 fastapi dev app/main.py
 # ou: .venv/bin/fastapi dev app/main.py

@@ -24,6 +24,8 @@ from app.services.sync import compute_dedupe_key
 from app.services.transaction_reports import invoice_summary, monthly_stats_summary
 from app.services.transactions import account_ids_by_type, credit_card_spend_transactions
 
+LEGACY_CATEGORY_TEST_REMOVED = "10D-A removed monthly category stats; replace in 10D-B"
+
 
 def _make_engine():
     engine = create_engine(
@@ -516,6 +518,7 @@ class TestMonthlyStatsSummaryActiveFiltering(unittest.TestCase):
     def _session(self):
         return Session(self.engine)
 
+    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
     def test_inactive_account_transactions_not_counted(self):
         with self._session() as session:
             _seed_item(session, "item-old", is_active=False)

@@ -4,14 +4,17 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.database import get_session
-from app.models import Budget, BudgetOverride, Category
-from app.routes.common import month_range, validate_budget_target
+from app.routes.common import month_range
 from app.services.budgets import budget_progress_summary
 
 router = APIRouter()
+LEGACY_BUDGET_REMOVED_MESSAGE = (
+    "legacy category budgets were removed in 10D-A; "
+    "TODO 10D-B: replace with Pluggy-based classification layer"
+)
 
 
 class BudgetUpsert(BaseModel):
@@ -20,7 +23,11 @@ class BudgetUpsert(BaseModel):
 
 @router.get("/budgets")
 def list_budgets(session: Session = Depends(get_session)):
-    return session.exec(select(Budget)).all()
+    return {
+        "items": [],
+        "legacy_category_budget_removed": True,
+        "todo": LEGACY_BUDGET_REMOVED_MESSAGE,
+    }
 
 
 @router.put("/budgets/{category_id}")
@@ -29,28 +36,12 @@ def upsert_budget(
     body: BudgetUpsert,
     session: Session = Depends(get_session),
 ):
-    validate_budget_target(body.monthly_target)
-    if not session.get(Category, category_id):
-        raise HTTPException(404, "category not found")
-    existing = session.exec(select(Budget).where(Budget.category_id == category_id)).first()
-    if existing:
-        existing.monthly_target = body.monthly_target
-        session.add(existing)
-    else:
-        existing = Budget(category_id=category_id, monthly_target=body.monthly_target)
-        session.add(existing)
-    session.commit()
-    session.refresh(existing)
-    return existing
+    raise HTTPException(410, LEGACY_BUDGET_REMOVED_MESSAGE)
 
 
 @router.delete("/budgets/{category_id}", status_code=204)
 def delete_budget(category_id: int, session: Session = Depends(get_session)):
-    budget = session.exec(select(Budget).where(Budget.category_id == category_id)).first()
-    if budget:
-        session.delete(budget)
-        session.commit()
-    return None
+    raise HTTPException(410, LEGACY_BUDGET_REMOVED_MESSAGE)
 
 
 @router.put("/budgets/{category_id}/months/{year_month}")
@@ -60,29 +51,8 @@ def upsert_budget_override(
     body: BudgetUpsert,
     session: Session = Depends(get_session),
 ):
-    validate_budget_target(body.monthly_target)
     normalized_month, _, _ = month_range(year_month)
-    if not session.get(Category, category_id):
-        raise HTTPException(404, "category not found")
-    existing = session.exec(
-        select(BudgetOverride).where(
-            BudgetOverride.category_id == category_id,
-            BudgetOverride.year_month == normalized_month,
-        )
-    ).first()
-    if existing:
-        existing.monthly_target = body.monthly_target
-        session.add(existing)
-    else:
-        existing = BudgetOverride(
-            category_id=category_id,
-            year_month=normalized_month,
-            monthly_target=body.monthly_target,
-        )
-        session.add(existing)
-    session.commit()
-    session.refresh(existing)
-    return existing
+    raise HTTPException(410, f"{LEGACY_BUDGET_REMOVED_MESSAGE}; year_month={normalized_month}")
 
 
 @router.delete("/budgets/{category_id}/months/{year_month}", status_code=204)
@@ -92,16 +62,7 @@ def delete_budget_override(
     session: Session = Depends(get_session),
 ):
     normalized_month, _, _ = month_range(year_month)
-    override = session.exec(
-        select(BudgetOverride).where(
-            BudgetOverride.category_id == category_id,
-            BudgetOverride.year_month == normalized_month,
-        )
-    ).first()
-    if override:
-        session.delete(override)
-        session.commit()
-    return None
+    raise HTTPException(410, f"{LEGACY_BUDGET_REMOVED_MESSAGE}; year_month={normalized_month}")
 
 
 @router.get("/budgets/progress")

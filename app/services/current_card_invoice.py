@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from app.categorization import CategoryResolver, normalize_description
+from app.categorization import normalize_description
 from app.models import Account, CreditCardBill, Item, Transaction
 from app.services.transactions import (
     _non_duplicate_clause,
@@ -220,18 +220,14 @@ def _category_window_start(
     return today.replace(day=1)
 
 
-def _serialize_category_transaction(
-    tx: Transaction,
-    custom_category_name: str,
-) -> dict[str, Any]:
+def _serialize_current_invoice_transaction(tx: Transaction) -> dict[str, Any]:
     return {
         "id": tx.id,
         "date": tx.date.isoformat(),
         "description": tx.description,
         "amount": float(abs(tx.amount)),
         "signed_amount": float(tx.amount),
-        "category": tx.category,
-        "custom_category_name": custom_category_name,
+        "pluggy_category": tx.category,
         "status": tx.status,
         "bill_id": tx.bill_id,
         "installment_number": tx.installment_number,
@@ -271,53 +267,6 @@ def _current_invoice_category_transactions(
     ]
 
 
-def _append_category_transactions(
-    grouped: dict[int, dict[str, Any]],
-    resolver: CategoryResolver,
-    transactions: list[Transaction],
-) -> None:
-    for tx in transactions:
-        category = resolver.display_category(resolver.resolve(tx.category, tx.description))
-        if category.id not in grouped:
-            grouped[category.id] = {
-                "id": category.id,
-                "name": category.name,
-                "color": category.color,
-                "sort_order": category.sort_order,
-                "total": Decimal("0"),
-                "count": 0,
-                "transactions": [],
-            }
-        row = grouped[category.id]
-        amount = abs(Decimal(tx.amount))
-        row["total"] += amount
-        row["count"] += 1
-        row["transactions"].append(_serialize_category_transaction(tx, category.name))
-
-
-def _serialize_categories(
-    grouped: dict[int, dict[str, Any]],
-) -> tuple[list[dict[str, Any]], Decimal, int]:
-    categories = []
-    category_total = Decimal("0")
-    category_count = 0
-    for row in grouped.values():
-        category_total += row["total"]
-        category_count += row["count"]
-        categories.append(
-            {
-                "id": row["id"],
-                "name": row["name"],
-                "color": row["color"],
-                "total": float(row["total"]),
-                "count": row["count"],
-                "transactions": row["transactions"],
-            }
-        )
-    categories.sort(key=lambda category: category["total"], reverse=True)
-    return categories, category_total, category_count
-
-
 def current_card_invoice_summary(
     session: Session,
     today: Optional[datetime.date] = None,
@@ -333,8 +282,7 @@ def current_card_invoice_summary(
 
     cards: list[dict[str, Any]] = []
     all_possible_refunds: list[dict[str, Any]] = []
-    grouped_categories: dict[int, dict[str, Any]] = {}
-    resolver = CategoryResolver(session)
+    raw_purchase_transactions: list[dict[str, Any]] = []
     raw_total = Decimal("0")
     adjusted_total = Decimal("0")
     adjusted_any = False
@@ -382,10 +330,8 @@ def current_card_invoice_summary(
             latest,
             today,
         )
-        _append_category_transactions(
-            grouped_categories,
-            resolver,
-            category_transactions,
+        raw_purchase_transactions.extend(
+            _serialize_current_invoice_transaction(tx) for tx in category_transactions
         )
 
         adjusted_total += adjusted_balance
@@ -429,7 +375,8 @@ def current_card_invoice_summary(
         (Decimal(str(tx["signed_amount"])) for tx in all_possible_refunds),
         Decimal("0"),
     )
-    categories, category_total, category_count = _serialize_categories(grouped_categories)
+    category_total = Decimal("0")
+    category_count = 0
 
     source_label = (
         "Fatura vigente ajustada"
@@ -445,9 +392,12 @@ def current_card_invoice_summary(
         "confidence": confidence,
         "account_count": len(cards),
         "cards": cards,
-        "categories": categories,
+        "categories": [],
         "category_total": float(category_total),
         "category_count": category_count,
+        "raw_purchase_transactions": raw_purchase_transactions,
+        "legacy_category_breakdown_removed": True,
+        "todo": "TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.",
         "possible_refunds_total": float(possible_refunds_total),
         "possible_refund_transactions": all_possible_refunds,
         "source_detail": {
@@ -459,9 +409,10 @@ def current_card_invoice_summary(
             "category_total": float(category_total),
             "refund_total": float(possible_refunds_total),
             "refund_abs_total": float(abs(possible_refunds_total)),
-            "amount_minus_category_total": float(adjusted_total - category_total),
+            "amount_minus_category_total": None,
             "refunds_affect_amount": False,
             "refunds_are_diagnostic_only": True,
+            "legacy_category_breakdown_removed": True,
             "source_label": source_label,
         },
     }

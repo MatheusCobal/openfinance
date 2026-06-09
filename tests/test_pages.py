@@ -216,7 +216,7 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn("fetchJson('/credit-card/current-invoice')", js)
         self.assertIn("currentCardInvoice", js)
         self.assertIn("const invoice = currentCardInvoice || {}", js)
-        self.assertIn("currentCardInvoice?.categories", js)
+        self.assertIn("quebra por categoria antiga foi removida", js)
         self.assertNotIn("fetchJson('/stats/monthly')", js)
         self.assertNotIn("cat.by_month?.[planningYM]", js)
         self.assertNotIn(
@@ -259,7 +259,7 @@ class PageSmokeTest(unittest.TestCase):
         js = response.text
         self.assertIn("renderInvoiceReconciliation", js)
         self.assertIn("currentCardInvoice?.reconciliation", js)
-        self.assertIn("rec.category_total", js)
+        self.assertIn("pendente 10D-B", js)
         self.assertIn("rec.refund_abs_total", js)
         # Reconciliation must never write back to currentCardInvoice
         self.assertNotIn("currentCardInvoice.amount =", js)

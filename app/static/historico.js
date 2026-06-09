@@ -9,31 +9,6 @@ const monthFormatter = new Intl.DateTimeFormat('pt-BR', {
 });
 
 const charts = new Map();
-const FALLBACK_COLOR = '#64748b';
-
-function hexWithAlpha(hex, alpha) {
-  const a = Math.round(alpha * 255).toString(16).padStart(2, '0');
-  return `${hex}${a}`;
-}
-
-function categoryIcon(name) {
-  const key = String(name).toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const icons = {
-    mercado:        '🛒',
-    restaurantes:   '🍽️',
-    transporte:     '🚗',
-    saude:          '🩺',
-    pets:           '🐾',
-    casa:           '🏠',
-    lazer:          '🎮',
-    assinaturas:    '📺',
-    educacao:       '📚',
-    transferencias: '🔁',
-    outros:         '📦',
-  };
-  return icons[key] ?? '💳';
-}
 const INVOICE_COLOR = '#475569';
 const INCOME_COLOR = '#10b981';
 const HISTORY_TABS = [
@@ -43,7 +18,6 @@ const HISTORY_TABS = [
 ];
 
 let activeTab = 'invoices';
-let categoryHistory = null;
 let invoiceHistory = null;
 let incomeHistory = null;
 let cashflowData = null;
@@ -74,10 +48,6 @@ function showToast(message, variant = 'info') {
   );
   clearTimeout(showToast._timer);
   showToast._timer = setTimeout(() => el.classList.add('hidden'), 4000);
-}
-
-function pluralCompras(n) {
-  return n === 1 ? '1 compra' : `${n.toLocaleString('pt-BR')} compras`;
 }
 
 function pluralFaturas(n) {
@@ -143,132 +113,6 @@ function renderTabs() {
       renderActiveTab();
     });
   });
-}
-
-function findRecentMonthsWithData(byMonth, months) {
-  // Returns [last, prev] — the two most recent months with non-zero values.
-  // Skipping zero-value months avoids "+inf%" deltas when comparing to an
-  // empty period.
-  let last = null;
-  let prev = null;
-  for (let i = months.length - 1; i >= 0; i--) {
-    const v = byMonth[months[i]] || 0;
-    if (v > 0) {
-      if (last === null) {
-        last = months[i];
-      } else {
-        prev = months[i];
-        break;
-      }
-    }
-  }
-  return { last, prev };
-}
-
-function deltaHtml(lastValue, prevValue, prevMonth) {
-  if (!prevMonth || prevValue <= 0) return '';
-  const diff = lastValue - prevValue;
-  const pct = (diff / prevValue) * 100;
-  const sign = diff >= 0 ? '+' : '';
-  // Spending less is "green" (good), spending more is "red".
-  const color = diff > 0 ? 'text-red-600' : diff < 0 ? 'text-emerald-600' : 'text-slate-500';
-  return ` <span class="${color} font-medium">${sign}${pct.toFixed(0)}%</span><span class="text-slate-400"> vs ${escapeHtml(formatMonthLabel(prevMonth))}</span>`;
-}
-
-function renderCard(category, months) {
-  const color = category.color || FALLBACK_COLOR;
-  const totalCount = Object.values(category.counts_by_month).reduce(
-    (a, b) => a + b,
-    0,
-  );
-  const { last, prev } = findRecentMonthsWithData(category.by_month, months);
-  const lastValue = last ? category.by_month[last] : 0;
-  const prevValue = prev ? category.by_month[prev] : 0;
-  const lastHtml = last
-    ? `${escapeHtml(formatMonthLabel(last))}: ${escapeHtml(currency.format(lastValue))}${deltaHtml(lastValue, prevValue, prev)}`
-    : 'sem movimentação';
-
-  return `
-    <div class="bg-white rounded-lg border border-slate-200 p-6">
-      <div class="flex items-baseline justify-between mb-1">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="size-8 rounded-lg flex items-center justify-center shrink-0 text-base leading-none" style="background:${hexWithAlpha(color, 0.12)}">${categoryIcon(category.name)}</span>
-          <h3 class="font-semibold text-slate-900 truncate">${escapeHtml(category.name)}</h3>
-        </div>
-        <p class="font-bold tabular text-slate-900 shrink-0 ml-3">${currency.format(category.total)}</p>
-      </div>
-      <p class="text-xs text-slate-500 mb-4">
-        ${pluralCompras(totalCount)} · ${lastHtml}
-      </p>
-      <div class="relative h-44">
-        <canvas id="chart-${category.id}"></canvas>
-      </div>
-    </div>
-  `;
-}
-
-function renderChart(category, months) {
-  const ctx = document.getElementById(`chart-${category.id}`);
-  if (!ctx) return;
-
-  if (charts.has(category.id)) charts.get(category.id).destroy();
-
-  const color = category.color || FALLBACK_COLOR;
-  const data = months.map((m) => category.by_month[m] || 0);
-  const counts = months.map((m) => category.counts_by_month[m] || 0);
-
-  const chart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: months.map(formatMonthLabel),
-      datasets: [
-        {
-          data,
-          backgroundColor: color,
-          borderRadius: 4,
-          maxBarThickness: 28,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      onClick: (evt, elements) => {
-        if (elements.length === 0) return;
-        const idx = elements[0].index;
-        const month = months[idx];
-        if (counts[idx] > 0) openDrilldown(category, month);
-      },
-      onHover: (evt, elements) => {
-        evt.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              const value = currency.format(ctx.parsed.y);
-              const n = counts[ctx.dataIndex];
-              return n > 0 ? ` ${value} · ${pluralCompras(n)}` : ` ${value}`;
-            },
-          },
-        },
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
-        y: {
-          beginAtZero: true,
-          ticks: {
-            font: { size: 10 },
-            callback: (v) => currency.format(v).replace('R$', '').trim(),
-          },
-          grid: { color: '#f1f5f9' },
-        },
-      },
-    },
-  });
-
-  charts.set(category.id, chart);
 }
 
 function renderInvoiceChart(data) {
@@ -361,63 +205,6 @@ function formatMonthLong(yyyymm) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-async function openDrilldown(category, month) {
-  const modal = document.getElementById('drilldown');
-  const color = category.color || FALLBACK_COLOR;
-  const total = category.by_month[month] || 0;
-  const count = category.counts_by_month[month] || 0;
-
-  document.getElementById('drilldown-color').style.background = color;
-  document.getElementById('drilldown-title').textContent =
-    `${category.name} · ${formatMonthLong(month)}`;
-  document.getElementById('drilldown-subtitle').textContent =
-    `${currency.format(total)} · ${pluralCompras(count)}`;
-
-  const body = document.getElementById('drilldown-body');
-  body.innerHTML =
-    '<p class="text-center text-sm text-slate-500 py-12">Carregando…</p>';
-  modal.classList.remove('hidden');
-
-  try {
-    const { from, to } = monthBounds(month);
-    const params = new URLSearchParams({
-      category_id: String(category.id),
-      from_date: from,
-      to_date: to,
-    });
-    const response = await fetch(`/transactions?${params}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const txs = await response.json();
-
-    if (txs.length === 0) {
-      body.innerHTML =
-        '<p class="text-center text-sm text-slate-500 py-12">Sem transações nesse mês.</p>';
-      return;
-    }
-
-    const rows = txs
-      .map(
-        (tx) => `
-          <li class="flex items-baseline justify-between px-6 py-3 border-t border-slate-100">
-            <div class="min-w-0 flex-1 pr-4">
-              <p class="text-sm text-slate-900 truncate">${escapeHtml(tx.description)}</p>
-              <p class="text-xs text-slate-500 mt-0.5">${formatDayLabel(tx.date)}</p>
-            </div>
-            <p class="text-sm font-medium tabular text-slate-900 shrink-0">
-              ${currency.format(Math.abs(Number(tx.amount)))}
-            </p>
-          </li>
-        `,
-      )
-      .join('');
-    body.innerHTML = `<ul>${rows}</ul>`;
-  } catch (err) {
-    console.error(err);
-    body.innerHTML =
-      '<p class="text-center text-sm text-red-600 py-12">Erro ao carregar transações.</p>';
-  }
-}
-
 function openInvoiceDrilldown(monthData) {
   const modal = document.getElementById('drilldown');
 
@@ -473,58 +260,12 @@ function hideEmpty() {
   document.getElementById('empty').classList.add('hidden');
 }
 
-// Render category spending cards + charts into #cards without touching
-// tab-level state (no hideAllTabSections, no destroyCharts).  Called both
-// from renderCategoryHistory() (standalone, currently unused) and from
-// renderInvoiceHistory() to embed categories below the invoice section.
+// Legacy category cards were removed in 10D-A.
 function renderCategoryContent() {
-  const data = categoryHistory;
   const cards = document.getElementById('cards');
-  if (!data || data.categories.length === 0 || data.months.length === 0) {
-    cards.innerHTML = '';
-    cards.classList.add('hidden');
-    return;
-  }
-
-  const ordered = [...data.categories].sort(
-    (a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999),
-  );
-
-  cards.innerHTML =
-    '<h2 class="col-span-full font-semibold text-slate-900 mb-2">Gastos por categoria</h2>' +
-    ordered.map((cat) => renderCard(cat, data.months)).join('');
-  cards.classList.remove('hidden');
-  // Charts must be created AFTER the canvas elements exist in the DOM.
-  ordered.forEach((cat) => renderChart(cat, data.months));
-}
-
-function renderCategoryHistory() {
-  const data = categoryHistory;
-  const subtitle = document.getElementById('subtitle');
-
-  destroyCharts();
-  hideAllTabSections();
-
-  if (!data || data.categories.length === 0 || data.months.length === 0) {
-    renderEmpty(
-      'Nenhuma transação encontrada.',
-      'Conecte um banco pelo Pluggy primeiro.',
-    );
-    subtitle.textContent = 'Nenhuma transação ainda';
-    return;
-  }
-  hideEmpty();
-
-  const ordered = [...data.categories].sort(
-    (a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999),
-  );
-
-  subtitle.textContent =
-    `${ordered.length} categoria${ordered.length === 1 ? '' : 's'}` +
-    ` · ${data.months.length} ${data.months.length === 1 ? 'mês' : 'meses'}` +
-    ` de histórico`;
-
-  renderCategoryContent();
+  if (!cards) return;
+  cards.innerHTML = '';
+  cards.classList.add('hidden');
 }
 
 function renderInvoiceHistory() {
@@ -623,7 +364,6 @@ function renderInvoiceHistory() {
 
   renderInvoiceChart(data);
 
-  // Show category spending below the invoice history.
   renderCategoryContent();
 }
 
@@ -1313,8 +1053,7 @@ function hideAllTabSections() {
     const el = document.getElementById(id);
     if (el) {
       el.classList.add('hidden');
-      // Don't blow away `cards` content — renderCategoryHistory needs the
-      // existing canvas elements; just hide it.
+      // Legacy category cards were removed in 10D-A; just hide this region.
     }
   });
 }
@@ -1364,7 +1103,6 @@ async function fetchJson(url) {
 
 async function loadData() {
   const requests = [
-    ['categories', fetchJson('/stats/monthly')],
     ['invoices', fetchJson('/credit-card-payments/monthly?months=12')],
     ['income', fetchJson('/bank-income/monthly?months=12')],
     ['rules', fetchJson('/bank-income/exclusion-rules')],
@@ -1381,7 +1119,6 @@ async function loadData() {
       console.error(result.reason);
       return;
     }
-    if (key === 'categories') categoryHistory = result.value;
     if (key === 'invoices') invoiceHistory = result.value;
     if (key === 'income') incomeHistory = result.value;
     if (key === 'rules') exclusionRules = result.value;
@@ -1392,8 +1129,7 @@ async function loadData() {
   if (!exclusionRules) exclusionRules = [];
   if (!cashflowRules) cashflowRules = [];
   if (
-    !categoryHistory && !invoiceHistory && !incomeHistory &&
-    !cashflowData
+    !invoiceHistory && !incomeHistory && !cashflowData
   ) {
     throw new Error('Falha ao carregar histórico');
   }

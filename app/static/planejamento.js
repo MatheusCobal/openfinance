@@ -1062,7 +1062,7 @@ async function openTransactionPicker(listEl, item) {
       const row = document.createElement('div');
       row.className = `flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-white/80 ${isGood ? 'bg-emerald-50/70 border border-emerald-100' : 'bg-white/40'}`;
 
-      const categoryLabel = escapeHtml(tx.custom_category_name || tx.category || '');
+      const categoryLabel = escapeHtml(tx.pluggy_category || tx.category || '');
       const accountHint = categoryLabel ? `<span class="text-slate-400 text-[9px]">${categoryLabel}</span>` : '';
 
       row.innerHTML = `
@@ -1423,24 +1423,14 @@ function renderCostEditRow(li, cost) {
 
 // ── Budget progress (metas variáveis) ──────────────────────────────────────
 
-const BUDGET_STATUS_CFG = {
-  ok:      { bar: 'bg-emerald-500', text: 'text-emerald-700', label: 'ok'      },
-  warning: { bar: 'bg-amber-500',   text: 'text-amber-700',   label: 'atenção' },
-  over:    { bar: 'bg-red-500',     text: 'text-red-700',     label: 'excedido' },
-};
-
 async function loadBudgetProgress() {
   if (!selectedMonth) return;
-  try {
-    const progress = await fetchJson(`/budgets/progress?year_month=${selectedMonth}`);
-    const label = document.getElementById('budget-month-label');
-    if (label) label.textContent = formatMonthShort(selectedMonth);
-    renderBudgetList(progress);
-  } catch (err) {
-    const list = document.getElementById('budget-list');
-    if (list) list.innerHTML =
-      `<div class="py-4 text-sm text-red-600 text-center">${escapeHtml(err.message)}</div>`;
-  }
+  const label = document.getElementById('budget-month-label');
+  if (label) label.textContent = formatMonthShort(selectedMonth);
+  renderBudgetList({
+    items: [],
+    legacy_category_budget_removed: true,
+  });
 }
 
 function renderBudgetList(progress) {
@@ -1448,157 +1438,15 @@ function renderBudgetList(progress) {
   if (!list) return;
   list.innerHTML = '';
   const items = progress.items || [];
-  if (items.length === 0) {
-    list.innerHTML = '<div class="py-8 text-sm text-slate-500 text-center">Nenhuma categoria disponível.</div>';
-    return;
-  }
-  for (const item of items) list.appendChild(buildBudgetItem(item));
-}
-
-function buildBudgetItem(item) {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'flex items-start gap-3 py-3 px-4 bg-slate-50 rounded-xl border border-slate-100';
-
-  const hasTarget = item.target !== null && item.target > 0;
-  const actualPct  = hasTarget ? Math.min(100, item.actual_progress_pct  || 0) : 0;
-  const projectedPct = hasTarget ? Math.min(100, item.progress_pct || 0) : 0;
-  const cfg = BUDGET_STATUS_CFG[item.status] || BUDGET_STATUS_CFG.ok;
-  const scopeBadge = item.target_scope === 'month'
-    ? '<span class="text-[10px] font-semibold uppercase tracking-wider text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full ml-1">mês</span>'
-    : '';
-
-  const progressArea = hasTarget ? `
-    <div class="relative h-1.5 w-full bg-slate-200 rounded-full overflow-hidden mt-1.5">
-      <div class="absolute inset-y-0 left-0 rounded-full opacity-35 ${cfg.bar}" style="width:${projectedPct.toFixed(1)}%"></div>
-      <div class="absolute inset-y-0 left-0 rounded-full ${cfg.bar}" style="width:${actualPct.toFixed(1)}%"></div>
-    </div>
-    <div class="flex items-center justify-between text-[11px] mt-1">
-      <span class="text-slate-400">
-        <span class="tabular text-slate-600 font-medium">${currency.format(item.actual_spent)}</span> gasto
-        ${item.future_spent > 0 ? `· <span class="tabular">${currency.format(item.future_spent)}</span> previsto` : ''}
-      </span>
-      <span class="font-semibold tabular ${cfg.text}">${Math.round(item.actual_progress_pct || 0)}%</span>
-    </div>
-  ` : `
-    <p class="text-[11px] text-slate-400 mt-1">
-      Gasto: <span class="tabular text-slate-600">${currency.format(item.actual_spent + item.future_spent)}</span>
-      · <span class="text-slate-400">sem meta</span>
-    </p>
-  `;
-
-  const targetCell = hasTarget
-    ? `<input type="number" step="0.01" min="0" data-target-input
-         value="${Number(item.target).toFixed(2)}"
-         class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-slate-200 px-2 py-1.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />`
-    : `<button type="button" data-action="set-target"
-         class="text-xs font-medium text-blue-700 hover:text-blue-800 hover:bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
-         Definir meta
-       </button>`;
-
-  const removeCell = hasTarget
-    ? `<button type="button" data-action="remove-target" title="Remover meta"
-         class="text-slate-300 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors text-xs leading-none">✕</button>`
-    : '';
-
-  wrapper.innerHTML = `
-    <span class="size-2.5 rounded-full shrink-0 mt-2" style="background:${escapeHtml(item.category_color)}"></span>
-    <div class="flex-1 min-w-0">
-      <div class="flex items-center gap-1">
-        <p class="font-medium text-sm text-slate-900">${escapeHtml(item.category_name)}</p>
-        ${scopeBadge}
+  if (progress.legacy_category_budget_removed || items.length === 0) {
+    list.innerHTML = `
+      <div class="py-8 px-4 text-sm text-slate-500 text-center rounded-xl border border-dashed border-slate-200 bg-white">
+        <p>Metas variáveis por categoria foram removidas na 10D-A.</p>
+        <p class="mt-1 text-xs text-slate-400">TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.</p>
       </div>
-      ${progressArea}
-    </div>
-    <div class="flex items-center gap-1 shrink-0 mt-0.5">
-      ${targetCell}
-      ${removeCell}
-    </div>
-  `;
-
-  // Edit existing target on blur/enter
-  const targetInput = wrapper.querySelector('[data-target-input]');
-  if (targetInput) {
-    const commit = async () => {
-      const val = Number(targetInput.value);
-      if (Number.isNaN(val) || val < 0) { targetInput.value = Number(item.target).toFixed(2); return; }
-      if (Math.abs(val - Number(item.target)) < 0.005) return;
-      try {
-        if (val === 0) {
-          await _deleteBudget(item);
-        } else {
-          await fetchJson(`/budgets/${item.category_id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ monthly_target: val }),
-          });
-          showToast('Meta atualizada.', 'success');
-        }
-        await loadBudgetProgress();
-      } catch (err) { showToast(err.message, 'error'); }
-    };
-    targetInput.addEventListener('blur', commit);
-    targetInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') { event.preventDefault(); targetInput.blur(); }
-      if (event.key === 'Escape') { targetInput.value = Number(item.target).toFixed(2); targetInput.blur(); }
-    });
-  }
-
-  // "Definir meta" — replace button with inline input
-  const setTargetBtn = wrapper.querySelector('[data-action="set-target"]');
-  if (setTargetBtn) {
-    setTargetBtn.addEventListener('click', () => {
-      const cell = setTargetBtn.closest('div');
-      cell.innerHTML = `
-        <input type="number" step="0.01" min="0.01" placeholder="R$ meta"
-          class="w-28 text-right text-sm font-semibold tabular rounded-lg border border-blue-200 px-2 py-1.5 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-50 bg-white" />
-      `;
-      const input = cell.querySelector('input');
-      input.focus();
-      const save = async () => {
-        const val = Number(input.value);
-        if (!val || val <= 0) { await loadBudgetProgress(); return; }
-        try {
-          await fetchJson(`/budgets/${item.category_id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ monthly_target: val }),
-          });
-          await loadBudgetProgress();
-          showToast('Meta definida.', 'success');
-        } catch (err) { showToast(err.message, 'error'); }
-      };
-      input.addEventListener('blur', save);
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') { event.preventDefault(); input.blur(); }
-        if (event.key === 'Escape') { loadBudgetProgress(); }
-      });
-    });
-  }
-
-  // Remove target
-  const removeBtn = wrapper.querySelector('[data-action="remove-target"]');
-  if (removeBtn) {
-    removeBtn.addEventListener('click', async () => {
-      try {
-        await _deleteBudget(item);
-        await loadBudgetProgress();
-        showToast('Meta removida.', 'success');
-      } catch (err) { showToast(err.message, 'error'); }
-    });
-  }
-
-  return wrapper;
-}
-
-async function _deleteBudget(item) {
-  // If the active target is a month override, remove just the override first
-  if (item.target_scope === 'month') {
-    await fetchJson(`/budgets/${item.category_id}/months/${selectedMonth}`, { method: 'DELETE' });
-    // If there's no underlying default, nothing else to do
+    `;
     return;
   }
-  // Otherwise delete the global default
-  await fetchJson(`/budgets/${item.category_id}`, { method: 'DELETE' });
 }
 
 // ── Category form ───────────────────────────────────────────────────────────

@@ -51,16 +51,6 @@ function planStatusBadge(status) {
   return `<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(planStatusLabel(status))}</span>`;
 }
 
-function categoryIcon(name) {
-  const key = String(name).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const icons = {
-    mercado: '🛒', restaurantes: '🍽️', transporte: '🚗',
-    saude: '🩺', pets: '🐾', casa: '🏠', lazer: '🎮',
-    assinaturas: '📺', educacao: '📚', transferencias: '🔁', outros: '📦',
-  };
-  return icons[key] ?? '💳';
-}
-
 // Selected month follows the SAME default logic as Planejamento.
 let planningYM = getDefaultPlanningMonth();
 let capacity = null;       // normalized planning overview (source of truth)
@@ -244,9 +234,7 @@ function renderSummaryCards() {
   const varPlanned = capacity.variable_budget_total ?? 0;
   const varConsumed = capacity.variable_budget_consumed ?? 0;
   const varRemaining = capacity.variable_budget_remaining ?? 0;
-  const varSubtitle = varPlanned > 0
-    ? `meta ${fmt(varPlanned)} · restante ${fmt(varRemaining)}`
-    : 'sem meta configurada';
+  const varSubtitle = 'metas por categoria removidas na 10D-A';
 
   const cards = [
     {
@@ -339,19 +327,15 @@ function renderInvoiceReconciliation() {
         <span class="tabular font-medium text-slate-900">${escapeHtml(fmt(rec.amount))}</span>
       </div>
       <div class="flex items-center justify-between gap-4">
-        <span class="text-slate-500">Compras detalhadas</span>
-        <span class="tabular font-medium text-slate-900">${escapeHtml(fmt(rec.category_total))}</span>
+        <span class="text-slate-500">Classificação por categoria</span>
+        <span class="tabular font-medium text-slate-500">pendente 10D-B</span>
       </div>
       <div class="flex items-center justify-between gap-4">
         <span class="text-slate-500">Reembolsos/estornos detectados</span>
         <span class="tabular font-medium text-emerald-600">- ${escapeHtml(fmt(rec.refund_abs_total))}</span>
       </div>
-      <div class="flex items-center justify-between gap-4 pt-2 border-t border-slate-200">
-        <span class="text-slate-500">Diferença contra saldo Pluggy</span>
-        <span class="tabular font-medium text-slate-700">${escapeHtml(fmt(rec.amount_minus_category_total))}</span>
-      </div>
     </div>
-    <p class="text-xs text-slate-400 mt-3 leading-relaxed">A fatura usa o saldo Pluggy ajustado. As categorias mostram apenas compras rastreadas.</p>
+    <p class="text-xs text-slate-400 mt-3 leading-relaxed">A fatura usa o saldo Pluggy ajustado. A quebra por categoria antiga foi removida; TODO 10D-B: substituir por classificação baseada na Pluggy.</p>
   `;
 }
 
@@ -464,45 +448,16 @@ function _categoryModalKeyHandler(e) {
 function renderCategories() {
   const container = document.getElementById('categories-grid');
   const invoiceAmount = asMoneyNumber(currentCardInvoice?.amount);
-  const categories = [...(currentCardInvoice?.categories || [])]
-    .filter(cat => asMoneyNumber(cat.total) > 0)
-    .sort((a, b) => asMoneyNumber(b.total) - asMoneyNumber(a.total));
 
-  if (categories.length === 0) {
-    const message = invoiceAmount > 0
-      ? 'A fatura possui saldo, mas as compras detalhadas ainda não foram sincronizadas pela Pluggy.'
-      : 'Nenhuma compra encontrada para a fatura vigente.';
-    container.innerHTML = `<p class="text-sm text-slate-500 col-span-full rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-6">${escapeHtml(message)}</p>`;
-    return;
-  }
-
-  container.innerHTML = categories.map((cat, index) => {
-    const amount = cat.total ?? 0;
-    const count = cat.count ?? 0;
-    const color = cat.color || '#64748b';
-    const countLabel = count === 1 ? '1 compra' : `${count} compras`;
-    return `
-      <button type="button" data-category-index="${index}"
-        class="group bg-white rounded-2xl border border-slate-200 px-4 py-4 flex items-center gap-3.5 w-full text-left cursor-pointer shadow-sm hover:bg-slate-50 hover:border-slate-300 hover:shadow transition">
-        <span class="size-10 rounded-xl flex items-center justify-center text-xl shrink-0 ring-1 ring-inset ring-slate-900/5" style="background:${escapeHtml(color)}22">${categoryIcon(cat.name)}</span>
-        <div class="flex-1 min-w-0">
-          <p class="font-semibold text-slate-900 text-sm truncate">${escapeHtml(cat.name)}</p>
-          <p class="mt-0.5 text-xs text-slate-500">${escapeHtml(countLabel)}</p>
-        </div>
-        <div class="flex items-center gap-2 shrink-0 text-right">
-          <p class="font-semibold tabular text-slate-900 text-sm">${escapeHtml(fmt(amount))}</p>
-          <span class="text-slate-300 group-hover:text-slate-500 text-lg leading-none" aria-hidden="true">›</span>
-        </div>
-      </button>
-    `;
-  }).join('');
-
-  container.querySelectorAll('button[data-category-index]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const category = categories[Number(btn.dataset.categoryIndex)];
-      if (category) openCategoryModal(category);
-    });
-  });
+  const message = invoiceAmount > 0
+    ? 'A fatura vigente continua disponível, mas a quebra por categoria antiga foi removida na 10D-A.'
+    : 'Nenhuma compra classificada para exibir nesta etapa.';
+  container.innerHTML = `
+    <div class="text-sm text-slate-500 col-span-full rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-6">
+      <p>${escapeHtml(message)}</p>
+      <p class="mt-1 text-xs text-slate-400">TODO 10D-B: replace legacy category usage with Pluggy-based classification layer.</p>
+    </div>
+  `;
 }
 
 const PLUGGY_CONNECT_SDK_URL = 'https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js';
