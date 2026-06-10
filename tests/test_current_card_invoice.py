@@ -389,6 +389,126 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         )
         self.assertAlmostEqual(dashboard_available, 8511.68, places=2)
 
+    def _seed_vigente_scenario(self, session):
+        """Mirror the real 11-A bug: stale due date (June), closed June bill
+        still inside Account.balance, no official July bill, and July
+        future-dated installments that previously fed scheduled_installments."""
+        self._add_item(session)
+        self._add_credit_account(
+            session,
+            balance=Decimal("28619.60"),
+            due_date=date(2026, 6, 8),
+        )
+        self._add_bill(
+            session,
+            bill_id="bill-jun",
+            due_date=date(2026, 6, 8),
+            total=Decimal("17131.28"),
+        )
+        session.add(
+            Transaction(
+                id="future-installment-jul",
+                account_id="credit-1",
+                date=date(2026, 7, 10),
+                amount=Decimal("7993.58"),
+                description="Parcela viagem 03/12",
+                category="Travel",
+            )
+        )
+        session.commit()
+
+    def test_vigente_planning_month_uses_dashboard_current_invoice(self):
+        """Planning for the vigente month must show the same current invoice
+        as the Dashboard instead of the smaller scheduled_installments sum."""
+        with Session(self.engine) as session:
+            self._seed_vigente_scenario(session)
+
+        with Session(self.engine) as session:
+            planning = planning_invoice_for_month(
+                session,
+                "2026-07",
+                today=date(2026, 6, 10),
+            )
+            dashboard = current_card_invoice_summary(
+                session,
+                today=date(2026, 6, 10),
+            )
+
+        self.assertEqual(planning["source"], "dashboard_current_invoice")
+        self.assertEqual(planning["amount"], dashboard["amount"])
+        self.assertEqual(planning["amount"], 11488.32)
+        self.assertNotEqual(planning["amount"], 7993.58)
+
+    def test_vigente_dashboard_tier_only_applies_to_vigente_month(self):
+        """A future month beyond the vigente one keeps the existing tiers
+        (scheduled_installments here), so months further out are unchanged."""
+        with Session(self.engine) as session:
+            self._seed_vigente_scenario(session)
+            session.add(
+                Transaction(
+                    id="future-installment-aug",
+                    account_id="credit-1",
+                    date=date(2026, 8, 10),
+                    amount=Decimal("500.00"),
+                    description="Parcela viagem 04/12",
+                    category="Travel",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            august = planning_invoice_for_month(
+                session,
+                "2026-08",
+                today=date(2026, 6, 10),
+            )
+
+        self.assertEqual(august["source"], "scheduled_installments")
+        self.assertEqual(august["amount"], 500.0)
+
+    def test_upcoming_summary_next_invoice_matches_dashboard(self):
+        """Upcoming ("Próximos") exposes next_invoice with the same value as
+        the Dashboard current invoice, not the stale installments-only sum,
+        while the months listing itself stays untouched."""
+        from app.services.transaction_reports import upcoming_summary
+
+        with Session(self.engine) as session:
+            self._seed_vigente_scenario(session)
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 6, 10))
+            dashboard = current_card_invoice_summary(
+                session,
+                today=date(2026, 6, 10),
+            )
+
+        self.assertEqual(summary["next_invoice"]["year_month"], "2026-07")
+        self.assertEqual(summary["next_invoice"]["amount"], dashboard["amount"])
+        self.assertEqual(summary["next_invoice"]["amount"], 11488.32)
+        self.assertEqual(summary["next_invoice"]["source"], "dashboard_current_invoice")
+        # The future-installments listing is preserved as-is.
+        self.assertEqual(summary["months"][0]["month"], "2026-07")
+        self.assertEqual(summary["months"][0]["total"], 7993.58)
+
+    def test_vigente_spending_capacity_uses_dashboard_invoice(self):
+        """Spending capacity for the vigente month subtracts the Dashboard
+        invoice amount as the future card obligation."""
+        from app.services.spending_capacity import spending_capacity_summary
+
+        with Session(self.engine) as session:
+            self._seed_vigente_scenario(session)
+
+        with Session(self.engine) as session:
+            capacity = spending_capacity_summary(
+                session,
+                "2026-07",
+                today=date(2026, 6, 10),
+            )
+
+        self.assertEqual(capacity["card_invoice_source"], "dashboard_current_invoice")
+        self.assertEqual(capacity["future_card_obligation_source"], "dashboard_current_invoice")
+        self.assertAlmostEqual(capacity["future_card_obligation_total"], 11488.32, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

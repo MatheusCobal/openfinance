@@ -19,9 +19,17 @@ Source priority:
     4. none
 
   future_month:
+    0. active_open_invoice_transactions — forming-cycle transactions, vigente
+                                          month only (needs close_date).
     1. official_bill         — CreditCardBill.due_date in year_month.
     2. account_balance_due_month — Account.balance where credit_balance_due_date
                                    falls in year_month.
+    2b. dashboard_current_invoice — vigente month only: the same adjusted
+                                    current invoice shown on the Dashboard
+                                    (current_card_invoice_summary), so the
+                                    planning value never falls back to a
+                                    stale/partial source while the Dashboard
+                                    shows a live one.
     3. scheduled_installments — future credit-card transactions in year_month.
     4. transaction_fallback
     5. none
@@ -780,6 +788,72 @@ def _vigente_forming_invoice(
     }
 
 
+def _vigente_dashboard_invoice(
+    session: Session,
+    year_month: str,
+    today: datetime.date,
+    credit_accounts: list[Account],
+) -> Optional[Dict[str, Any]]:
+    """Vigente-month fallback that mirrors the Dashboard's current invoice.
+
+    The Dashboard card uses current_card_invoice_summary() — Account.balance
+    adjusted by removing a closed bill Pluggy may still carry. When the vigente
+    month has no forming-cycle transactions (no close_date), no official bill
+    and no Account.balance due in the month, the old flow fell through to
+    scheduled_installments, which only counts future-dated rows and therefore
+    misses purchases already made in the forming cycle — showing a stale,
+    smaller value than the Dashboard. This tier reuses the Dashboard source so
+    Planning and Upcoming display the same current invoice.
+
+    The tier only applies when every credit account with a balance has a
+    credit_balance_due_date already in the past (a stale snapshot): that is
+    the signature of the bug — the previous cycle closed, Pluggy has not
+    posted the next bill yet, and Account.balance now represents the forming
+    invoice due in the vigente month. Accounts with no due date or a due date
+    in a later month keep the previous policy (balance not used for future
+    months unless the due date falls in them).
+
+    Returns None (caller falls through to the next tier) when year_month is
+    not the vigente month, the due dates are not stale, or the Dashboard
+    summary has no positive amount.
+    """
+    if year_month != _next_calendar_month(today):
+        return None
+
+    accounts_with_balance = [a for a in credit_accounts if a.balance is not None]
+    if not accounts_with_balance:
+        return None
+    if any(
+        a.credit_balance_due_date is None or a.credit_balance_due_date > today
+        for a in accounts_with_balance
+    ):
+        return None
+
+    from app.services.current_card_invoice import current_card_invoice_summary
+
+    summary = current_card_invoice_summary(session, today=today)
+    amount = Decimal(str(summary.get("adjusted_total") or 0))
+    if amount <= 0 or not summary.get("cards"):
+        return None
+
+    return {
+        "year_month": year_month,
+        "planning_mode": "future_month",
+        "amount": float(amount),
+        "source": "dashboard_current_invoice",
+        "source_label": "Fatura vigente (mesma da Dashboard)",
+        "is_estimated": True,
+        "due_dates": [],
+        "cards": [],
+        "transaction_count": 0,
+        "bill_count": 0,
+        "account_count": summary.get("account_count", len(credit_accounts)),
+        "cycle_start": None,
+        "cycle_end": None,
+        "account_balance_total": float(_account_balance_total(credit_accounts)),
+    }
+
+
 def _future_month_invoice(
     session: Session,
     year_month: str,
@@ -793,6 +867,8 @@ def _future_month_invoice(
             skip this tier entirely.
     Tier 1: official CreditCardBill with due_date in year_month.
     Tier 2: Account.balance where credit_balance_due_date falls in year_month.
+    Tier 2b: Dashboard adjusted current invoice, vigente month only
+             (see _vigente_dashboard_invoice).
     Tier 3: scheduled future installments in year_month.
     Tier 4: transaction fallback.
     Tier 5: none.
@@ -896,6 +972,11 @@ def _future_month_invoice(
             "cycle_end": None,
             "account_balance_total": float(bal_total),
         }
+
+    # ---- Tier 2b: Dashboard adjusted current invoice (vigente month only) ----
+    dashboard = _vigente_dashboard_invoice(session, year_month, today, credit_accounts)
+    if dashboard is not None:
+        return dashboard
 
     # ---- Tier 3: scheduled future installments ----
     installments = scheduled_installments_for_month(session, year_month, today=today)

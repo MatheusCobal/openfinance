@@ -64,12 +64,23 @@ function renderOverview() {
     null,
   );
 
-  document.getElementById('summary-next-total').textContent = next
-    ? currency.format(next.total)
-    : '—';
-  document.getElementById('summary-next-label').textContent = next
-    ? `${formatMonthLong(next.month)} · ${pluralParcelas(next.count)}`
-    : 'Sem parcelas';
+  // "Próxima fatura" mirrors the planning/Dashboard invoice for the vigente
+  // month (next_invoice) instead of the raw sum of future installments, which
+  // misses purchases already made in the forming cycle.
+  const nextInvoice = allData.next_invoice;
+  if (nextInvoice && Number(nextInvoice.amount) > 0) {
+    document.getElementById('summary-next-total').textContent =
+      currency.format(nextInvoice.amount);
+    document.getElementById('summary-next-label').textContent =
+      `${formatMonthLong(nextInvoice.year_month)} · ${nextInvoice.source_label || 'Fatura estimada'}`;
+  } else {
+    document.getElementById('summary-next-total').textContent = next
+      ? currency.format(next.total)
+      : '—';
+    document.getElementById('summary-next-label').textContent = next
+      ? `${formatMonthLong(next.month)} · ${pluralParcelas(next.count)}`
+      : 'Sem parcelas';
+  }
   document.getElementById('summary-quarter-total').textContent =
     currency.format(quarterTotal);
   document.getElementById('summary-quarter-count').textContent =

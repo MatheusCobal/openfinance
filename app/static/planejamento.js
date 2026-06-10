@@ -1133,8 +1133,18 @@ function renderQuickCostCategoryOptions(selectedId = null) {
   }).join('');
 }
 
+function expandCategoryGroup(categoryId) {
+  const wrapper = document.querySelector(`#category-cost-list section[data-category-id="${categoryId}"]`);
+  if (!wrapper) return;
+  wrapper.querySelector('[data-body]')?.classList.remove('hidden');
+  const chevron = wrapper.querySelector('[data-chevron]');
+  if (chevron) chevron.style.transform = 'rotate(90deg)';
+  wrapper.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 function buildCategoryCostGroup(category, costs) {
   const wrapper = document.createElement('section');
+  wrapper.dataset.categoryId = category.id;
   wrapper.className = 'rounded-xl border border-slate-200 overflow-hidden';
   wrapper.style.borderTopColor = category.color;
   wrapper.style.borderTopWidth = '3px';
@@ -1233,6 +1243,7 @@ function buildCategoryCostGroup(category, costs) {
       form.reset();
       addFormContainer.classList.add('hidden');
       await Promise.all([loadCosts(), loadMonthData()]);
+      expandCategoryGroup(category.id);
       showToast('Custo fixo adicionado.', 'success');
     } catch (err) { showToast(err.message, 'error'); }
   });
@@ -1479,7 +1490,10 @@ document.getElementById('quick-cost-form').addEventListener('submit', async (eve
   const description = document.getElementById('quick-cost-description').value.trim();
   const amount = Number(document.getElementById('quick-cost-amount').value);
   const due_day = Number(document.getElementById('quick-cost-day').value);
-  if (!category_id || !description || !amount || !due_day) return;
+  if (!category_id || !description || !amount || !due_day) {
+    showToast('Preencha categoria, descrição, valor e dia antes de adicionar.', 'error');
+    return;
+  }
   try {
     await fetchJson('/fixed-costs', {
       method: 'POST',
@@ -1490,6 +1504,7 @@ document.getElementById('quick-cost-form').addEventListener('submit', async (eve
     document.getElementById('quick-cost-amount').value = '';
     document.getElementById('quick-cost-day').value = '';
     await Promise.all([loadCosts(), loadMonthData()]);
+    expandCategoryGroup(category_id);
     showToast('Custo fixo adicionado.', 'success');
   } catch (err) { showToast(err.message, 'error'); }
 });

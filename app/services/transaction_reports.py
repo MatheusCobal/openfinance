@@ -153,8 +153,9 @@ def enriched_transactions(
 def upcoming_summary(
     session: Session,
     include_ignored: bool = False,
+    today: Optional[date] = None,
 ) -> Dict[str, Any]:
-    today = date.today()
+    today = today if today is not None else date.today()
     future_txs = session.exec(
         select(Transaction)
         .where(Transaction.date > today, _non_duplicate_clause())
@@ -239,9 +240,28 @@ def upcoming_summary(
             }
         )
 
+    # "Próxima fatura" must mirror the planning/Dashboard invoice for the
+    # vigente month instead of the raw sum of future-dated installments,
+    # which misses purchases already made in the forming cycle.
+    from app.services.credit_card_invoice import (
+        _next_calendar_month,
+        planning_invoice_for_month,
+    )
+
+    vigente_month = _next_calendar_month(today)
+    planning_inv = planning_invoice_for_month(session, vigente_month, today=today)
+    next_invoice = {
+        "year_month": vigente_month,
+        "amount": planning_inv["amount"],
+        "source": planning_inv["source"],
+        "source_label": planning_inv["source_label"],
+        "is_estimated": planning_inv["is_estimated"],
+    }
+
     return {
         "total_count": len(future_txs),
         "months": months_out,
+        "next_invoice": next_invoice,
         "legacy_category_breakdown_removed": False,
     }
 
