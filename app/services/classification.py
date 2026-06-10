@@ -151,6 +151,19 @@ class TransactionClassifier:
             )
 
         if account_type == "CREDIT":
+            classified_cashflow_type = _cashflow_type(tx, account_type, self.user_rules)
+            classification_ignored = _ignored_from_totals(tx, account_type, self.user_rules)
+            if ignored or classification_ignored:
+                return TransactionClassification(
+                    kind=TransactionKind.IGNORED,
+                    account_type=account_type,
+                    ignored=True,
+                )
+            if classified_cashflow_type != "expense":
+                return TransactionClassification(
+                    kind=TransactionKind.OTHER,
+                    account_type=account_type,
+                )
             if tx.amount != 0:
                 return TransactionClassification(
                     kind=TransactionKind.CARD_PURCHASE,
@@ -357,3 +370,17 @@ def _cashflow_type(
         account_type=account_type,
         user_rules=user_rules,
     ).cashflow_type
+
+
+def _ignored_from_totals(
+    tx: Transaction,
+    account_type: Optional[str] = None,
+    user_rules: tuple[CompiledUserRule, ...] = (),
+) -> bool:
+    if tx.internal_category and tx.cashflow_type and tx.classification_source:
+        return bool(tx.ignored_from_totals)
+    return classify_transaction(
+        tx,
+        account_type=account_type,
+        user_rules=user_rules,
+    ).ignored_from_totals

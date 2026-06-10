@@ -362,7 +362,7 @@ def invoice_summary(
                 if tx.id in skip
                 and tx.account_id in credit_account_ids
                 and (from_date is None or tx.date >= from_date)
-                and not classifier.is_invoice_payment(tx)
+                and classifier.is_card_purchase(tx)
             ),
             Decimal("0"),
         )
@@ -383,6 +383,7 @@ def invoice_summary(
             tx
             for tx in all_up_to
             if tx.account_id in credit_account_ids and tx.date > lower and tx.id not in skip
+            and classifier.is_card_purchase(tx)
         ]
         open_total = sum((abs(tx.amount) for tx in open_txs), Decimal("0"))
         open_count = len(open_txs)
