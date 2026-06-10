@@ -1,9 +1,7 @@
 from datetime import date
-from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from app.database import get_session
@@ -17,10 +15,6 @@ LEGACY_BUDGET_REMOVED_MESSAGE = (
 )
 
 
-class BudgetUpsert(BaseModel):
-    monthly_target: Decimal
-
-
 @router.get("/budgets")
 def list_budgets(session: Session = Depends(get_session)):
     return {
@@ -28,41 +22,6 @@ def list_budgets(session: Session = Depends(get_session)):
         "legacy_category_budget_removed": True,
         "todo": LEGACY_BUDGET_REMOVED_MESSAGE,
     }
-
-
-@router.put("/budgets/{category_id}")
-def upsert_budget(
-    category_id: int,
-    body: BudgetUpsert,
-    session: Session = Depends(get_session),
-):
-    raise HTTPException(410, LEGACY_BUDGET_REMOVED_MESSAGE)
-
-
-@router.delete("/budgets/{category_id}", status_code=204)
-def delete_budget(category_id: int, session: Session = Depends(get_session)):
-    raise HTTPException(410, LEGACY_BUDGET_REMOVED_MESSAGE)
-
-
-@router.put("/budgets/{category_id}/months/{year_month}")
-def upsert_budget_override(
-    category_id: int,
-    year_month: str,
-    body: BudgetUpsert,
-    session: Session = Depends(get_session),
-):
-    normalized_month, _, _ = month_range(year_month)
-    raise HTTPException(410, f"{LEGACY_BUDGET_REMOVED_MESSAGE}; year_month={normalized_month}")
-
-
-@router.delete("/budgets/{category_id}/months/{year_month}", status_code=204)
-def delete_budget_override(
-    category_id: int,
-    year_month: str,
-    session: Session = Depends(get_session),
-):
-    normalized_month, _, _ = month_range(year_month)
-    raise HTTPException(410, f"{LEGACY_BUDGET_REMOVED_MESSAGE}; year_month={normalized_month}")
 
 
 @router.get("/budgets/progress")

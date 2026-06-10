@@ -29,17 +29,24 @@ class LegacyCategoryRemovalTest(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def test_legacy_category_routes_return_gone(self):
+    def test_legacy_category_routes_are_physically_removed(self):
         for path in (
             "/categories",
             "/category-rules/description",
             "/category-rules/description/suggestions",
         ):
             response = self.client.get(path)
-            self.assertEqual(response.status_code, 410, path)
+            self.assertEqual(response.status_code, 404, path)
 
         response = self.client.get("/transactions", params={"category_id": 1})
-        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.status_code, 200)
+
+    def test_legacy_category_tables_are_not_mapped(self):
+        self.assertNotIn("category", SQLModel.metadata.tables)
+        self.assertNotIn("categoryrule", SQLModel.metadata.tables)
+        self.assertNotIn("descriptioncategoryrule", SQLModel.metadata.tables)
+        self.assertNotIn("budget", SQLModel.metadata.tables)
+        self.assertNotIn("budgetoverride", SQLModel.metadata.tables)
 
     def test_variable_budget_progress_is_empty(self):
         response = self.client.get("/budgets/progress", params={"year_month": "2026-06"})

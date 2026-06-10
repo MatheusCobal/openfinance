@@ -33,25 +33,17 @@ from app.services.transaction_reports import (
 )
 
 router = APIRouter()
-LEGACY_CATEGORY_REMOVED_MESSAGE = (
-    "legacy financial category endpoints were removed in 10D-A; "
-    "use transaction classification fields from the Pluggy-based 10D-B layer"
-)
-
 
 @router.get("/transactions")
 def list_transactions(
     account_id: Optional[str] = None,
     account_type: Optional[str] = "CREDIT",
-    category_id: Optional[int] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     include_future: bool = False,
     include_ignored: bool = False,
     session: Session = Depends(get_session),
 ):
-    if category_id is not None:
-        raise HTTPException(410, "legacy category_id filter removed in 10D-A")
     try:
         return enriched_transactions(
             session,
@@ -64,11 +56,6 @@ def list_transactions(
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-
-
-@router.get("/categories")
-def list_categories(session: Session = Depends(get_session)):
-    raise HTTPException(410, LEGACY_CATEGORY_REMOVED_MESSAGE)
 
 
 class ClassificationOverridePayload(BaseModel):

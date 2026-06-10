@@ -31,8 +31,9 @@ An additive Alembic migration adds nullable classification fields to
 for existing code and data. It is not an internal category. The old
 `category_id` relationship is not reused.
 
-The migration is additive only. It does not drop tables, columns or transaction
-data.
+The initial 10D-B migration was additive only. The later reviewed
+`e2f4a6b8c9d0` migration physically drops the retired legacy category storage
+tables without touching transaction data or raw Pluggy fields.
 
 ## Initial taxonomy
 
@@ -151,7 +152,8 @@ does not mutate raw Pluggy fields beyond copying the legacy-compatible
 - Histórico drilldowns show internal category, cashflow type, source/confidence
   and raw Pluggy category.
 
-Legacy category endpoints still return `410 Gone`.
+Legacy category endpoints are no longer routed after the post-10D physical
+cleanup.
 
 ## Local diagnosis
 
@@ -409,7 +411,8 @@ not recomputed at override/rule-edit time; refresh them explicitly with
 snapshot refresh update them. No automatic recompute job or migration was added
 in 10D-F.
 
-## Pending work
+## Post-10D physical cleanup
 
-- Physical removal of legacy category tables/columns after a reviewed data
-  retention and migration plan.
+The legacy `category`, `categoryrule`, `descriptioncategoryrule`, `budget` and
+`budgetoverride` tables were removed in migration `e2f4a6b8c9d0`. Fixed-cost
+categories and `user_classification_rules` remain active.

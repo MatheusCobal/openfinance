@@ -160,31 +160,6 @@ class Transaction(SQLModel, table=True):
     duplicate_of_id: Optional[str] = Field(default=None)
 
 
-# 10D-A legacy storage only. These tables are intentionally left mapped so
-# existing databases remain readable until a later reviewed migration removes
-# them physically. New code must not use them as a category source of truth.
-class Category(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True, index=True)
-    color: str
-    sort_order: int = 0
-    parent_id: Optional[int] = Field(default=None, foreign_key="category.id", index=True)
-
-
-class CategoryRule(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    pluggy_category: str = Field(unique=True, index=True)
-    category_id: int = Field(foreign_key="category.id", index=True)
-
-
-class DescriptionCategoryRule(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    pattern: str
-    pattern_normalized: str = Field(unique=True, index=True)
-    category_id: int = Field(foreign_key="category.id", index=True)
-    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
-
-
 class IgnoredDescriptionRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     pattern: str
@@ -275,14 +250,6 @@ class MonthlyBalanceMonth(SQLModel, table=True):
     updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
-# 10D-A legacy storage only: variable budgets are tied to the removed internal
-# Category model and are disabled in services/routes until the new layer exists.
-class Budget(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    category_id: int = Field(foreign_key="category.id", unique=True, index=True)
-    monthly_target: Decimal
-
-
 class ExpectedIncome(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     description: str
@@ -358,14 +325,3 @@ class FixedCostTransactionMatch(SQLModel, table=True):
     transaction_id: str = Field(foreign_key="transaction.id", index=True)
     year_month: str = Field(index=True)
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
-
-
-class BudgetOverride(SQLModel, table=True):
-    __table_args__ = (
-        UniqueConstraint("category_id", "year_month", name="uq_budgetoverride_month"),
-    )
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    category_id: int = Field(foreign_key="category.id", index=True)
-    year_month: str = Field(index=True)
-    monthly_target: Decimal

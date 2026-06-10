@@ -50,7 +50,7 @@ def _prepare_legacy_database_for_alembic(cfg: Config) -> None:
     table_names = set(inspector.get_table_names())
     if not table_names or "alembic_version" in table_names:
         return
-    legacy_core_tables = {"item", "account", "accountsync", "transaction", "category"}
+    legacy_core_tables = {"item", "account", "accountsync", "transaction"}
     if not legacy_core_tables.issubset(table_names):
         return
 

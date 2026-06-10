@@ -15,20 +15,12 @@ from app.models import (
     BankCashflowExclusionRule,
     BankIncomeMonth,
     BankIncomeExclusionRule,
-    Budget,
-    BudgetOverride,
-    Category,
-    CategoryRule,
     CreditCardInvoiceMonth,
-    DescriptionCategoryRule,
     IgnoredDescriptionRule,
     Item,
     MonthlyBalanceMonth,
     Transaction,
 )
-
-LEGACY_CATEGORY_TEST_REMOVED = "10D-A removed legacy category behavior; replace in 10D-B"
-
 
 def next_month(value: date) -> date:
     if value.month == 12:
@@ -78,37 +70,6 @@ class BackendRegressionTest(unittest.TestCase):
                     item_id="item-1",
                     name="Checking Account",
                     type="BANK",
-                )
-            )
-            session.add_all(
-                [
-                    Category(
-                        id=1,
-                        name="Shopping",
-                        color="#ef4444",
-                        sort_order=1,
-                    ),
-                    Category(
-                        id=2,
-                        name="Pets",
-                        color="#22c55e",
-                        sort_order=2,
-                    ),
-                    Category(
-                        id=3,
-                        name="Outros",
-                        color="#64748b",
-                        sort_order=99,
-                    ),
-                ]
-            )
-            session.add(CategoryRule(pluggy_category="Shopping", category_id=1))
-            session.add(CategoryRule(pluggy_category="Healthcare", category_id=3))
-            session.add(
-                DescriptionCategoryRule(
-                    pattern="Cobasi Canoas",
-                    pattern_normalized=normalize_description("Cobasi Canoas"),
-                    category_id=2,
                 )
             )
             session.add(
@@ -179,19 +140,6 @@ class BackendRegressionTest(unittest.TestCase):
             )
             session.commit()
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_transactions_default_to_credit_past_non_ignored(self):
-        response = self.client.get("/transactions")
-
-        self.assertEqual(response.status_code, 200)
-        rows = response.json()
-        self.assertEqual({"tx-pet", "tx-shopping"}, {row["id"] for row in rows})
-        pet_row = next(row for row in rows if row["id"] == "tx-pet")
-        self.assertEqual(pet_row["custom_category_name"], "Pets")
-        self.assertFalse(any(row["id"] == "tx-invoice-payment" for row in rows))
-        self.assertFalse(any(row["id"] == "tx-salary" for row in rows))
-        self.assertFalse(any(row["id"] == "tx-future" for row in rows))
-
     def test_transactions_can_include_bank_accounts_and_ignored_rows(self):
         response = self.client.get(
             "/transactions",
@@ -210,20 +158,6 @@ class BackendRegressionTest(unittest.TestCase):
                 "tx-bank-outflow",
             },
             ids,
-        )
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_stats_use_credit_spend_only_and_track_future_count(self):
-        response = self.client.get("/stats")
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["total_spent"], 150.0)
-        self.assertEqual(payload["transaction_count"], 2)
-        self.assertEqual(payload["future_transaction_count"], 1)
-        self.assertEqual(
-            {"Shopping": 100.0, "Pets": 50.0},
-            {row["name"]: row["total"] for row in payload["categories"]},
         )
 
     def _wipe_credit_seed(self):
@@ -316,86 +250,6 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(payload["invoice_total"], 1620.5)
         self.assertEqual(payload["invoice_count"], 1)
         self.assertEqual(payload["invoice_paid_dates"], [payment_date.isoformat()])
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_upcoming_groups_future_credit_transactions(self):
-        response = self.client.get("/upcoming")
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["total_count"], 1)
-        self.assertEqual(payload["months"][0]["month"], self.next_month_day.strftime("%Y-%m"))
-        self.assertEqual(payload["months"][0]["total"], 75.0)
-        self.assertEqual(payload["months"][0]["categories"][0]["name"], "Shopping")
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_budget_progress_separates_budgeted_and_unbudgeted_spend(self):
-        with Session(self.engine) as session:
-            session.add(Budget(category_id=1, monthly_target=Decimal("200.00")))
-            session.add(Budget(category_id=2, monthly_target=Decimal("80.00")))
-            session.add(
-                BudgetOverride(
-                    category_id=2,
-                    year_month=self.current_month,
-                    monthly_target=Decimal("100.00"),
-                )
-            )
-            session.commit()
-
-        response = self.client.get(
-            "/budgets/progress",
-            params={"year_month": self.current_month},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["summary"]["target"], 300.0)
-        self.assertEqual(payload["summary"]["actual_spent"], 150.0)
-        self.assertEqual(payload["summary"]["projected_spent"], 150.0)
-        self.assertEqual(payload["summary"]["progress_pct"], 50.0)
-
-        items_by_name = {item["category_name"]: item for item in payload["items"]}
-        self.assertEqual(items_by_name["Shopping"]["target_scope"], "default")
-        self.assertEqual(items_by_name["Shopping"]["actual_spent"], 100.0)
-        self.assertEqual(items_by_name["Pets"]["target_scope"], "month")
-        self.assertEqual(items_by_name["Pets"]["target"], 100.0)
-        self.assertEqual(items_by_name["Pets"]["actual_spent"], 50.0)
-        # The R$ 260 PIX outflow (tx-bank-outflow) falls into "Outros"
-        # — no budget — so it must surface as unbudgeted spend, not as
-        # silent invisible spending like before.
-        self.assertEqual(payload["summary"]["unbudgeted_actual_spent"], 260.0)
-        self.assertEqual(items_by_name["Outros"]["actual_spent"], 260.0)
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_budget_progress_includes_bank_pix_in_budgeted_category(self):
-        # PIX outflows tagged with a category that has a budget must count
-        # toward that budget — historically only CREDIT spend was tracked
-        # and PIX was invisible.
-        with Session(self.engine) as session:
-            session.add(Budget(category_id=1, monthly_target=Decimal("500.00")))
-            # PIX to a store that maps via DescriptionCategoryRule to "Pets"
-            session.add(
-                Transaction(
-                    id="tx-pix-cobasi",
-                    account_id="bank-1",
-                    date=self.current_month_day,
-                    amount=Decimal("-120.00"),
-                    description="Cobasi Canoas PIX",
-                    category="Transfers",
-                )
-            )
-            session.add(Budget(category_id=2, monthly_target=Decimal("300.00")))
-            session.commit()
-
-        response = self.client.get(
-            "/budgets/progress",
-            params={"year_month": self.current_month},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        items = {item["category_name"]: item for item in response.json()["items"]}
-        # Pets had R$ 50 on credit + R$ 120 via PIX = R$ 170
-        self.assertEqual(items["Pets"]["actual_spent"], 170.0)
 
     def test_credit_card_payments_snapshot_uses_invoice_payment_only(self):
         response = self.client.get(
@@ -571,170 +425,6 @@ class BackendRegressionTest(unittest.TestCase):
             {tx["id"] for tx in month["transactions"]},
         )
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_rule_endpoints_report_affected_transactions(self):
-        response = self.client.post(
-            "/category-rules/description",
-            json={"pattern": "Compra Shopping", "category_id": 2},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["category_name"], "Pets")
-        self.assertEqual(payload["affected_count"], 1)
-
-        response = self.client.post(
-            "/bank-income/exclusion-rules",
-            json={"pattern": "rendimentos"},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["pattern_normalized"], "rendimentos")
-        self.assertEqual(payload["affected_count"], 1)
-
-        response = self.client.post(
-            "/bank-cashflow/exclusion-rules",
-            json={"direction": "OUT", "pattern": "Pix QR Code"},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["direction"], "OUT")
-        self.assertEqual(payload["pattern_normalized"], "pix qr code")
-        self.assertEqual(payload["affected_count"], 1)
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_description_rule_suggestions_group_repeated_unruled_descriptions(self):
-        with Session(self.engine) as session:
-            session.add_all(
-                [
-                    Transaction(
-                        id="tx-padaria-1",
-                        account_id="credit-1",
-                        date=self.current_month_day,
-                        amount=Decimal("-10.00"),
-                        description="Padaria Centro",
-                        category="Food",
-                    ),
-                    Transaction(
-                        id="tx-padaria-2",
-                        account_id="credit-1",
-                        date=self.current_month_day,
-                        amount=Decimal("-15.00"),
-                        description="Padaria Centro",
-                        category="Food",
-                    ),
-                ]
-            )
-            session.commit()
-
-        response = self.client.get(
-            "/category-rules/description/suggestions",
-            params={"months": 1, "min_count": 2, "limit": 5},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        suggestions = response.json()["suggestions"]
-        padaria = next(
-            item
-            for item in suggestions
-            if item["pattern_normalized"] == normalize_description("Padaria Centro")
-        )
-        self.assertEqual(padaria["transaction_count"], 2)
-        self.assertEqual(padaria["total"], 25.0)
-        self.assertEqual(padaria["current_category_name"], "Outros")
-        self.assertNotIn(
-            normalize_description("Cobasi Canoas"),
-            {item["pattern_normalized"] for item in suggestions},
-        )
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_rule_upserts_are_idempotent(self):
-        first_response = self.client.post(
-            "/category-rules/description",
-            json={"pattern": "Cobasi Canoas", "category_id": 1},
-        )
-        second_response = self.client.post(
-            "/category-rules/description",
-            json={"pattern": "  cobasi   canoas  ", "category_id": 2},
-        )
-
-        self.assertEqual(first_response.status_code, 200)
-        self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
-        self.assertEqual(second_response.json()["category_name"], "Pets")
-
-        first_response = self.client.post(
-            "/transaction-ignore-rules/description",
-            json={"pattern": "Pagamento recebido"},
-        )
-        second_response = self.client.post(
-            "/transaction-ignore-rules/description",
-            json={"pattern": " pagamento   recebido "},
-        )
-
-        self.assertEqual(first_response.status_code, 200)
-        self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
-
-        first_response = self.client.post(
-            "/bank-income/exclusion-rules",
-            json={"pattern": "rendimentos"},
-        )
-        second_response = self.client.post(
-            "/bank-income/exclusion-rules",
-            json={"pattern": " RENDIMENTOS "},
-        )
-
-        self.assertEqual(first_response.status_code, 200)
-        self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
-
-        first_response = self.client.post(
-            "/bank-cashflow/exclusion-rules",
-            json={"direction": "IN", "pattern": "rendimentos"},
-        )
-        second_response = self.client.post(
-            "/bank-cashflow/exclusion-rules",
-            json={"direction": "in", "pattern": " RENDIMENTOS "},
-        )
-
-        self.assertEqual(first_response.status_code, 200)
-        self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(first_response.json()["id"], second_response.json()["id"])
-
-        with Session(self.engine) as session:
-            description_rules = session.exec(
-                select(DescriptionCategoryRule).where(
-                    DescriptionCategoryRule.pattern_normalized
-                    == normalize_description("Cobasi Canoas")
-                )
-            ).all()
-            ignored_rules = session.exec(
-                select(IgnoredDescriptionRule).where(
-                    IgnoredDescriptionRule.pattern_normalized
-                    == normalize_description("Pagamento recebido")
-                )
-            ).all()
-            bank_rules = session.exec(
-                select(BankIncomeExclusionRule).where(
-                    BankIncomeExclusionRule.pattern_normalized
-                    == normalize_description("rendimentos")
-                )
-            ).all()
-            cashflow_rules = session.exec(
-                select(BankCashflowExclusionRule).where(
-                    BankCashflowExclusionRule.pattern_normalized
-                    == normalize_description("rendimentos")
-                )
-            ).all()
-
-        self.assertEqual(len(description_rules), 1)
-        self.assertEqual(len(ignored_rules), 1)
-        self.assertEqual(len(bank_rules), 1)
-        self.assertEqual(len(cashflow_rules), 1)
-
     def test_http_validation_rejects_invalid_transaction_account_type(self):
         response = self.client.get(
             "/transactions",
@@ -761,80 +451,6 @@ class BackendRegressionTest(unittest.TestCase):
                 response = self.client.get(endpoint, params={"months": 25})
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.json()["detail"], "months must be between 1 and 24")
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_http_validation_rejects_invalid_budget_inputs(self):
-        response = self.client.get(
-            "/budgets/progress",
-            params={"year_month": "2026-13"},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "year_month must be a valid calendar month")
-
-        response = self.client.put(
-            "/budgets/1",
-            json={"monthly_target": "0"},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "monthly_target must be > 0")
-
-        response = self.client.put(
-            "/budgets/999",
-            json={"monthly_target": "100"},
-        )
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["detail"], "category not found")
-
-        response = self.client.put(
-            "/budgets/1/months/not-a-month",
-            json={"monthly_target": "100"},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "year_month must use YYYY-MM format")
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_http_validation_rejects_invalid_rule_payloads(self):
-        response = self.client.post(
-            "/category-rules/description",
-            json={"pattern": "   ", "category_id": 1},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "pattern must not be empty")
-
-        response = self.client.post(
-            "/category-rules/description",
-            json={"pattern": "Cobasi", "category_id": 999},
-        )
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["detail"], "category not found")
-
-        response = self.client.post(
-            "/transaction-ignore-rules/description",
-            json={"pattern": "   "},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "pattern must not be empty")
-
-        response = self.client.post(
-            "/bank-income/exclusion-rules",
-            json={},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json()["detail"],
-            "Provide exactly one of pluggy_category or pattern",
-        )
-
-        response = self.client.post(
-            "/bank-income/exclusion-rules",
-            json={"pluggy_category": "Salary", "pattern": "salary"},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json()["detail"],
-            "Provide exactly one of pluggy_category or pattern",
-        )
-
 
 if __name__ == "__main__":
     unittest.main()
