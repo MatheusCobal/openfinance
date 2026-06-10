@@ -193,11 +193,20 @@ _CATEGORY_RULES: dict[str, _Rule] = {
     "same person transfer": _Rule("Transferências", "transfer"),
     "internal transfer": _Rule("Transferências", "transfer"),
     "internal_transfer": _Rule("Transferências", "transfer"),
-    # "Transfer - Internal" / "Transfer - Bank Slip" normalize with the
-    # qualifier after the word "transfer"; without these keys they fell
-    # through to the BANK positive-amount fallback and counted as income.
+    # "Transfer - Internal" normalizes to "transfer internal".
+    # This IS an account-to-account movement — safely classified as
+    # transfer/ignored so it doesn't pollute income or cashflow totals.
     "transfer internal": _Rule("Transferências", "transfer"),
-    "transfer bank slip": _Rule("Transferências", "transfer"),
+    # "Transfer - Bank Slip" normalizes to "transfer bank slip".
+    # In Brazil this is a boleto payment (rent, utilities, third-party
+    # payables) — NOT necessarily an internal account transfer.
+    # Map to Outros/expense (medium confidence) so real outflows stay
+    # visible in cashflow instead of being silently excluded by the
+    # internal-transfer structural filter in classification.py.
+    # Descriptions matching "pagamento de boleto itau unibanco" / similar
+    # are already filtered from bank_outflow_transactions to avoid
+    # double-counting credit card invoice payments.
+    "transfer bank slip": _Rule("Outros", "expense", confidence="medium"),
     "credit card payment": _Rule("Pagamento de cartão", "credit_card_payment"),
     "card payment": _Rule("Pagamento de cartão", "credit_card_payment"),
     "card payments": _Rule("Pagamento de cartão", "credit_card_payment"),

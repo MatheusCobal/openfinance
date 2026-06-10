@@ -11,6 +11,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.database import get_session
 from app.main import app
 from app.models import Account, Item, Transaction
+from app.services.classification import TransactionClassifier, TransactionKind
 from app.services.transaction_classifier import (
     ClassificationInput,
     classify_input,
@@ -119,22 +120,51 @@ class TransactionClassifierTest(unittest.TestCase):
                 self.assertEqual(result.source, "pluggy_rule")
                 self.assertFalse(result.ignored_from_totals)
 
-    def test_transfer_variants_are_not_income_on_bank_accounts(self):
-        # "Transfer - Internal" / "Transfer - Bank Slip" used to slip through
-        # to the BANK positive-amount fallback and count as Receitas.
-        for raw in ("Transfer - Internal", "Transfer - Bank Slip"):
-            with self.subTest(raw=raw):
-                result = classify_input(
-                    ClassificationInput(
-                        pluggy_raw_category=raw,
-                        amount=Decimal("500.00"),
-                        account_type="BANK",
-                    )
-                )
-                self.assertEqual(result.internal_category, "Transferências")
-                self.assertEqual(result.cashflow_type, "transfer")
-                self.assertTrue(result.ignored_from_totals)
-                self.assertEqual(result.source, "pluggy_rule")
+    def test_transfer_internal_is_ignored_transfer(self):
+        # "Transfer - Internal" is an account-to-account movement; it must
+        # be classified as transfer/ignored so it doesn't pollute totals.
+        result = classify_input(
+            ClassificationInput(
+                pluggy_raw_category="Transfer - Internal",
+                amount=Decimal("500.00"),
+                account_type="BANK",
+            )
+        )
+        self.assertEqual(result.internal_category, "Transferências")
+        self.assertEqual(result.cashflow_type, "transfer")
+        self.assertTrue(result.ignored_from_totals)
+        self.assertEqual(result.source, "pluggy_rule")
+
+    def test_transfer_bank_slip_is_not_internal_transfer(self):
+        # "Transfer - Bank Slip" is a boleto payment — real money leaving
+        # the account.  It must NOT be treated as an internal transfer so
+        # that real outflows remain visible in cashflow.
+        result = classify_input(
+            ClassificationInput(
+                pluggy_raw_category="Transfer - Bank Slip",
+                amount=Decimal("-200.00"),
+                account_type="BANK",
+            )
+        )
+        self.assertEqual(result.internal_category, "Outros")
+        self.assertEqual(result.cashflow_type, "expense")
+        self.assertFalse(result.ignored_from_totals)
+        self.assertEqual(result.source, "pluggy_rule")
+        self.assertEqual(result.confidence, "medium")
+
+    def test_transfer_bank_slip_positive_is_not_income(self):
+        # Positive BANK "Transfer - Bank Slip" must not count as Receitas.
+        # cashflow_type=expense is in NON_INCOME_CASHFLOW_TYPES, so the
+        # bank income exclusion flag will be set by TransactionClassifier.
+        result = classify_input(
+            ClassificationInput(
+                pluggy_raw_category="Transfer - Bank Slip",
+                amount=Decimal("500.00"),
+                account_type="BANK",
+            )
+        )
+        self.assertEqual(result.cashflow_type, "expense")
+        self.assertFalse(result.ignored_from_totals)
 
     def test_structural_cashflow_types_stay_ignored_from_totals(self):
         cases = [
@@ -285,6 +315,89 @@ class TransactionReclassificationScriptTest(unittest.TestCase):
                 unknown = session.get(Transaction, "tx-empty")
                 self.assertEqual(unknown.internal_category, "Outros")
                 self.assertEqual(unknown.classification_source, "fallback")
+
+
+class TransferBankSlipClassificationLayerTest(unittest.TestCase):
+    """Transfer - Bank Slip must route to BANK_OUTFLOW, not INTERNAL_TRANSFER."""
+
+    def _make_classifier(self, accounts_by_id):
+        return TransactionClassifier(
+            accounts_by_id=accounts_by_id,
+            ignored_patterns=[],
+            bank_income_rules=[],
+            bank_cashflow_rules=[],
+        )
+
+    def test_bank_slip_outflow_is_bank_outflow_not_internal_transfer(self):
+        # A boleto payment (negative BANK, Transfer - Bank Slip) must appear
+        # in cashflow as BANK_OUTFLOW. It must never become INTERNAL_TRANSFER,
+        # which would set cashflow_excluded=True and hide the real expense.
+        account = Account(id="bank-1", item_id="item-1", name="Checking", type="BANK")
+        tx = Transaction(
+            id="tx-boleto",
+            account_id="bank-1",
+            date=date(2026, 6, 10),
+            amount=Decimal("-1200.00"),
+            description="Aluguel via boleto",
+            pluggy_raw_category="Transfer - Bank Slip",
+            cashflow_type="expense",
+            internal_category="Outros",
+            classification_source="pluggy_rule",
+            classification_confidence="medium",
+            classification_rule_key="pluggy_raw_category:Transfer - Bank Slip",
+            ignored_from_totals=False,
+        )
+        classifier = self._make_classifier({"bank-1": account})
+        result = classifier.classify(tx)
+        self.assertEqual(result.kind, TransactionKind.BANK_OUTFLOW)
+        self.assertFalse(result.cashflow_excluded)
+
+    def test_bank_slip_inflow_is_bank_income_excluded_from_receitas(self):
+        # Positive BANK Transfer - Bank Slip is real cash flow, but must NOT
+        # appear as Receitas. bank_income_excluded must be True.
+        account = Account(id="bank-1", item_id="item-1", name="Checking", type="BANK")
+        tx = Transaction(
+            id="tx-boleto-in",
+            account_id="bank-1",
+            date=date(2026, 6, 10),
+            amount=Decimal("500.00"),
+            description="Boleto recebido",
+            pluggy_raw_category="Transfer - Bank Slip",
+            cashflow_type="expense",
+            internal_category="Outros",
+            classification_source="pluggy_rule",
+            classification_confidence="medium",
+            classification_rule_key="pluggy_raw_category:Transfer - Bank Slip",
+            ignored_from_totals=False,
+        )
+        classifier = self._make_classifier({"bank-1": account})
+        result = classifier.classify(tx)
+        self.assertEqual(result.kind, TransactionKind.BANK_INCOME)
+        self.assertTrue(result.bank_income_excluded)
+        self.assertFalse(result.cashflow_excluded)
+
+    def test_transfer_internal_remains_internal_transfer(self):
+        # Transfer - Internal is a real account-to-account movement; it must
+        # still become INTERNAL_TRANSFER (cashflow_excluded=True).
+        account = Account(id="bank-1", item_id="item-1", name="Checking", type="BANK")
+        tx = Transaction(
+            id="tx-internal",
+            account_id="bank-1",
+            date=date(2026, 6, 10),
+            amount=Decimal("-3000.00"),
+            description="TED conta poupança",
+            pluggy_raw_category="Transfer - Internal",
+            cashflow_type="transfer",
+            internal_category="Transferências",
+            classification_source="pluggy_rule",
+            classification_confidence="high",
+            classification_rule_key="pluggy_raw_category:Transfer - Internal",
+            ignored_from_totals=True,
+        )
+        classifier = self._make_classifier({"bank-1": account})
+        result = classifier.classify(tx)
+        self.assertEqual(result.kind, TransactionKind.INTERNAL_TRANSFER)
+        self.assertTrue(result.cashflow_excluded)
 
 
 class CreditPurchaseScopeTest(unittest.TestCase):
