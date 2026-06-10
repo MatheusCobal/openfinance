@@ -150,6 +150,7 @@ def spending_capacity_summary(
         "active_open_invoice_transactions",
         "account_balance",
         "account_balance_due_month",
+        "dashboard_current_invoice",
     ):
         card_invoice_official_total = planning_inv_amount
     elif planning_inv["source"] == "scheduled_installments":
@@ -209,6 +210,7 @@ def spending_capacity_summary(
             "official_bill",
             "account_balance_due_month",
             "active_open_invoice_transactions",
+            "dashboard_current_invoice",
         ):
             future_card_obligation_total = planning_inv_amount
         else:
