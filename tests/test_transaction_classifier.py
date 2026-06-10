@@ -857,6 +857,49 @@ class TransferBankSlipClassificationLayerTest(unittest.TestCase):
         self.assertEqual(result.kind, TransactionKind.INTERNAL_TRANSFER)
         self.assertTrue(result.cashflow_excluded)
 
+    def test_credit_transfer_override_is_not_card_purchase(self):
+        account = Account(id="credit-1", item_id="item-1", name="Card", type="CREDIT")
+        tx = Transaction(
+            id="tx-credit-transfer",
+            account_id="credit-1",
+            date=date(2026, 6, 10),
+            amount=Decimal("-300.00"),
+            description="Transferencia no cartao",
+            pluggy_raw_category="Shopping",
+            cashflow_type="transfer",
+            internal_category="Transferências",
+            classification_source="manual_override",
+            classification_confidence="high",
+            classification_rule_key="manual_override",
+            ignored_from_totals=True,
+            is_user_overridden=True,
+        )
+        classifier = self._make_classifier({"credit-1": account})
+        result = classifier.classify(tx)
+        self.assertFalse(result.is_card_purchase)
+        self.assertEqual(result.kind, TransactionKind.IGNORED)
+
+    def test_credit_refund_classification_is_not_card_purchase(self):
+        account = Account(id="credit-1", item_id="item-1", name="Card", type="CREDIT")
+        tx = Transaction(
+            id="tx-credit-refund",
+            account_id="credit-1",
+            date=date(2026, 6, 10),
+            amount=Decimal("-80.00"),
+            description="Estorno compra",
+            pluggy_raw_category="Refund",
+            cashflow_type="refund",
+            internal_category="Estorno",
+            classification_source="pluggy_rule",
+            classification_confidence="high",
+            classification_rule_key="pluggy_raw_category:Refund",
+            ignored_from_totals=False,
+        )
+        classifier = self._make_classifier({"credit-1": account})
+        result = classifier.classify(tx)
+        self.assertFalse(result.is_card_purchase)
+        self.assertEqual(result.kind, TransactionKind.OTHER)
+
 
 class CreditPurchaseScopeTest(unittest.TestCase):
     """PIX/bank movements must never enter the CREDIT purchase breakdown."""

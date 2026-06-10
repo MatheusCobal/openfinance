@@ -385,6 +385,30 @@ but they do not enter the credit-card purchase breakdown.
 become `transfer` / `ignored_from_totals=true`. `Transfer - Internal` remains
 the structural transfer case.
 
+## 10D-F - dashboard, budget and snapshots
+
+10D-F keeps the existing taxonomy and makes the dashboard/planning aggregates
+respect the new classification layer consistently:
+
+- Dashboard purchase categories still come from `GET /credit-card/current-invoice`
+  and group only CREDIT purchases by `internal_category`.
+- Reconstructed credit-card invoice totals now use the same `is_card_purchase`
+  classifier guard as snapshots and spending-capacity helpers, so
+  `transfer`, `credit_card_payment`, `investment`, `refund`, `ignored` and rows
+  with `ignored_from_totals=true` do not inflate purchase totals.
+- `invoice_summary`, `planning_invoice_for_month`,
+  `scheduled_installments_for_month`, `credit_card_spend_transactions` and
+  `MonthlyBalanceMonth` refreshes all share the same classification-aware
+  purchase boundary.
+
+Live endpoints recalculate from current transaction rows and therefore reflect
+manual overrides or materialized user rules immediately. Persisted snapshot
+tables (`CreditCardInvoiceMonth`, `BankIncomeMonth`, `MonthlyBalanceMonth`) are
+not recomputed at override/rule-edit time; refresh them explicitly with
+`POST /history/snapshots/refresh` after a backup, or let the next operational
+snapshot refresh update them. No automatic recompute job or migration was added
+in 10D-F.
+
 ## Pending work
 
 - Physical removal of legacy category tables/columns after a reviewed data

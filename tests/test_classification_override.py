@@ -10,7 +10,10 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.database import get_session
 from app.main import app
 from app.models import Account, Item, Transaction
+from app.services.credit_card_invoice import planning_invoice_for_month
 from app.services.sync import upsert_transaction
+from app.services.transaction_reports import invoice_summary
+from app.services.transactions import credit_card_spend_transactions
 from scripts.reclassify_transactions_v2 import reclassify
 
 
@@ -326,6 +329,57 @@ class ManualClassificationOverrideTest(unittest.TestCase):
         after_names = {item["name"] for item in after["categories"]}
         self.assertNotIn("Alimentação", after_names)
         self.assertNotIn("Transferências", after_names)
+
+    def test_card_invoice_aggregates_respect_manual_transfer_override(self):
+        before = self.client.get("/stats").json()
+        self.assertAlmostEqual(before["invoice_open_total"], 80.0, places=2)
+
+        self.client.patch(
+            "/transactions/tx-food/classification",
+            json={
+                "internal_category": "Transferências",
+                "cashflow_type": "transfer",
+                "ignored_from_totals": True,
+            },
+        )
+
+        with Session(self.engine) as session:
+            invoice = invoice_summary(
+                session,
+                to_date=self.today,
+            )
+            card_spend = credit_card_spend_transactions(
+                session,
+                self.today,
+                self.today,
+            )
+
+        self.assertAlmostEqual(invoice["invoice_open_total"], 30.0, places=2)
+        self.assertNotIn("tx-food", {tx.id for tx in card_spend})
+        self.assertIn("tx-unknown", {tx.id for tx in card_spend})
+
+    def test_planning_invoice_respects_manual_transfer_override(self):
+        year_month = self.today.strftime("%Y-%m")
+
+        with Session(self.engine) as session:
+            before = planning_invoice_for_month(session, year_month, today=self.today)
+        self.assertAlmostEqual(before["amount"], 80.0, places=2)
+        self.assertEqual(before["source"], "open_invoice")
+
+        self.client.patch(
+            "/transactions/tx-food/classification",
+            json={
+                "internal_category": "Transferências",
+                "cashflow_type": "transfer",
+                "ignored_from_totals": True,
+            },
+        )
+
+        with Session(self.engine) as session:
+            after = planning_invoice_for_month(session, year_month, today=self.today)
+
+        self.assertAlmostEqual(after["amount"], 30.0, places=2)
+        self.assertEqual(after["source"], "open_invoice")
 
 
 if __name__ == "__main__":

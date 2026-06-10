@@ -430,7 +430,7 @@ def scheduled_installments_for_month(
     double-count with spending already realised in the current month.
     Negative amounts (refunds, cancellations) are excluded.
     """
-    from app.services.classification import SPENDING_ACCOUNT_TYPES
+    from app.services.classification import SPENDING_ACCOUNT_TYPES, TransactionClassifier
     from app.services.transactions import account_ids_by_type
 
     today = today if today is not None else datetime.date.today()
@@ -468,9 +468,12 @@ def scheduled_installments_for_month(
         .order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
 
+    classifier = TransactionClassifier.from_session(session)
     total = Decimal("0")
     items: list[Dict[str, Any]] = []
     for tx in rows:
+        if not classifier.is_card_purchase(tx):
+            continue
         if tx.amount <= 0:
             continue
         total += tx.amount
@@ -514,6 +517,7 @@ def _current_month_invoice(
     Tier 4: none.
     """
     from app.services.transaction_reports import invoice_summary
+    from app.services.classification import TransactionClassifier
 
     year_int, month_int = int(year_month[:4]), int(year_month[5:])
     month_start = datetime.date(year_int, month_int, 1)
@@ -522,6 +526,7 @@ def _current_month_invoice(
 
     credit_account_ids = {a.id for a in credit_accounts}
     bal_total = _account_balance_total(credit_accounts)
+    classifier = TransactionClassifier.from_session(session)
 
     if not credit_accounts:
         return _none_result(year_month, "current_month", 0, float(bal_total))
@@ -546,6 +551,7 @@ def _current_month_invoice(
                 _non_duplicate_clause(),
             )
         ).all()
+        open_cycle_txs = [tx for tx in open_cycle_txs if classifier.is_card_purchase(tx)]
 
         if open_cycle_txs:
             total = sum((abs(tx.amount) for tx in open_cycle_txs), Decimal("0"))
@@ -577,6 +583,7 @@ def _current_month_invoice(
             _non_duplicate_clause(),
         )
     ).all()
+    open_month_txs = [tx for tx in open_month_txs if classifier.is_card_purchase(tx)]
 
     if open_month_txs:
         total = sum((abs(tx.amount) for tx in open_month_txs), Decimal("0"))
@@ -717,9 +724,8 @@ def _vigente_forming_invoice(
       * no account exposes credit_balance_close_date, or
       * the forming cycle has no qualifying transactions yet.
 
-    Sign convention: purchases are negative in Pluggy, so sum(-tx.amount) turns
-    them positive; refunds (positive) reduce the total. Invoice payments are
-    excluded via the TransactionClassifier.
+    Sign conventions vary across synced rows, so purchases are summed by
+    absolute value after non-purchase flows are excluded by the classifier.
     """
     if year_month != _next_calendar_month(today):
         return None
@@ -749,11 +755,11 @@ def _vigente_forming_invoice(
     from app.services.classification import TransactionClassifier
 
     classifier = TransactionClassifier.from_session(session)
-    qualifying_txs = [tx for tx in cycle_txs if not classifier.is_invoice_payment(tx)]
+    qualifying_txs = [tx for tx in cycle_txs if classifier.is_card_purchase(tx)]
     if not qualifying_txs:
         return None
 
-    raw_total = sum((-tx.amount for tx in qualifying_txs), Decimal("0"))
+    raw_total = sum((abs(tx.amount) for tx in qualifying_txs), Decimal("0"))
     total = max(raw_total, Decimal("0"))
 
     return {
