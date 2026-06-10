@@ -103,6 +103,26 @@ class PageSmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
 
+    def test_regras_html_explains_safe_rule_preview(self):
+        response = self.client.get("/regras")
+        self.assertEqual(response.status_code, 200)
+        html = response.text
+        self.assertIn("regras.js?v=20260610-1", html)
+        self.assertIn("Preview seguro", html)
+        self.assertIn("Pré-visualizar não grava nada", html)
+        self.assertIn("Nenhuma regra criada ainda", html)
+
+    def test_regras_js_renders_auditable_preview_and_friendly_errors(self):
+        response = self.client.get("/static/regras.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertIn("friendlyErrorMessage", js)
+        self.assertIn("rawPluggySummary", js)
+        self.assertIn("Pluggy bruto", js)
+        self.assertIn("Classificação atual", js)
+        self.assertIn("Nova classificação", js)
+        self.assertIn("Preview calculado. Nenhum dado foi alterado.", js)
+
     def test_orcamento_redirects_to_planejamento(self):
         response = self.client.get("/orcamento")
         self.assertEqual(response.status_code, 307)
