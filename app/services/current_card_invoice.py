@@ -221,8 +221,15 @@ def _category_window_start(
     return today.replace(day=1)
 
 
-def _serialize_current_invoice_transaction(tx: Transaction) -> dict[str, Any]:
-    classification = serialize_transaction_classification(tx, account_type="CREDIT")
+def _serialize_current_invoice_transaction(
+    tx: Transaction,
+    user_rules: tuple = (),
+) -> dict[str, Any]:
+    classification = serialize_transaction_classification(
+        tx,
+        account_type="CREDIT",
+        user_rules=user_rules,
+    )
     return {
         "id": tx.id,
         "date": tx.date.isoformat(),
@@ -284,6 +291,9 @@ def current_card_invoice_summary(
     """
     today = today if today is not None else datetime.date.today()
 
+    from app.services.user_classification_rules import load_compiled_user_rules
+
+    user_rules = load_compiled_user_rules(session)
     cards: list[dict[str, Any]] = []
     all_possible_refunds: list[dict[str, Any]] = []
     raw_purchase_transactions: list[dict[str, Any]] = []
@@ -335,7 +345,8 @@ def current_card_invoice_summary(
             today,
         )
         raw_purchase_transactions.extend(
-            _serialize_current_invoice_transaction(tx) for tx in category_transactions
+            _serialize_current_invoice_transaction(tx, user_rules)
+            for tx in category_transactions
         )
 
         adjusted_total += adjusted_balance

@@ -1,6 +1,6 @@
 import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import ClassVar, Optional
 
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
@@ -190,6 +190,42 @@ class IgnoredDescriptionRule(SQLModel, table=True):
     pattern: str
     pattern_normalized: str = Field(unique=True, index=True)
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class UserClassificationRule(SQLModel, table=True):
+    """User-defined rule that overlays the deterministic 10D-B classifier.
+
+    Applied in classify_input AFTER manual per-transaction overrides and
+    BEFORE the default Pluggy-based rules (see 10D-D). A rule only changes
+    classification fields — raw Pluggy data and financial fields are never
+    touched. ``account_type_scope`` accepts CREDIT, BANK or ALL.
+    ``match_amount_sign`` accepts positive, negative or any. At least one
+    match_* criterion must be set (enforced by the service layer).
+    """
+
+    __tablename__: ClassVar[str] = "user_classification_rules"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    enabled: bool = Field(default=True, index=True)
+    # Lower priority value = evaluated first = wins on conflicts.
+    priority: int = Field(default=100, index=True)
+    account_type_scope: str = Field(default="ALL", index=True)
+    # Pluggy raw matchers: normalized exact match.
+    match_pluggy_category: Optional[str] = Field(default=None, index=True)
+    match_pluggy_subcategory: Optional[str] = None
+    match_pluggy_type: Optional[str] = None
+    # Free-text matchers: case-insensitive "contains".
+    match_merchant: Optional[str] = None
+    match_description: Optional[str] = None
+    match_amount_sign: str = Field(default="any")
+    # Targets validated against INTERNAL_CATEGORIES / CASHFLOW_TYPES.
+    target_internal_category: str
+    target_cashflow_type: str
+    # None lets the classifier derive the flag from the cashflow type.
+    ignored_from_totals: Optional[bool] = None
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
 class CreditCardInvoiceMonth(SQLModel, table=True):

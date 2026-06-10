@@ -108,7 +108,9 @@ Each result stores:
 
 - `pluggy_rule`: direct raw Pluggy category/type mapping.
 - `system_rule`: deterministic fallback by description or amount/account type.
-- `manual_override`: reserved for future manual override support.
+- `user_rule`: user-defined persistent rule applied after manual overrides and
+  before the default Pluggy/system/fallback rules.
+- `manual_override`: per-transaction manual override with highest priority.
 - `fallback`: explicit low-confidence fallback to `Outros`.
 - `unclassified`: reserved for future review queues.
 
@@ -190,10 +192,15 @@ dropped from 87 to 40 of 3850 transactions):
 | `Income taxes` | Impostos / Taxas | expense |
 | `Vehicle ownership taxes and fees` | Impostos / Taxas | expense |
 | `Transfer - Internal` | Transferências | transfer |
-| `Transfer - Bank Slip` | Transferências | transfer |
+| `Transfer - Bank Slip` | Outros | expense |
 
-The two `Transfer - *` rules also fix a real bug: those values previously fell
-through to the BANK positive-amount fallback and were counted as **Receitas**.
+The `Transfer - *` rules also fix real bugs:
+
+- `Transfer - Internal` is treated as a structural transfer and ignored from
+  totals.
+- `Transfer - Bank Slip` is deliberately conservative: it remains
+  `Outros / expense` so boleto payments do not become internal transfers and
+  disappear from cashflow.
 
 Still in `Outros`, deliberately:
 
@@ -218,9 +225,167 @@ per CREDIT account. PIX, transfers, card payments and investments never enter
 "Classificação das compras"; bank movements stay in the Receitas / Entradas e
 saídas views. No fix was needed — validated by `CreditPurchaseScopeTest`.
 
+## 10D-D — User-defined classification rules
+
+10D-D adds persistent user rules for automatic classification, for examples
+like "always classify merchant X as Y", "description containing X as Y" or
+"Pluggy raw category/subcategory/type X as Y".
+
+The priority order is:
+
+1. Manual override per transaction.
+2. User-defined rule.
+3. Default Pluggy-based rule.
+4. System rule by description/amount.
+5. Fallback to `Outros`.
+
+Manual overrides always win. A user rule never changes a transaction marked
+`is_user_overridden=true`, and the reclassification script skips those rows.
+
+### Rule model
+
+Rules live in the additive `user_classification_rules` table. The migration
+does not alter transactions, raw Pluggy fields, auth or Pluggy integration.
+
+Fields:
+
+- `id`
+- `name`
+- `enabled`
+- `priority`
+- `account_type_scope`
+- `match_pluggy_category`
+- `match_pluggy_subcategory`
+- `match_pluggy_type`
+- `match_merchant`
+- `match_description`
+- `match_amount_sign`
+- `target_internal_category`
+- `target_cashflow_type`
+- `ignored_from_totals`
+- `created_at`
+- `updated_at`
+
+Lower `priority` wins when more than one rule matches. `enabled=true` by
+default. `account_type_scope` accepts `CREDIT`, `BANK` or `ALL`.
+`match_amount_sign` accepts `positive`, `negative` or `any`.
+
+Targets are validated against the existing `INTERNAL_CATEGORIES` and
+`CASHFLOW_TYPES`; no new taxonomy is introduced. At least one content matcher
+is required so a rule cannot accidentally classify the entire portfolio.
+
+### Matching
+
+Matching is conservative and regex-free:
+
+- `match_pluggy_category`, `match_pluggy_subcategory` and `match_pluggy_type`
+  use normalized exact matching.
+- `match_merchant` and `match_description` use case-insensitive contains.
+- `match_amount_sign` filters by positive, negative or any amount.
+- `account_type_scope=CREDIT` applies only to card accounts.
+- `account_type_scope=BANK` applies only to bank/PIX/debit account movement.
+- `account_type_scope=ALL` can apply to both, when the other match criteria
+  also match.
+
+When a user rule applies, the automatic classification fields are:
+
+- `classification_source = "user_rule"`
+- `classification_confidence = "high"`
+- `classification_rule_key = "user_rule:<id>"`
+
+User rules only change:
+
+- `internal_category`
+- `cashflow_type`
+- `classification_source`
+- `classification_confidence`
+- `classification_rule_key`
+- `ignored_from_totals`
+
+They never change raw Pluggy fields or financial identifiers/values:
+`category`, `pluggy_raw_category`, `pluggy_raw_subcategory`,
+`pluggy_raw_type`, `pluggy_merchant`, `amount`, `date`, `description`,
+`account_id`, `transaction_id` or `item_id`.
+
+If `ignored_from_totals` is left empty, it is derived from the target
+`cashflow_type` using the same structural ignored-flow list as 10D-B.
+
+### API and UI
+
+Endpoints:
+
+- `GET /transactions/classification-rules`
+- `POST /transactions/classification-rules`
+- `PATCH /transactions/classification-rules/{rule_id}`
+- `DELETE /transactions/classification-rules/{rule_id}`
+- `POST /transactions/classification-rules/preview`
+- `POST /transactions/classification-rules/{rule_id}/preview`
+
+The preview endpoint is read-only. It returns the number of matching
+non-duplicate, non-manually-overridden transactions plus example rows showing
+current and new internal category/cashflow.
+
+`/regras` provides the UI to list, create, edit, enable/disable, delete and
+preview rules. It uses the same classification options exposed by
+`GET /transactions/classification-options`.
+
+## 10D-E - classification UI polish
+
+10D-E is a visual and operational refinement only. It does not add a taxonomy,
+does not change Pluggy integration, does not create a migration, does not alter
+raw Pluggy fields and does not update financial data.
+
+The `/regras` page now makes the safe rule workflow clearer:
+
+- empty state for accounts with no user rules;
+- short explanations for priority and `CREDIT` / `BANK` / `ALL` scope;
+- explicit note that preview is read-only and does not alter raw Pluggy data;
+- friendlier validation messages for API 400 responses;
+- clear 404 message when a rule no longer exists;
+- success feedback after create, edit, enable/disable and delete;
+- preview button on existing rules;
+- preview rows showing description, date, amount, account type, raw Pluggy
+  category/subcategory/type/merchant, current classification and new
+  classification.
+
+Dashboard and Histórico did not need functional changes for 10D-E. Dashboard
+already shows Portuguese internal categories for the current CREDIT invoice
+breakdown and keeps raw Pluggy/source/confidence in the category modal.
+Histórico already exposes `internal_category`, `cashflow_type`,
+`classification_source`, `classification_confidence`, raw Pluggy fields and the
+manual override editor in drilldowns.
+
+### Safe reclassification
+
+Dry-run user-rule reclassification:
+
+```bash
+.venv/bin/python scripts/reclassify_user_rules.py --dry-run
+```
+
+Apply user-rule reclassification:
+
+```bash
+.venv/bin/python scripts/reclassify_user_rules.py --apply --yes-i-backed-up
+```
+
+`--dry-run` is the default. `--apply` requires explicit confirmation and must
+only be used after a database backup/recovery path is available. The script
+skips manual overrides, never writes raw Pluggy or financial fields, and
+reports analyzed rows, rows that would change, matched user rules, category /
+cashflow transitions and how many rows remain in `Outros`.
+
+### Safety notes
+
+`SPENDING_ACCOUNT_TYPES = {"CREDIT"}` remains the purchase-classification
+boundary. BANK/PIX movements may be classified for budget/cashflow surfaces,
+but they do not enter the credit-card purchase breakdown.
+
+`Transfer - Bank Slip` remains conservative (`Outros / expense`) and must not
+become `transfer` / `ignored_from_totals=true`. `Transfer - Internal` remains
+the structural transfer case.
+
 ## Pending work
 
-- 10D-D: regras de usuário ("sempre classificar merchant X como Y").
-- 10D-E: dashboard refinado por tipo de fluxo/categoria.
 - Physical removal of legacy category tables/columns after a reviewed data
   retention and migration plan.

@@ -7,7 +7,11 @@ from sqlmodel import Session, select
 
 from app.models import Account, Transaction
 from app.services.classification import TransactionClassifier
-from app.services.transaction_classifier import serialize_transaction_classification
+from app.services.transaction_classifier import (
+    CompiledUserRule,
+    serialize_transaction_classification,
+)
+from app.services.user_classification_rules import load_compiled_user_rules
 from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
     TRACKED_ACCOUNT_TYPES,
@@ -27,11 +31,13 @@ def _accounts_by_id(session: Session) -> dict[str, Account]:
 def _classification_fields(
     tx: Transaction,
     accounts_by_id: dict[str, Account],
+    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict[str, Any]:
     account = accounts_by_id.get(tx.account_id)
     return serialize_transaction_classification(
         tx,
         account_type=account.type if account is not None else None,
+        user_rules=user_rules,
     )
 
 
@@ -39,8 +45,9 @@ def _serialize_transaction_row(
     tx: Transaction,
     accounts_by_id: dict[str, Account],
     ignored: bool = False,
+    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict[str, Any]:
-    classification = _classification_fields(tx, accounts_by_id)
+    classification = _classification_fields(tx, accounts_by_id, user_rules)
     return {
         **tx.model_dump(mode="json"),
         "pluggy_category": classification["pluggy_raw_category"],
@@ -128,6 +135,7 @@ def enriched_transactions(
         ]
 
     accounts = _accounts_by_id(session)
+    user_rules = load_compiled_user_rules(session)
     rows = []
     for tx in transactions:
         rows.append(
@@ -135,6 +143,7 @@ def enriched_transactions(
                 tx,
                 accounts,
                 ignored=is_ignored_transaction(tx, ignored_patterns),
+                user_rules=user_rules,
             )
         )
 
@@ -164,6 +173,7 @@ def upcoming_summary(
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     accounts = _accounts_by_id(session)
+    user_rules = load_compiled_user_rules(session)
     for tx in future_txs:
         # Exclude credits / refunds / cancellations (amount <= 0) so they
         # don't inflate the scheduled invoice total via abs(amount).
@@ -182,10 +192,10 @@ def upcoming_summary(
                 "date": tx.date.isoformat(),
                 "amount": float(abs(tx.amount)),
                 "description": tx.description,
-                "pluggy_category": _classification_fields(tx, accounts)[
+                "pluggy_category": _classification_fields(tx, accounts, user_rules)[
                     "pluggy_raw_category"
                 ],
-                **_classification_fields(tx, accounts),
+                **_classification_fields(tx, accounts, user_rules),
             }
             for tx in txs
         ]
@@ -250,11 +260,12 @@ def monthly_stats_summary(
     txs = filter_transactions_by_account_type(txs, session, SPENDING_ACCOUNT_TYPES)
     txs = filter_ignored_transactions(txs, session, include_ignored)
     accounts = _accounts_by_id(session)
+    user_rules = load_compiled_user_rules(session)
 
     totals_by_category: Dict[str, dict[str, Any]] = {}
     totals_by_month: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for tx in txs:
-        classification = _classification_fields(tx, accounts)
+        classification = _classification_fields(tx, accounts, user_rules)
         if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
             continue
         amount = abs(tx.amount)
@@ -487,9 +498,10 @@ def stats_summary(
     totals_by_cashflow: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     total_spent = Decimal("0")
     accounts = _accounts_by_id(session)
+    user_rules = load_compiled_user_rules(session)
 
     for tx in past_transactions:
-        classification = _classification_fields(tx, accounts)
+        classification = _classification_fields(tx, accounts, user_rules)
         if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
             continue
         amount = abs(tx.amount)

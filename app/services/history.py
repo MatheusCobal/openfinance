@@ -17,7 +17,11 @@ from app.services.invoice_month import (
     DEFAULT_CREDIT_CARD_DUE_DAY,
     invoice_month_from_payment,
 )
-from app.services.transaction_classifier import serialize_transaction_classification
+from app.services.transaction_classifier import (
+    CompiledUserRule,
+    serialize_transaction_classification,
+)
+from app.services.user_classification_rules import load_compiled_user_rules
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
     _non_duplicate_clause,
@@ -37,19 +41,22 @@ from app.services.transactions import (
 def _classification_fields(
     tx: Transaction,
     accounts_by_id: Dict[str, Account],
+    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict:
     account = accounts_by_id.get(tx.account_id)
     return serialize_transaction_classification(
         tx,
         account_type=account.type if account is not None else None,
+        user_rules=user_rules,
     )
 
 
 def _history_transaction_classification(
     tx: Transaction,
     accounts_by_id: Dict[str, Account],
+    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict:
-    classification = _classification_fields(tx, accounts_by_id)
+    classification = _classification_fields(tx, accounts_by_id, user_rules)
     return {
         "pluggy_category": classification["pluggy_raw_category"],
         **classification,
@@ -70,6 +77,7 @@ def ignored_transactions_monthly_summary(session: Session):
         if ignored_patterns and is_ignored_transaction(tx, ignored_patterns)
     ]
     accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
+    user_rules = load_compiled_user_rules(session)
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     for tx in ignored_transactions:
@@ -93,7 +101,7 @@ def ignored_transactions_monthly_summary(session: Session):
                         "amount": float(tx.amount),
                         "amount_abs": float(abs(tx.amount)),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id),
+                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
                     }
                     for tx in txs
                 ],
@@ -126,6 +134,7 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
         today,
     )
     accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
+    user_rules = load_compiled_user_rules(session)
 
     # Build a per-account due_day map from persisted Pluggy credit data.
     account_due_days: Dict[str, int] = {}
@@ -164,7 +173,7 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
                         "amount": float(tx.amount),
                         "amount_abs": float(abs(tx.amount)),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id),
+                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
                         "invoice_month": tx_invoice_month[tx.id],
                     }
                     for tx in txs
@@ -214,6 +223,7 @@ def bank_income_monthly_summary(session: Session, months: int):
         if account.id in active_bank_ids
     }
     accounts_by_id = bank_accounts
+    user_rules = load_compiled_user_rules(session)
     income_transactions = bank_income_transactions(session, start_date, today)
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
     for tx in income_transactions:
@@ -241,7 +251,7 @@ def bank_income_monthly_summary(session: Session, months: int):
                         "date": tx.date.isoformat(),
                         "amount": float(tx.amount),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id),
+                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
                     }
                     for tx in txs
                 ],
@@ -291,6 +301,7 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
         if account.id in active_bank_ids
     }
     accounts_by_id = bank_accounts
+    user_rules = load_compiled_user_rules(session)
     exclusion_rules = bank_cashflow_exclusion_rules(session)
     classifier = TransactionClassifier.from_session(session)
     transactions = session.exec(
@@ -346,7 +357,7 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
                         "date": tx.date.isoformat(),
                         "amount": float(tx.amount),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id),
+                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
                     }
                     for tx in txs
                 ],

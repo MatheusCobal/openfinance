@@ -16,6 +16,15 @@ from app.services.classification_override import (
     reset_manual_classification,
 )
 from app.services.transaction_classifier import serialize_transaction_classification
+from app.services.user_classification_rules import (
+    UserRuleNotFoundError,
+    UserRuleValidationError,
+    create_user_classification_rule,
+    delete_user_classification_rule,
+    list_user_classification_rules,
+    preview_user_classification_rule,
+    update_user_classification_rule,
+)
 from app.services.transaction_reports import (
     enriched_transactions,
     monthly_stats_summary,
@@ -116,6 +125,116 @@ def reset_transaction_classification(
     except LookupError as exc:
         raise HTTPException(404, str(exc))
     return _classification_response(tx, session)
+
+
+# ---------------------------------------------------------------------------
+# 10D-D user-defined classification rules
+# ---------------------------------------------------------------------------
+
+
+class ClassificationRuleCreate(BaseModel):
+    name: str
+    enabled: bool = True
+    priority: int = 100
+    account_type_scope: str = "ALL"
+    match_pluggy_category: Optional[str] = None
+    match_pluggy_subcategory: Optional[str] = None
+    match_pluggy_type: Optional[str] = None
+    match_merchant: Optional[str] = None
+    match_description: Optional[str] = None
+    match_amount_sign: str = "any"
+    target_internal_category: str
+    target_cashflow_type: str
+    ignored_from_totals: Optional[bool] = None
+
+
+class ClassificationRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    priority: Optional[int] = None
+    account_type_scope: Optional[str] = None
+    match_pluggy_category: Optional[str] = None
+    match_pluggy_subcategory: Optional[str] = None
+    match_pluggy_type: Optional[str] = None
+    match_merchant: Optional[str] = None
+    match_description: Optional[str] = None
+    match_amount_sign: Optional[str] = None
+    target_internal_category: Optional[str] = None
+    target_cashflow_type: Optional[str] = None
+    ignored_from_totals: Optional[bool] = None
+
+
+@router.get("/transactions/classification-rules")
+def list_classification_rules(session: Session = Depends(get_session)):
+    return list_user_classification_rules(session)
+
+
+@router.post("/transactions/classification-rules")
+def create_classification_rule(
+    payload: ClassificationRuleCreate,
+    session: Session = Depends(get_session),
+):
+    try:
+        return create_user_classification_rule(session, payload.model_dump())
+    except UserRuleValidationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/transactions/classification-rules/preview")
+def preview_new_classification_rule(
+    payload: ClassificationRuleCreate,
+    session: Session = Depends(get_session),
+):
+    try:
+        return preview_user_classification_rule(session, payload.model_dump())
+    except UserRuleValidationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/transactions/classification-rules/{rule_id}/preview")
+def preview_existing_classification_rule(
+    rule_id: int,
+    payload: ClassificationRuleUpdate,
+    session: Session = Depends(get_session),
+):
+    try:
+        return preview_user_classification_rule(
+            session,
+            payload.model_dump(exclude_unset=True),
+            rule_id=rule_id,
+        )
+    except UserRuleNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    except UserRuleValidationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.patch("/transactions/classification-rules/{rule_id}")
+def update_classification_rule(
+    rule_id: int,
+    payload: ClassificationRuleUpdate,
+    session: Session = Depends(get_session),
+):
+    # Only forward fields the client actually sent so partial updates work.
+    provided = payload.model_dump(exclude_unset=True)
+    try:
+        return update_user_classification_rule(session, rule_id, provided)
+    except UserRuleNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    except UserRuleValidationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.delete("/transactions/classification-rules/{rule_id}", status_code=204)
+def delete_classification_rule(
+    rule_id: int,
+    session: Session = Depends(get_session),
+):
+    try:
+        delete_user_classification_rule(session, rule_id)
+    except UserRuleNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    return None
 
 
 @router.get("/upcoming")
