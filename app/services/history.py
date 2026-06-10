@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from typing import Dict
+from typing import Any, Dict
 
 from sqlmodel import Session, select
 
@@ -185,6 +185,201 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
         "total": float(total),
         "total_count": total_count,
         "months": output_months,
+    }
+
+
+def _month_start_from_key(year_month: str) -> date:
+    year, month = year_month.split("-")
+    return date(int(year), int(month), 1)
+
+
+def _month_keys_between(start_month: date, end_month_exclusive: date) -> list[str]:
+    keys: list[str] = []
+    cursor = start_month
+    while cursor < end_month_exclusive:
+        keys.append(month_key(cursor))
+        cursor = shift_month(cursor, 1)
+    return keys
+
+
+def _history_card_purchase_transaction(
+    tx: Transaction,
+    accounts_by_id: Dict[str, Account],
+    user_rules: tuple[CompiledUserRule, ...],
+) -> dict[str, Any]:
+    classification = _history_transaction_classification(tx, accounts_by_id, user_rules)
+    account = accounts_by_id.get(tx.account_id)
+    return {
+        "id": tx.id,
+        "account_id": tx.account_id,
+        "account_name": account.name if account is not None else None,
+        "date": tx.date.isoformat(),
+        "amount": float(abs(tx.amount)),
+        "amount_abs": float(abs(tx.amount)),
+        "signed_amount": float(tx.amount),
+        "description": tx.description,
+        "category": classification["internal_category"] or "Outros",
+        **classification,
+        "status": tx.status,
+        "bill_id": tx.bill_id,
+        "installment_number": tx.installment_number,
+        "total_installments": tx.total_installments,
+    }
+
+
+def credit_card_invoice_purchases_monthly_summary(session: Session, months: int):
+    """Return CREDIT purchase history grouped by internal classification.
+
+    This is the live, classification-aware history surface for the Historico
+    "Faturas cartão" tab. It intentionally uses the same purchase boundary as
+    10D-F (`credit_card_spend_transactions` / `is_card_purchase`) instead of
+    the payment-history snapshot helpers.
+    """
+    today = date.today()
+    selected_months = last_month_keys(months, today)
+    selected_month_set = set(selected_months)
+    first_selected_month = _month_start_from_key(selected_months[0])
+    average_window_start = shift_month(first_selected_month, -12)
+
+    purchases = credit_card_spend_transactions(
+        session,
+        average_window_start,
+        today,
+    )
+    accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
+    user_rules = load_compiled_user_rules(session)
+
+    selected_transactions_by_month: Dict[str, list[dict[str, Any]]] = {
+        month: [] for month in selected_months
+    }
+    totals_by_month_category: Dict[str, Dict[str, Decimal]] = defaultdict(
+        lambda: defaultdict(lambda: Decimal("0"))
+    )
+    counts_by_month_category: Dict[str, Dict[str, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
+    first_purchase_month: date | None = None
+
+    for tx in purchases:
+        serialized = _history_card_purchase_transaction(tx, accounts_by_id, user_rules)
+        if serialized.get("ignored_from_totals") or serialized.get("cashflow_type") != "expense":
+            continue
+
+        category_name = serialized.get("internal_category") or "Outros"
+        amount = Decimal(str(serialized["amount_abs"]))
+        tx_month = month_key(tx.date)
+        totals_by_month_category[tx_month][category_name] += amount
+        counts_by_month_category[tx_month][category_name] += 1
+
+        tx_month_start = _month_start_from_key(tx_month)
+        if first_purchase_month is None or tx_month_start < first_purchase_month:
+            first_purchase_month = tx_month_start
+
+        if tx_month in selected_month_set:
+            selected_transactions_by_month[tx_month].append(serialized)
+
+    def average_month_keys_for(selected_month: str) -> list[str]:
+        selected_start = _month_start_from_key(selected_month)
+        window_start = shift_month(selected_start, -12)
+        if first_purchase_month is None or first_purchase_month >= selected_start:
+            return []
+        effective_start = max(window_start, first_purchase_month)
+        return _month_keys_between(effective_start, selected_start)
+
+    output_months = []
+    total = Decimal("0")
+    total_count = 0
+    for selected_month in selected_months:
+        txs = selected_transactions_by_month[selected_month]
+        month_total = sum((Decimal(str(tx["amount_abs"])) for tx in txs), Decimal("0"))
+        total += month_total
+        total_count += len(txs)
+        average_month_keys = average_month_keys_for(selected_month)
+        average_months_used = len(average_month_keys)
+
+        categories_by_name: Dict[str, dict[str, Any]] = {}
+        for tx in txs:
+            category_name = tx.get("internal_category") or "Outros"
+            bucket = categories_by_name.setdefault(
+                category_name,
+                {
+                    "id": category_name,
+                    "name": category_name,
+                    "total": Decimal("0"),
+                    "count": 0,
+                    "cashflow_type": "expense",
+                    "source": "pluggy_based_classification",
+                    "transactions": [],
+                },
+            )
+            bucket["total"] += Decimal(str(tx["amount_abs"]))
+            bucket["count"] += 1
+            bucket["transactions"].append(tx)
+
+        categories = []
+        for category_name, bucket in categories_by_name.items():
+            average_total = sum(
+                (
+                    totals_by_month_category[month].get(category_name, Decimal("0"))
+                    for month in average_month_keys
+                ),
+                Decimal("0"),
+            )
+            average = (
+                average_total / Decimal(average_months_used)
+                if average_months_used > 0
+                else Decimal("0")
+            )
+            difference = bucket["total"] - average
+            difference_percent = (
+                float((difference / average) * Decimal("100"))
+                if average > 0
+                else None
+            )
+            categories.append(
+                {
+                    **bucket,
+                    "total": float(bucket["total"]),
+                    "average_12m": float(average),
+                    "average_months_used": average_months_used,
+                    "average_window_months": 12,
+                    "difference_from_average": float(difference),
+                    "difference_percent": difference_percent,
+                }
+            )
+
+        output_months.append(
+            {
+                "month": selected_month,
+                "total": float(month_total),
+                "count": len(txs),
+                "average_months_available": average_months_used,
+                "categories": sorted(
+                    categories,
+                    key=lambda item: item["total"],
+                    reverse=True,
+                ),
+                "transactions": sorted(
+                    txs,
+                    key=lambda tx: (tx["date"], tx["description"]),
+                    reverse=True,
+                ),
+            }
+        )
+
+    return {
+        "total": float(total),
+        "total_count": total_count,
+        "month_count": len(output_months),
+        "months": output_months,
+        "source": "credit_card_spend_transactions",
+        "average_window_months": 12,
+        "purchase_boundary": {
+            "account_type": "CREDIT",
+            "cashflow_type": "expense",
+            "ignored_from_totals": False,
+            "duplicates": "excluded",
+        },
     }
 
 

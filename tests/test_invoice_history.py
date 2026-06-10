@@ -11,6 +11,7 @@ E. Historico page still loads
 import datetime
 import unittest
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional
 from unittest.mock import patch
 
@@ -23,6 +24,7 @@ from app.main import app
 from app.models import Account, CreditCardInvoiceMonth, Item, MonthlyBalanceMonth, Transaction
 from app.services.history import (
     bank_income_history_summary,
+    credit_card_invoice_purchases_monthly_summary,
     credit_card_payments_monthly_summary,
     credit_card_payments_history_summary,
     monthly_balance_summary,
@@ -150,6 +152,44 @@ def _add_income_transaction(
             amount=abs(amount),
             description="Salary",
             category="Salary",
+        )
+    )
+    session.commit()
+
+
+def _add_card_transaction(
+    session: Session,
+    *,
+    tx_id: str,
+    transaction_date: datetime.date,
+    amount: Decimal,
+    description: str,
+    category: str,
+    account_id: str = CC_ACCOUNT_ID,
+    internal_category: Optional[str] = None,
+    cashflow_type: Optional[str] = None,
+    classification_source: Optional[str] = None,
+    classification_confidence: Optional[str] = None,
+    classification_rule_key: Optional[str] = None,
+    ignored_from_totals: bool = False,
+    is_user_overridden: bool = False,
+) -> None:
+    session.add(
+        Transaction(
+            id=tx_id,
+            account_id=account_id,
+            date=transaction_date,
+            amount=amount,
+            description=description,
+            category=category,
+            pluggy_raw_category=category,
+            internal_category=internal_category,
+            cashflow_type=cashflow_type,
+            classification_source=classification_source,
+            classification_confidence=classification_confidence,
+            classification_rule_key=classification_rule_key,
+            ignored_from_totals=ignored_from_totals,
+            is_user_overridden=is_user_overridden,
         )
     )
     session.commit()
@@ -434,6 +474,228 @@ class TestCreditCardPaymentsMonthly(unittest.TestCase):
 
         self.assertEqual([tx.id for tx in payments], ["credit-payment"])
 
+
+class TestCreditCardHistoryMonthly(unittest.TestCase):
+    """Credit-card history summaries, including classified invoice purchases."""
+
+    def setUp(self):
+        self.engine = _make_engine()
+
+    def test_groups_card_purchases_by_internal_category_and_average(self):
+        with Session(self.engine) as session:
+            _seed_base(session)
+            _add_bank_account(session)
+            _add_card_transaction(
+                session,
+                tx_id="food-apr",
+                transaction_date=datetime.date(2026, 4, 10),
+                amount=Decimal("-60.00"),
+                description="Mercado abril",
+                category="Food",
+                internal_category="Alimentação",
+                cashflow_type="expense",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Food",
+            )
+            _add_card_transaction(
+                session,
+                tx_id="food-may",
+                transaction_date=datetime.date(2026, 5, 10),
+                amount=Decimal("-120.00"),
+                description="Mercado maio",
+                category="Food",
+                internal_category="Alimentação",
+                cashflow_type="expense",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Food",
+            )
+            _add_card_transaction(
+                session,
+                tx_id="food-jun",
+                transaction_date=datetime.date(2026, 6, 10),
+                amount=Decimal("-100.00"),
+                description="Mercado junho",
+                category="Food",
+                internal_category="Alimentação",
+                cashflow_type="expense",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Food",
+            )
+            _add_card_transaction(
+                session,
+                tx_id="manual-jun",
+                transaction_date=datetime.date(2026, 6, 11),
+                amount=Decimal("-40.00"),
+                description="Taxi manual",
+                category="Transport",
+                internal_category="Transporte",
+                cashflow_type="expense",
+                classification_source="manual_override",
+                classification_confidence="high",
+                classification_rule_key="manual_override",
+                is_user_overridden=True,
+            )
+            _add_card_transaction(
+                session,
+                tx_id="user-rule-jun",
+                transaction_date=datetime.date(2026, 6, 12),
+                amount=Decimal("-30.00"),
+                description="Pet rule",
+                category="Shopping",
+                internal_category="Pet",
+                cashflow_type="expense",
+                classification_source="user_rule",
+                classification_confidence="high",
+                classification_rule_key="user_rule:1",
+            )
+            _add_card_transaction(
+                session,
+                tx_id="payment-jun",
+                transaction_date=datetime.date(2026, 6, 13),
+                amount=Decimal("-999.00"),
+                description="Pagamento recebido",
+                category="Credit card payment",
+                internal_category="Pagamento de cartão",
+                cashflow_type="credit_card_payment",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Credit card payment",
+                ignored_from_totals=True,
+            )
+            _add_card_transaction(
+                session,
+                tx_id="transfer-jun",
+                transaction_date=datetime.date(2026, 6, 13),
+                amount=Decimal("-25.00"),
+                description="Transfer interna",
+                category="Transfer - Internal",
+                internal_category="Transferências",
+                cashflow_type="transfer",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Transfer - Internal",
+                ignored_from_totals=True,
+            )
+            _add_card_transaction(
+                session,
+                tx_id="refund-jun",
+                transaction_date=datetime.date(2026, 6, 14),
+                amount=Decimal("-15.00"),
+                description="Estorno",
+                category="Refund",
+                internal_category="Estorno",
+                cashflow_type="refund",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Refund",
+            )
+            _add_card_transaction(
+                session,
+                tx_id="ignored-jun",
+                transaction_date=datetime.date(2026, 6, 14),
+                amount=Decimal("-10.00"),
+                description="Compra ignorada",
+                category="Food",
+                internal_category="Alimentação",
+                cashflow_type="expense",
+                classification_source="manual_override",
+                classification_confidence="high",
+                classification_rule_key="manual_override",
+                ignored_from_totals=True,
+                is_user_overridden=True,
+            )
+            _add_card_transaction(
+                session,
+                tx_id="bank-pix-jun",
+                transaction_date=datetime.date(2026, 6, 14),
+                amount=Decimal("-70.00"),
+                description="Pix mercado",
+                category="Food",
+                account_id=BANK_ACCOUNT_ID,
+                internal_category="Alimentação",
+                cashflow_type="expense",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Food",
+            )
+
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 15)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=3)
+
+        months = {month["month"]: month for month in result["months"]}
+        june = months["2026-06"]
+
+        self.assertAlmostEqual(june["total"], 170.0, places=2)
+        self.assertEqual(june["count"], 3)
+        tx_ids = {tx["id"] for tx in june["transactions"]}
+        self.assertEqual({"food-jun", "manual-jun", "user-rule-jun"}, tx_ids)
+        self.assertNotIn("payment-jun", tx_ids)
+        self.assertNotIn("transfer-jun", tx_ids)
+        self.assertNotIn("refund-jun", tx_ids)
+        self.assertNotIn("ignored-jun", tx_ids)
+        self.assertNotIn("bank-pix-jun", tx_ids)
+
+        by_category = {category["name"]: category for category in june["categories"]}
+        self.assertEqual(set(by_category), {"Alimentação", "Transporte", "Pet"})
+        self.assertAlmostEqual(by_category["Alimentação"]["total"], 100.0, places=2)
+        self.assertAlmostEqual(by_category["Alimentação"]["average_12m"], 90.0, places=2)
+        self.assertEqual(by_category["Alimentação"]["average_months_used"], 2)
+        self.assertAlmostEqual(
+            by_category["Alimentação"]["difference_from_average"],
+            10.0,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            by_category["Alimentação"]["difference_percent"],
+            11.111111,
+            places=5,
+        )
+        self.assertEqual(by_category["Transporte"]["transactions"][0]["classification_source"], "manual_override")
+        self.assertEqual(by_category["Pet"]["transactions"][0]["classification_source"], "user_rule")
+
+    def test_endpoint_returns_classified_invoice_payload(self):
+        def override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+        try:
+            with Session(self.engine) as session:
+                _seed_base(session)
+                _add_card_transaction(
+                    session,
+                    tx_id="food-endpoint",
+                    transaction_date=datetime.date.today(),
+                    amount=Decimal("-25.00"),
+                    description="Padaria",
+                    category="Food",
+                    internal_category="Alimentação",
+                    cashflow_type="expense",
+                    classification_source="pluggy_rule",
+                    classification_confidence="high",
+                    classification_rule_key="pluggy_raw_category:Food",
+                )
+
+            client = TestClient(app)
+            response = client.get("/credit-card-invoices/monthly", params={"months": 1})
+        finally:
+            app.dependency_overrides.clear()
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["purchase_boundary"]["account_type"], "CREDIT")
+        self.assertEqual(body["purchase_boundary"]["cashflow_type"], "expense")
+        self.assertEqual(body["total_count"], 1)
+        self.assertEqual(body["months"][0]["categories"][0]["name"], "Alimentação")
+
     def test_snapshot_refresh_uses_invoice_month_for_before_due_payment(self):
         with Session(self.engine) as session:
             _seed_base(session, due_date=datetime.date(2026, 5, 4))
@@ -600,6 +862,19 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
 
+    def test_historico_removes_income_tab_and_keeps_cashflow_tab(self):
+        response = self.client.get("/historico")
+        self.assertEqual(response.status_code, 200)
+        html = response.text
+        js = Path("app/static/historico.js").read_text(encoding="utf-8")
+
+        self.assertNotIn("income-tab", html)
+        self.assertNotIn("Receitas", js)
+        self.assertNotIn("/bank-income/monthly", js)
+        self.assertNotIn("/bank-income/exclusion-rules", js)
+        self.assertIn("Entradas e saídas", js)
+        self.assertIn("/bank-cashflow/monthly", js)
+
     def test_credit_card_payments_monthly_endpoint(self):
         response = self.client.get("/credit-card-payments/monthly?months=3")
         self.assertEqual(response.status_code, 200)
@@ -607,6 +882,13 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertIn("months", body)
         self.assertIn("total", body)
         self.assertIn("total_count", body)
+
+    def test_bank_cashflow_monthly_endpoint_remains_available(self):
+        response = self.client.get("/bank-cashflow/monthly?months=1")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("months", body)
+        self.assertIn("summary", body)
 
 
 if __name__ == "__main__":
