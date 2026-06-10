@@ -325,9 +325,35 @@ The preview endpoint is read-only. It returns the number of matching
 non-duplicate, non-manually-overridden transactions plus example rows showing
 current and new internal category/cashflow.
 
-`/regras` provides the minimal UI to list, create, edit, enable/disable,
-delete and preview rules. It uses the same classification options exposed by
+`/regras` provides the UI to list, create, edit, enable/disable, delete and
+preview rules. It uses the same classification options exposed by
 `GET /transactions/classification-options`.
+
+## 10D-E - classification UI polish
+
+10D-E is a visual and operational refinement only. It does not add a taxonomy,
+does not change Pluggy integration, does not create a migration, does not alter
+raw Pluggy fields and does not update financial data.
+
+The `/regras` page now makes the safe rule workflow clearer:
+
+- empty state for accounts with no user rules;
+- short explanations for priority and `CREDIT` / `BANK` / `ALL` scope;
+- explicit note that preview is read-only and does not alter raw Pluggy data;
+- friendlier validation messages for API 400 responses;
+- clear 404 message when a rule no longer exists;
+- success feedback after create, edit, enable/disable and delete;
+- preview button on existing rules;
+- preview rows showing description, date, amount, account type, raw Pluggy
+  category/subcategory/type/merchant, current classification and new
+  classification.
+
+Dashboard and Histórico did not need functional changes for 10D-E. Dashboard
+already shows Portuguese internal categories for the current CREDIT invoice
+breakdown and keeps raw Pluggy/source/confidence in the category modal.
+Histórico already exposes `internal_category`, `cashflow_type`,
+`classification_source`, `classification_confidence`, raw Pluggy fields and the
+manual override editor in drilldowns.
 
 ### Safe reclassification
 
@@ -361,6 +387,5 @@ the structural transfer case.
 
 ## Pending work
 
-- 10D-E: dashboard refinado por tipo de fluxo/categoria.
 - Physical removal of legacy category tables/columns after a reviewed data
   retention and migration plan.
