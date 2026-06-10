@@ -57,8 +57,8 @@ HTTP 404.
 
 Fields that are **never** touched: `amount`, `date`, `description`,
 `account_id`, `dedupe_key`, `category` (legacy raw), `pluggy_raw_category`,
-`pluggy_raw_subcategory`, `pluggy_raw_type`, `pluggy_merchant`. No
-`Category`/`category_id` legacy table is read or written.
+`pluggy_raw_subcategory`, `pluggy_raw_type`, `pluggy_merchant`. No retired
+legacy category table is read or written.
 
 ### `DELETE /transactions/{transaction_id}/classification-override`
 

@@ -3,13 +3,12 @@
 Covers every scenario listed in the task:
   A. invoice_summary: marked duplicate not counted in open total
   B. Duplicate payment: does not shift last_payment_date
-  C. monthly_stats_summary: category total ignores marked duplicate
-  D. upcoming_summary: future duplicate installment ignored
-  E. enriched_transactions (/transactions endpoint): marked duplicate hidden
-  F. spending_capacity via discretionary_spend_transactions
-  G. snapshot refresh: marked duplicate not included
-  H. Endpoints: /transactions, /stats/monthly, /planning/month/{ym}
-  I. /debug/duplicate-transactions still lists marked duplicates
+  C. upcoming_summary: future duplicate installment ignored
+  D. enriched_transactions (/transactions endpoint): marked duplicate hidden
+  E. spending_capacity via discretionary_spend_transactions
+  F. snapshot refresh: marked duplicate not included
+  G. Endpoints: /transactions, /stats/monthly, /planning/month/{ym}
+  H. /debug/duplicate-transactions still lists marked duplicates
 """
 
 import unittest
@@ -26,11 +25,9 @@ from app.models import Account, Item, Transaction
 from app.services.transaction_reports import (
     enriched_transactions,
     invoice_summary,
-    monthly_stats_summary,
     upcoming_summary,
 )
 
-LEGACY_CATEGORY_TEST_REMOVED = "10D-A removed monthly category stats; replace in 10D-B"
 from app.services.transactions import (
     discretionary_spend_transactions,
 )
@@ -168,62 +165,7 @@ class TestDuplicatePaymentIgnored(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# C: monthly_stats_summary excludes marked duplicate
-# ---------------------------------------------------------------------------
-
-
-class TestMonthlyStatsSummaryExcludesMarkedDuplicate(unittest.TestCase):
-    def setUp(self):
-        self.engine = _make_engine()
-
-    def session(self):
-        return Session(self.engine)
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_category_total_ignores_is_duplicate(self):
-        """Category total R$100 with a R$100 marked duplicate → total = 100."""
-        d = date(2026, 5, 15)
-        with self.session() as s:
-            _seed(s)
-            s.add(_tx("tx-real", "acc-a", d, Decimal("100"), "Netflix", "Entertainment"))
-            s.add(
-                _tx(
-                    "tx-dup",
-                    "acc-a",
-                    d,
-                    Decimal("100"),
-                    "Netflix",
-                    "Entertainment",
-                    is_duplicate=True,
-                )
-            )
-            s.commit()
-
-        with self.session() as s:
-            result = monthly_stats_summary(s)
-
-        # Only the canonical copy should be summed.
-        entertainment_total = sum(cat["by_month"].get("2026-05", 0) for cat in result["categories"])
-        self.assertAlmostEqual(entertainment_total, 100.0, places=2)
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_no_duplicate_category_total_stays_full(self):
-        """Without any duplicate flag the full amount must appear."""
-        d = date(2026, 5, 15)
-        with self.session() as s:
-            _seed(s)
-            s.add(_tx("tx-real", "acc-a", d, Decimal("300"), "Grocery"))
-            s.commit()
-
-        with self.session() as s:
-            result = monthly_stats_summary(s)
-
-        total = sum(cat["by_month"].get("2026-05", 0) for cat in result["categories"])
-        self.assertAlmostEqual(total, 300.0, places=2)
-
-
-# ---------------------------------------------------------------------------
-# D: upcoming_summary excludes marked duplicate future installment
+# C: upcoming_summary excludes marked duplicate
 # ---------------------------------------------------------------------------
 
 
@@ -447,23 +389,6 @@ class TestEndpointsExcludeMarkedDuplicates(unittest.TestCase):
         self.assertNotIn("tx-dup", ids)
         self.assertEqual(len(ids), 1)
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_get_stats_monthly_excludes_marked_duplicate(self):
-        self._seed_with_dup()
-        resp = self.client.get("/stats/monthly")
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        # The total across all categories in 2026-05 must be 60, not 120
-        may_total = sum(cat["by_month"].get("2026-05", 0) for cat in data["categories"])
-        self.assertAlmostEqual(may_total, 60.0, places=2)
-
-
-# ---------------------------------------------------------------------------
-# I: /debug/duplicate-transactions still lists marked duplicates
-# ---------------------------------------------------------------------------
-
-
-class TestDebugEndpointStillSeesMarkedDuplicates(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
 

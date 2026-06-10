@@ -20,10 +20,6 @@ from app.services.rules import (
 )
 
 router = APIRouter()
-LEGACY_CATEGORY_RULES_REMOVED_MESSAGE = (
-    "legacy category description rules were removed in 10D-A; "
-    "TODO 10D-D: add user-owned rules for the Pluggy-based classification layer"
-)
 
 
 class BankIncomeExclusionRuleUpsert(BaseModel):
@@ -106,37 +102,6 @@ def delete_bank_cashflow_exclusion_rule(
 ):
     delete_bank_cashflow_exclusion_rule_service(session, rule_id)
     return None
-
-
-@router.get("/category-rules/description")
-def list_description_category_rules(session: Session = Depends(get_session)):
-    raise HTTPException(410, LEGACY_CATEGORY_RULES_REMOVED_MESSAGE)
-
-
-@router.get("/category-rules/description/suggestions")
-def description_category_rule_suggestions(
-    months: int = 12,
-    min_count: int = 2,
-    limit: int = 10,
-    session: Session = Depends(get_session),
-):
-    raise HTTPException(410, LEGACY_CATEGORY_RULES_REMOVED_MESSAGE)
-
-
-@router.post("/category-rules/description")
-def upsert_description_category_rule(
-    body: dict,
-    session: Session = Depends(get_session),
-):
-    raise HTTPException(410, LEGACY_CATEGORY_RULES_REMOVED_MESSAGE)
-
-
-@router.delete("/category-rules/description/{rule_id}", status_code=204)
-def delete_description_category_rule(
-    rule_id: int,
-    session: Session = Depends(get_session),
-):
-    raise HTTPException(410, LEGACY_CATEGORY_RULES_REMOVED_MESSAGE)
 
 
 @router.get("/transaction-ignore-rules/description")

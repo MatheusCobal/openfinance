@@ -10,17 +10,11 @@ from app.database import get_session
 from app.main import app
 from app.models import (
     Account,
-    Budget,
-    Category,
-    CategoryRule,
     CreditCardBill,
     ExpectedIncome,
     Item,
     Transaction,
 )
-
-LEGACY_CATEGORY_TEST_REMOVED = "10D-A removed variable budgets by legacy category; replace in 10D-B"
-
 
 class FixedCostsTest(unittest.TestCase):
     def setUp(self):
@@ -136,126 +130,6 @@ class FixedCostsTest(unittest.TestCase):
         ).json()
         self.assertEqual(june_again["total"], 1800.0)
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_spending_capacity_combines_income_fixed_costs_and_invoice(self):
-        with Session(self.engine) as session:
-            session.add(
-                Account(
-                    id="bank-1",
-                    item_id="item-1",
-                    name="Bank",
-                    type="BANK",
-                )
-            )
-            session.add(
-                ExpectedIncome(
-                    description="Salario",
-                    amount=Decimal("10000"),
-                    expected_day=5,
-                )
-            )
-            session.add(
-                Transaction(
-                    id="tx-card-1",
-                    account_id="credit-1",
-                    date=date(2026, 5, 10),
-                    amount=Decimal("1200"),
-                    description="Compra",
-                    category="Shopping",
-                )
-            )
-            session.add(
-                Transaction(
-                    id="tx-card-2",
-                    account_id="credit-1",
-                    date=date(2026, 5, 11),
-                    amount=Decimal("700"),
-                    description="Posto de gasolina",
-                    category="Fuel",
-                )
-            )
-            session.add(
-                Transaction(
-                    id="tx-income-1",
-                    account_id="bank-1",
-                    date=date(2026, 5, 5),
-                    amount=Decimal("6000"),
-                    description="Recebimento salario",
-                    category="Salary",
-                )
-            )
-            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
-            session.add(Category(id=2, name="Transporte", color="#f97316", sort_order=2))
-            session.add(CategoryRule(pluggy_category="Shopping", category_id=1))
-            session.add(CategoryRule(pluggy_category="Fuel", category_id=2))
-            session.add(Budget(category_id=1, monthly_target=Decimal("1500")))
-            session.add(Budget(category_id=2, monthly_target=Decimal("500")))
-            session.commit()
-
-        category = self.client.post("/fixed-cost-categories", json={"name": "Casa"}).json()
-        self.client.post(
-            "/fixed-costs",
-            json={
-                "category_id": category["id"],
-                "description": "Condominio",
-                "amount": 2000,
-                "due_day": 8,
-            },
-        )
-
-        capacity = self.client.get("/spending-capacity", params={"year_month": "2026-05"}).json()
-
-        self.assertEqual(capacity["expected_income_total"], 10000.0)
-        self.assertEqual(capacity["receita_esperada"], 10000.0)
-        self.assertEqual(capacity["received_income_total"], 6000.0)
-        self.assertEqual(capacity["valor_recebido"], 6000.0)
-        self.assertEqual(capacity["received_income_count"], 1)
-        self.assertEqual(capacity["income_to_receive"], 4000.0)
-        self.assertEqual(capacity["receita_a_receber"], 4000.0)
-        self.assertEqual(capacity["income_over_expected"], 0.0)
-        self.assertEqual(capacity["income_received_progress_pct"], 60.0)
-        self.assertEqual(capacity["fixed_cost_total"], 2000.0)
-        self.assertEqual(capacity["variable_budget_total"], 2000.0)
-        self.assertEqual(capacity["variable_budget_spent"], 1900.0)
-        self.assertEqual(capacity["variable_budget_consumed"], 1700.0)
-        self.assertEqual(capacity["variable_budget_remaining"], 300.0)
-        self.assertEqual(capacity["variable_budget_overage"], 200.0)
-        self.assertEqual(capacity["variable_budget_free_impact"], 200.0)
-        self.assertEqual(capacity["unbudgeted_variable_spent"], 0.0)
-        self.assertEqual(capacity["planned_expense_total"], 4000.0)
-        self.assertEqual(capacity["card_invoice_total"], 1900.0)
-        self.assertEqual(capacity["card_invoice_gross_total"], 1900.0)
-        self.assertEqual(capacity["card_invoice_discretionary_total"], 1900.0)
-        self.assertEqual(capacity["card_invoice_fixed_cost_total"], 0.0)
-        self.assertEqual(capacity["planned_after_fixed_costs"], 8000.0)
-        self.assertEqual(capacity["remaining_after_plan"], 6000.0)
-        self.assertEqual(capacity["available_to_spend"], 6100.0)
-        self.assertEqual(capacity["discretionary_available"], 6100.0)
-        self.assertEqual(capacity["received_based_available_to_spend"], 2100.0)
-        self.assertEqual(capacity["remaining_after_invoice"], 6100.0)
-        self.assertEqual(capacity["remaining_after_plan_and_invoice"], 4100.0)
-        # Sanity: the new invoice split sums to the legacy total.
-        self.assertEqual(
-            capacity["invoice_paid_total"] + capacity["invoice_open_total"],
-            capacity["card_invoice_total"],
-        )
-        self.assertEqual(
-            capacity["invoice_paid_gross_total"] + capacity["invoice_open_gross_total"],
-            capacity["card_invoice_gross_total"],
-        )
-
-        variable_items = {
-            item["category_name"]: item for item in capacity["variable_budgets"]["items"]
-        }
-        self.assertEqual(variable_items["Mercado"]["target_consumed"], 1200.0)
-        self.assertEqual(variable_items["Mercado"]["remaining_target"], 300.0)
-        self.assertEqual(variable_items["Mercado"]["overage"], 0.0)
-        self.assertEqual(variable_items["Mercado"]["free_impact"], 0.0)
-        self.assertEqual(variable_items["Transporte"]["target_consumed"], 500.0)
-        self.assertEqual(variable_items["Transporte"]["remaining_target"], 0.0)
-        self.assertEqual(variable_items["Transporte"]["overage"], 200.0)
-        self.assertEqual(variable_items["Transporte"]["free_impact"], 200.0)
-
     def test_monthly_breakdown_marks_paid_when_transaction_matches(self):
         with Session(self.engine) as session:
             session.add(
@@ -290,116 +164,8 @@ class FixedCostsTest(unittest.TestCase):
         self.assertEqual(entry["status"], "paid")
         self.assertEqual(entry["matched_transaction"]["id"], "tx-internet")
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_manual_fixed_cost_match_excludes_from_invoice_and_skips_variable_budget(self):
-        with Session(self.engine) as session:
-            session.add(Category(id=10, name="Saúde", color="#38bdf8", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Pharmacy", category_id=10))
-            session.add(Budget(category_id=10, monthly_target=Decimal("1000")))
-            session.add(
-                Transaction(
-                    id="tx-venvanse",
-                    account_id="credit-1",
-                    date=date(2026, 5, 12),
-                    amount=Decimal("740.00"),
-                    description="Farmacia Venvanse",
-                    category="Pharmacy",
-                )
-            )
-            # An unrelated card purchase that must remain in the invoice
-            # total — only the fixed-cost-matched one should be excluded.
-            session.add(
-                Transaction(
-                    id="tx-other",
-                    account_id="credit-1",
-                    date=date(2026, 5, 15),
-                    amount=Decimal("260.00"),
-                    description="Restaurante",
-                    category="Food",
-                )
-            )
-            session.commit()
-
-        # Before any fixed cost exists, the pharmacy purchase is just a
-        # regular variable expense.
-        before = self.client.get("/budgets/progress", params={"year_month": "2026-05"}).json()
-        before_items = {item["category_name"]: item for item in before["items"]}
-        self.assertEqual(before_items["Saúde"]["projected_spent"], 740.0)
-
-        fixed_category = self.client.post(
-            "/fixed-cost-categories",
-            json={"name": "Medicamento", "color": "#38bdf8"},
-        ).json()
-        fixed_cost = self.client.post(
-            "/fixed-costs",
-            json={
-                "category_id": fixed_category["id"],
-                "description": "Venvanse",
-                "amount": 740,
-                "due_day": 12,
-            },
-        ).json()
-
-        # Auto-match already excludes the transaction from the variable
-        # budget (description + amount overlap with the new fixed cost).
-        after_auto = self.client.get("/budgets/progress", params={"year_month": "2026-05"}).json()
-        after_auto_items = {item["category_name"]: item for item in after_auto["items"]}
-        self.assertEqual(after_auto_items["Saúde"]["projected_spent"], 0.0)
-
-        match = self.client.post(
-            f"/fixed-costs/{fixed_cost['id']}/matches",
-            json={"transaction_id": "tx-venvanse", "year_month": "2026-05"},
-        ).json()
-
-        self.assertEqual(match["fixed_cost_id"], fixed_cost["id"])
-        self.assertEqual(match["transaction_id"], "tx-venvanse")
-        self.assertEqual(match["year_month"], "2026-05")
-
-        listed_matches = self.client.get(
-            "/fixed-costs/matches", params={"year_month": "2026-05"}
-        ).json()
-        self.assertEqual(len(listed_matches), 1)
-        self.assertEqual(listed_matches[0]["id"], match["id"])
-        self.assertEqual(listed_matches[0]["transaction"]["id"], "tx-venvanse")
-
-        breakdown = self.client.get(
-            "/fixed-costs/by-month", params={"year_month": "2026-05"}
-        ).json()
-        entry = breakdown["entries"][0]
-        self.assertEqual(entry["status"], "paid")
-        self.assertEqual(entry["match_source"], "manual")
-        self.assertEqual(entry["fixed_cost_transaction_match_id"], match["id"])
-        self.assertEqual(entry["matched_transaction"]["id"], "tx-venvanse")
-
-        progress = self.client.get("/budgets/progress", params={"year_month": "2026-05"}).json()
-        progress_items = {item["category_name"]: item for item in progress["items"]}
-        self.assertEqual(progress["summary"]["projected_spent"], 0.0)
-        self.assertEqual(progress["summary"]["fixed_cost_matched_transaction_count"], 1)
-        self.assertEqual(progress_items["Saúde"]["projected_spent"], 0.0)
-        self.assertEqual(progress_items["Saúde"]["remaining_target"], 1000.0)
-
-        capacity = self.client.get("/spending-capacity", params={"year_month": "2026-05"}).json()
-        # The R$ 740 pharmacy purchase is already counted as a fixed cost
-        # (fixed_cost_total). It still belongs to the real card invoice
-        # (gross), but must leave the planning invoice (discretionary) so
-        # "remaining after invoice" does not double-subtract it.
-        self.assertEqual(capacity["card_invoice_total"], 260.0)
-        self.assertEqual(capacity["card_invoice_gross_total"], 1000.0)
-        self.assertEqual(capacity["card_invoice_discretionary_total"], 260.0)
-        self.assertEqual(capacity["card_invoice_fixed_cost_total"], 740.0)
-        self.assertEqual(capacity["invoice_open_total"], 260.0)
-        self.assertEqual(capacity["invoice_open_gross_total"], 1000.0)
-        self.assertEqual(capacity["invoice_open_discretionary_total"], 260.0)
-        self.assertEqual(capacity["invoice_paid_total"], 0.0)
-        self.assertEqual(capacity["fixed_cost_total"], 740.0)
-        self.assertEqual(capacity["variable_budget_spent"], 0.0)
-        self.assertEqual(capacity["variable_budget_remaining"], 1000.0)
-
     def test_manual_fixed_cost_match_reduces_discretionary_invoice_in_paid_mode(self):
         with Session(self.engine) as session:
-            session.add(Category(id=11, name="Saúde", color="#38bdf8", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Pharmacy", category_id=11))
-            session.add(Budget(category_id=11, monthly_target=Decimal("1000")))
             session.add_all(
                 [
                     Transaction(
@@ -1213,133 +979,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     # ----- 5. Variable budget: only consumed reduces availability -----
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_variable_budget_only_consumed_part_reduces_availability(self):
-        """Mercado planned R$ 1500, gasto R$ 430 → restam R$ 1070, disponível desce R$ 430.
-
-        Uses 2026-07 (reliably future) so the future-month formula applies
-        regardless of when today falls in June.
-        """
-        with Session(self.engine) as session:
-            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Supermarket", category_id=1))
-            session.add(Budget(category_id=1, monthly_target=Decimal("1500")))
-            session.add(
-                Transaction(
-                    id="tx-zaffari",
-                    account_id="credit-1",
-                    date=date(2026, 7, 4),
-                    amount=Decimal("430.00"),
-                    description="Zaffari",
-                    category="Supermarket",
-                )
-            )
-            session.commit()
-
-        capacity = self._capacity("2026-07")
-        self.assertEqual(capacity["variable_budget_total"], 1500.0)
-        self.assertEqual(capacity["variable_budget_consumed"], 430.0)
-        self.assertEqual(capacity["variable_budget_remaining"], 1070.0)
-        self.assertEqual(capacity["variable_budget_overage"], 0.0)
-        # Future month: variable_budget_total=1500 (full target, not just consumed=430).
-        # tx-zaffari (430) is also picked up as a scheduled installment and subtracted.
-        # 20300 - 1500 (variable_budget_total) - 430 (installment) = 18370
-        self.assertEqual(capacity["budget_available_to_spend"], 18370.0)
-
-    # ----- 6. Credit-card purchase not double-counted -----
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_credit_card_purchase_not_double_counted_via_invoice(self):
-        """Card purchase consumes category; gross invoice tracks it but
-        availability must NOT subtract the invoice again.
-
-        Uses 2026-07 (reliably future) so the future-month formula applies.
-        """
-        with Session(self.engine) as session:
-            session.add(Category(id=1, name="Mercado", color="#22c55e", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Supermarket", category_id=1))
-            session.add(Budget(category_id=1, monthly_target=Decimal("1500")))
-            session.add(
-                Transaction(
-                    id="tx-zaffari",
-                    account_id="credit-1",
-                    date=date(2026, 7, 4),
-                    amount=Decimal("430.00"),
-                    description="Zaffari",
-                    category="Supermarket",
-                )
-            )
-            session.commit()
-
-        capacity = self._capacity("2026-07")
-        # Card invoice reflects the real R$ 430 charge
-        self.assertEqual(capacity["card_invoice_gross_total"], 430.0)
-        self.assertEqual(capacity["card_invoice_discretionary_total"], 430.0)
-        # For a future month the installment is subtracted BOTH as part of
-        # variable_budget_total (full target=1500) and as a scheduled installment (430).
-        # The invoice field is informational only and does NOT double-subtract.
-        # 20300 - 1500 (variable_budget_total) - 430 (scheduled installment) = 18370
-        self.assertEqual(capacity["budget_available_to_spend"], 18370.0)
-
-    # ----- 7. Fixed cost on the credit card -----
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_fixed_cost_on_credit_card_not_double_counted(self):
-        """A fixed-cost-matched card purchase belongs to:
-        gross invoice, fixed cost actual; NOT discretionary invoice nor variable budget.
-
-        Uses 2026-07 (reliably future) so the future-month formula applies.
-        """
-        with Session(self.engine) as session:
-            session.add(Category(id=10, name="Saude", color="#38bdf8", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Pharmacy", category_id=10))
-            session.add(Budget(category_id=10, monthly_target=Decimal("1000")))
-            session.add(
-                Transaction(
-                    id="tx-vyvanse",
-                    account_id="credit-1",
-                    date=date(2026, 7, 5),
-                    amount=Decimal("740.00"),
-                    description="Farmacia Vyvanse",
-                    category="Pharmacy",
-                )
-            )
-            session.commit()
-
-        cost_category = self.client.post(
-            "/fixed-cost-categories", json={"name": "Medicamento"}
-        ).json()
-        cost = self.client.post(
-            "/fixed-costs",
-            json={
-                "category_id": cost_category["id"],
-                "description": "Vyvanse",
-                "amount": 740,
-                "due_day": 5,
-            },
-        ).json()
-        self.client.post(
-            f"/fixed-costs/{cost['id']}/matches",
-            json={"transaction_id": "tx-vyvanse", "year_month": "2026-07"},
-        )
-
-        capacity = self._capacity("2026-07")
-        # In gross invoice but excluded from discretionary
-        self.assertEqual(capacity["card_invoice_gross_total"], 740.0)
-        self.assertEqual(capacity["card_invoice_discretionary_total"], 0.0)
-        self.assertEqual(capacity["card_invoice_fixed_cost_total"], 740.0)
-        # Fixed cost actual = 740 (matched, on plan)
-        self.assertEqual(capacity["fixed_cost_actual_total"], 740.0)
-        self.assertEqual(capacity["fixed_cost_reserved_total"], 740.0)
-        self.assertEqual(capacity["fixed_cost_variance_total"], 0.0)
-        # Variable budget skipped the matched tx
-        self.assertEqual(capacity["variable_budget_consumed"], 0.0)
-        self.assertEqual(capacity["variable_budget_remaining"], 1000.0)
-        # Future month: max(target=1000, consumed=0) = 1000; 20300 - 740 (fixed) - 1000 (var target) = 18560
-        self.assertEqual(capacity["budget_available_to_spend"], 18560.0)
-
-    # ----- 8. CDB / Fixed income stays out of bank flows -----
-
     def test_fixed_income_cdb_not_in_bank_flows_nor_available(self):
         """Pluggy "Fixed income" (CDB) movements:
         - do NOT appear in bank_outflows_total / bank_inflows_total
@@ -1388,61 +1027,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
     # ----- 9. Auto-matched fixed cost must not double-count -----
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_auto_matched_fixed_cost_excluded_from_variable_budget(self):
-        """A bank PIX that monthly_breakdown auto-matches to a fixed cost must
-        NOT also leak into variable_budget_spent / unbudgeted_variable_spent.
-        Otherwise it gets subtracted twice from budget_available_to_spend.
-
-        Uses 2026-07 (reliably future) so the future-month formula applies.
-        """
-        cost = self._make_water_fixed_cost(amount=300)
-
-        with Session(self.engine) as session:
-            # Real-world setup: there IS a category mapping for the pluggy
-            # category, so without explicit exclusion the PIX would consume
-            # the "Casa variavel" envelope on top of the fixed cost.
-            session.add(Category(id=50, name="Casa variavel", color="#0ea5e9", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Utilities", category_id=50))
-            session.add(Budget(category_id=50, monthly_target=Decimal("1000")))
-            session.add(
-                Transaction(
-                    id="tx-water-auto",
-                    account_id="bank-1",
-                    date=date(2026, 7, 10),
-                    amount=Decimal("-300"),
-                    # Description matches the fixed-cost description so
-                    # _find_matching_transaction picks it up without a
-                    # persisted FixedCostTransactionMatch.
-                    description="Conta de agua",
-                    category="Utilities",
-                )
-            )
-            session.commit()
-
-        # Sanity: the breakdown auto-matched it.
-        breakdown = self.client.get(
-            "/fixed-costs/by-month", params={"year_month": "2026-07"}
-        ).json()
-        entry = next(e for e in breakdown["entries"] if e["fixed_cost_id"] == cost["id"])
-        self.assertEqual(entry["status"], "paid")
-        self.assertEqual(entry["match_source"], "auto")
-        self.assertEqual(entry["actual_amount"], 300.0)
-
-        capacity = self._capacity("2026-07")
-        # Fixed cost side: actual R$ 300, reserved R$ 300, no variance.
-        self.assertEqual(capacity["fixed_cost_actual_total"], 300.0)
-        self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
-        self.assertEqual(capacity["fixed_cost_variance_total"], 0.0)
-        # The auto-matched PIX must be invisible to the variable budget,
-        # even though the pluggy category "Utilities" maps to a budgeted
-        # category. Otherwise it gets counted twice.
-        self.assertEqual(capacity["variable_budget_spent"], 0.0)
-        self.assertEqual(capacity["variable_budget_consumed"], 0.0)
-        self.assertEqual(capacity["unbudgeted_variable_spent"], 0.0)
-        # Future month: max(target=1000, consumed=0) = 1000; 20300 - 300 (fixed) - 1000 (var target) = 19000
-        self.assertEqual(capacity["budget_available_to_spend"], 19000.0)
 
     def test_auto_matched_card_fixed_cost_excluded_from_discretionary_invoice(self):
         """A card purchase auto-matched to a fixed cost should leave the
@@ -1502,61 +1086,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     # ----- 10. Unbudgeted spend does NOT reduce disponível -----
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_unbudgeted_variable_spent_excluded_from_budget_available(self):
-        """Current-month: unbudgeted spend is informational only, not in formula.
-        Overage from a budgeted category DOES reduce availability for current months.
-
-        Uses today=2026-06-30 so that 2026-06 is the current month and the
-        current-month formula branch (consumed + overage) is exercised.
-        """
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            session.add(Category(id=90, name="Lazer", color="#a855f7", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Entertainment", category_id=90))
-            session.add(Category(id=91, name="Mercado", color="#22c55e", sort_order=2))
-            session.add(CategoryRule(pluggy_category="Food", category_id=91))
-            session.add(Budget(category_id=91, monthly_target=Decimal("500")))
-            session.add(
-                Transaction(
-                    id="tx-lazer-1",
-                    account_id="bank-1",
-                    date=date(2026, 6, 10),
-                    amount=Decimal("-400"),
-                    description="Cinema",
-                    category="Entertainment",
-                )
-            )
-            session.add(
-                Transaction(
-                    id="tx-food-over",
-                    account_id="bank-1",
-                    date=date(2026, 6, 12),
-                    amount=Decimal("-600"),
-                    description="Supermercado",
-                    category="Food",
-                )
-            )
-            session.commit()
-
-        self._make_water_fixed_cost(amount=300)
-
-        # Pin today=2026-06-30 → 2026-06 is current month (current-month formula).
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
-
-        self.assertEqual(capacity["planning_mode"], "current_month")
-        # Unbudgeted NOT subtracted.
-        self.assertEqual(capacity["unbudgeted_variable_spent"], 400.0)
-        # Overage (100) and fixed (300) reduce availability.
-        self.assertEqual(capacity["variable_budget_overage"], 100.0)
-        self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
-        # 20300 - 300 (fixed) - 500 (consumed) - 100 (overage) = 19400
-        self.assertEqual(capacity["budget_available_to_spend"], 19400.0)
-
-    # ----- 12. card_invoice_remaining_to_include (current month) -----
-
     def test_card_invoice_gap_reduces_budget_available_current_month(self):
         """Current-month open invoice is based on PENDING transactions, NOT CreditCardBill.
 
@@ -1574,8 +1103,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
-            session.add(Category(id=95, name="Compras", color="#6366f1", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Shopping", category_id=95))
             # Set up close_date so the cycle is 2026-05-05 → 2026-06-04
             acct = session.exec(
                 __import__("sqlmodel", fromlist=["select"])
@@ -1710,45 +1237,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
     # ----- 14. Future-month projected formula -----
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_future_month_uses_variable_budget_total_not_consumed(self):
-        """Future month: formula uses variable_budget_total (full target), not
-        variable_budget_consumed, even when future installments exist in the DB.
-        """
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            session.add(Category(id=80, name="Lazer", color="#a855f7", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Entertainment", category_id=80))
-            session.add(Budget(category_id=80, monthly_target=Decimal("500")))
-            # Future installment already in DB — only partially uses the R$500 envelope.
-            session.add(
-                Transaction(
-                    id="tx-future-installment",
-                    account_id="credit-1",
-                    date=date(2026, 7, 10),
-                    amount=Decimal("200"),
-                    description="Parcela curso",
-                    category="Entertainment",
-                )
-            )
-            session.commit()
-
-        self._make_water_fixed_cost(amount=300)
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
-
-        self.assertEqual(capacity["planning_mode"], "future_month")
-        # variable_budget_consumed reflects the installment (200).
-        self.assertEqual(capacity["variable_budget_consumed"], 200.0)
-        # variable_budget_reserved equals the full target for future months.
-        self.assertEqual(capacity["variable_budget_reserved"], 500.0)
-        # The installment (200) is also picked up as scheduled_installments fallback.
-        # Formula: 20300 - 300 (fixed_planned) - 500 (variable_budget_total)
-        #          - 200 (scheduled installment) = 19300
-        self.assertEqual(capacity["budget_available_to_spend"], 19300.0)
-
     def test_future_month_no_account_balance_used(self):
         """Future month: Account.balance is never used as the card obligation."""
         from app.services.spending_capacity import spending_capacity_summary
@@ -1772,55 +1260,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         # Full income available (no fixed costs, no budgets, no reserve).
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_future_month_official_bill_is_full_obligation(self):
-        """Future month: when a CreditCardBill with due_date in the future month
-        exists, future_card_obligation_total equals the full bill total (not just
-        the gap), and it is subtracted from budget_available_to_spend.
-
-        The bill covers a prior billing cycle — those purchases are NOT in the
-        future month's variable budget, so there is no double-counting.
-        """
-        from app.services.spending_capacity import spending_capacity_summary
-
-        with Session(self.engine) as session:
-            # Official bill due in July 2026 (prior billing cycle).
-            session.add(
-                CreditCardBill(
-                    id="bill-future-1",
-                    account_id="credit-1",
-                    due_date=date(2026, 7, 10),
-                    total_amount=Decimal("3000"),
-                )
-            )
-            # A July installment in a budget category — separate from the bill above.
-            session.add(Category(id=85, name="Lazer", color="#a855f7", sort_order=1))
-            session.add(Budget(category_id=85, monthly_target=Decimal("600")))
-            session.add(
-                Transaction(
-                    id="tx-july-parcela",
-                    account_id="credit-1",
-                    date=date(2026, 7, 15),
-                    amount=Decimal("200"),
-                    description="Parcela notebook",
-                    category="Electronics",
-                )
-            )
-            session.commit()
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
-
-        self.assertEqual(capacity["planning_mode"], "future_month")
-        self.assertEqual(capacity["card_invoice_source"], "official_bill")
-        # future_card_obligation_total = full bill (not gap).
-        self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
-        # card_invoice_remaining_to_include is still computed for info but not
-        # in the future-month formula.
-        self.assertGreaterEqual(capacity["card_invoice_remaining_to_include"], 0.0)
-        # Formula: 20300 - 0 (fixed) - 600 (variable_budget_total) - 3000 (bill) - 0 (reserve)
-        self.assertEqual(capacity["budget_available_to_spend"], 16700.0)
-
     def test_future_month_no_card_bill_uses_scheduled_installments(self):
         """Future month without an official bill: future credit-card transactions are
         picked up by scheduled_installments_for_month and subtracted as
@@ -1829,9 +1268,6 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
-            # Category with NO budget → any spend lands in unbudgeted.
-            session.add(Category(id=77, name="Eletronicos", color="#6366f1", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Electronics", category_id=77))
             # Future installment — no official bill for July.
             session.add(
                 Transaction(
@@ -2055,62 +1491,8 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["future_card_obligation_total"], 0.0)
         self.assertEqual(capacity["budget_available_to_spend"], 20300.0)
 
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_current_month_not_broken_by_future_month_changes(self):
-        """Regression: current-month formula (consumed + overage, gap-based card)
-        must be unchanged after adding the future-month branch.
-        """
-        from app.services.spending_capacity import spending_capacity_summary
 
-        with Session(self.engine) as session:
-            session.add(Category(id=70, name="Mercado", color="#22c55e", sort_order=1))
-            session.add(CategoryRule(pluggy_category="Food", category_id=70))
-            session.add(Budget(category_id=70, monthly_target=Decimal("800")))
-            # Card purchase within the budget.
-            session.add(
-                Transaction(
-                    id="tx-cur-card",
-                    account_id="credit-1",
-                    date=date(2026, 6, 8),
-                    amount=Decimal("600"),
-                    description="Compra mercado",
-                    category="Food",
-                )
-            )
-            # Official bill larger than the transaction → gap = 200.
-            session.add(
-                CreditCardBill(
-                    id="bill-cur-1",
-                    account_id="credit-1",
-                    due_date=date(2026, 6, 10),
-                    total_amount=Decimal("800"),
-                )
-            )
-            session.commit()
-
-        self._make_water_fixed_cost(amount=200)
-
-        with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-06", today=date(2026, 6, 30))
-
-        self.assertEqual(capacity["planning_mode"], "current_month")
-        # CreditCardBill NOT used for current-month open invoice.
-        # No PENDING transactions → gap = 0.
-        self.assertEqual(capacity["card_invoice_remaining_to_include"], 0.0)
-        # future_card_obligation_total is 0 for current month.
-        self.assertEqual(capacity["future_card_obligation_total"], 0.0)
-        # variable_budget_reserved = consumed (600), not target (800).
-        self.assertEqual(capacity["variable_budget_consumed"], 600.0)
-        self.assertEqual(capacity["variable_budget_reserved"], 600.0)
-        # 20300 - 200 (fixed) - 600 (var consumed) - 0 (card gap) = 19500
-        self.assertEqual(capacity["budget_available_to_spend"], 19500.0)
-
-
-class CurrentOpenCardInvoiceTest(unittest.TestCase):
-    """Open-invoice logic, now owned by planning_invoice_for_month() and
-    surfaced through spending_capacity_summary().
-    """
-
+class CurrentMonthOpenInvoiceCycleTest(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine(
             "sqlite://",

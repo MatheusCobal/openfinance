@@ -24,7 +24,6 @@ from app.services.sync import compute_dedupe_key
 from app.services.transaction_reports import invoice_summary, monthly_stats_summary
 from app.services.transactions import account_ids_by_type, credit_card_spend_transactions
 
-LEGACY_CATEGORY_TEST_REMOVED = "10D-A removed monthly category stats; replace in 10D-B"
 
 
 def _make_engine():
@@ -517,26 +516,6 @@ class TestMonthlyStatsSummaryActiveFiltering(unittest.TestCase):
 
     def _session(self):
         return Session(self.engine)
-
-    @unittest.skip(LEGACY_CATEGORY_TEST_REMOVED)
-    def test_inactive_account_transactions_not_counted(self):
-        with self._session() as session:
-            _seed_item(session, "item-old", is_active=False)
-            _seed_account(session, "acc-old", "item-old", is_active=False)
-            _seed_item(session, "item-new", is_active=True)
-            _seed_account(session, "acc-new", "item-new", is_active=True)
-
-            _seed_tx(session, "old-tx", "acc-old", date(2026, 5, 1), Decimal("500"), "Old buy")
-            _seed_tx(session, "new-tx", "acc-new", date(2026, 5, 1), Decimal("100"), "New buy")
-            session.commit()
-
-        with self._session() as session:
-            result = monthly_stats_summary(session)
-
-        # Only new-tx (100) should be in the summary, not old-tx (500)
-        all_totals = sum(cat["by_month"].get("2026-05", 0) for cat in result["categories"])
-        self.assertAlmostEqual(all_totals, 100.0, places=2)
-
 
 if __name__ == "__main__":
     unittest.main()
