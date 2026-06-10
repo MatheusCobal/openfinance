@@ -167,6 +167,7 @@ def upsert_transaction(
     account_id: str,
     session: Session,
     account_type: str = "CREDIT",
+    user_rules: tuple = (),
 ) -> tuple[bool, bool, date]:
     tx_date = date.fromisoformat(raw_tx["date"][:10])
     amount = Decimal(str(raw_tx["amount"]))
@@ -197,7 +198,11 @@ def upsert_transaction(
         "dedupe_key": dedupe_key,
     }
     values.update(classification_payload_fields(raw_tx))
-    classification = classify_pluggy_payload(raw_tx, account_type=account_type)
+    classification = classify_pluggy_payload(
+        raw_tx,
+        account_type=account_type,
+        user_rules=user_rules,
+    )
     classification_values = classification.transaction_values()
     existing = session.get(Transaction, raw_tx["id"])
     if existing is None:
@@ -239,8 +244,11 @@ def sync_account_transactions(
     session: Session,
     account_type: str = "CREDIT",
 ) -> AccountSyncResult:
+    from app.services.user_classification_rules import load_compiled_user_rules
+
     result = AccountSyncResult()
     max_past_tx_date = sync_state.last_transaction_date
+    user_rules = load_compiled_user_rules(session)
     for raw_tx in pluggy.list_transactions(
         account_id,
         from_date=sync_from_date(sync_state),
@@ -251,6 +259,7 @@ def sync_account_transactions(
             account_id,
             session,
             account_type=account_type,
+            user_rules=user_rules,
         )
         if is_new:
             result.new_transactions += 1
@@ -394,8 +403,11 @@ def reconcile_active_items(session: Session) -> Dict[str, Any]:
 
 
 def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
+    from app.services.user_classification_rules import load_compiled_user_rules
+
     raw_accounts = pluggy.list_accounts(item_id)
     accounts_to_sync = tracked_accounts(raw_accounts)
+    user_rules = load_compiled_user_rules(session)
 
     new_transactions = 0
     updated_transactions = 0
@@ -466,7 +478,11 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
                         for raw_tx in pluggy.list_transactions(account_id, bill_id=bill_id):
                             bill_transactions_fetched += 1
                             is_new, is_updated, _ = upsert_transaction(
-                                raw_tx, account_id, session, account_type=account_type
+                                raw_tx,
+                                account_id,
+                                session,
+                                account_type=account_type,
+                                user_rules=user_rules,
                             )
                             if is_new:
                                 bill_transactions_new += 1
