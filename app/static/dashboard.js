@@ -411,8 +411,16 @@ function renderCategoryTransactions(category) {
     const installment = formatInstallment(tx);
     const metaParts = [];
     if (tx.cashflow_type) metaParts.push(escapeHtml(tx.cashflow_type));
-    if (tx.classification_confidence) metaParts.push(escapeHtml(tx.classification_confidence));
-    if (tx.pluggy_category) metaParts.push(`Pluggy: ${escapeHtml(tx.pluggy_category)}`);
+    if (tx.classification_source && tx.classification_confidence) {
+      metaParts.push(escapeHtml(`${tx.classification_source}/${tx.classification_confidence}`));
+    } else if (tx.classification_confidence) {
+      metaParts.push(escapeHtml(tx.classification_confidence));
+    }
+    const pluggyRaw = [tx.pluggy_category, tx.pluggy_raw_subcategory, tx.pluggy_raw_type]
+      .filter(Boolean)
+      .join(' / ');
+    if (pluggyRaw) metaParts.push(`Pluggy: ${escapeHtml(pluggyRaw)}`);
+    if (tx.pluggy_merchant) metaParts.push(`Merchant: ${escapeHtml(tx.pluggy_merchant)}`);
     if (installment) metaParts.push(escapeHtml(installment));
     if (tx.status) metaParts.push(escapeHtml(tx.status));
     const metaStr = metaParts.join(' · ');

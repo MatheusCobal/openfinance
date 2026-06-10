@@ -158,10 +158,69 @@ Pluggy values such as `Shopping`, `Eating out`, `Transfer - PIX`, `Pharmacy`,
 `Groceries`, `Same person transfer`, `Credit card payment`, `Fixed income` and
 `Food delivery`. Descriptions were truncated during diagnosis.
 
+`inspect_pluggy_classifications.py` now groups by raw category, subcategory
+and type plus the effective internal classification, supports
+`--scope credit|bank|all`, `--only-outros` and `--sort-by count|amount`, and
+prints a summary line with total transactions and how many land in `Outros`.
+
+## 10D-B.2 — expanded default rules from real data
+
+The dashboard keeps showing the final **internal categories in Portuguese**;
+the raw Pluggy classification (`pluggy_raw_category`, `pluggy_raw_subcategory`,
+`pluggy_raw_type`, `pluggy_merchant`) is always preserved for auditing and is
+visible in the Histórico drilldown editor and in the Dashboard category modal
+meta line.
+
+Rules added in 10D-B.2, all sourced from the local diagnosis (`Outros` count
+dropped from 87 to 40 of 3850 transactions):
+
+| Pluggy raw value | internal_category | cashflow_type |
+|---|---|---|
+| `Food and drinks` | Alimentação | expense |
+| `Sports goods` | Compras | expense |
+| `Online Courses` | Educação | expense |
+| `Tickets` | Lazer | expense |
+| `Leisure` | Lazer | expense |
+| `Wellness` | Beleza / Cuidados pessoais | expense |
+| `Tolls and in vehicle payment` | Transporte | expense |
+| `Housing` | Moradia | expense |
+| `Rent` | Moradia | expense |
+| `Internet` | Assinaturas | expense |
+| `Mobile` | Assinaturas | expense |
+| `Income taxes` | Impostos / Taxas | expense |
+| `Vehicle ownership taxes and fees` | Impostos / Taxas | expense |
+| `Transfer - Internal` | Transferências | transfer |
+| `Transfer - Bank Slip` | Transferências | transfer |
+
+The two `Transfer - *` rules also fix a real bug: those values previously fell
+through to the BANK positive-amount fallback and were counted as **Receitas**.
+
+Still in `Outros`, deliberately:
+
+- transactions with an **empty raw category** (genuine fallback);
+- `Insurance` — the taxonomy has no "Seguros" category and the value is
+  ambiguous (vehicle/health/life); left for a manual override or 10D-D rules;
+- `Entrepreneurial activities` — Pluggy applies an income-tree category to
+  large outgoing PIX transfers; classifying it automatically as either expense
+  or transfer would be a guess, so it stays in the low-confidence fallback for
+  the user to override.
+
+`reclassify_transactions_v2.py` additionally reports `no_longer_outros`
+(persisted `Outros` rows that the current rules now classify) and
+`still_outros` (rows that remain in the fallback) in both dry-run and apply.
+
+### CREDIT vs PIX scope (validated)
+
+The purchase-by-category views only aggregate CREDIT transactions:
+`stats_summary`, `monthly_stats_summary` and `upcoming_summary` filter through
+`SPENDING_ACCOUNT_TYPES = {"CREDIT"}`, and the current-invoice card is built
+per CREDIT account. PIX, transfers, card payments and investments never enter
+"Classificação das compras"; bank movements stay in the Receitas / Entradas e
+saídas views. No fix was needed — validated by `CreditPurchaseScopeTest`.
+
 ## Pending work
 
-- 10D-C: UI de revisão e override manual.
-- 10D-D: regras de usuário.
+- 10D-D: regras de usuário ("sempre classificar merchant X como Y").
 - 10D-E: dashboard refinado por tipo de fluxo/categoria.
 - Physical removal of legacy category tables/columns after a reviewed data
   retention and migration plan.
