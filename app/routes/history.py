@@ -7,6 +7,7 @@ from app.services.history import (
     bank_cashflow_monthly_summary,
     bank_income_history_summary,
     bank_income_monthly_summary,
+    credit_card_invoice_purchases_monthly_summary,
     credit_card_payments_history_summary,
     credit_card_payments_monthly_summary,
     ignored_transactions_monthly_summary,
@@ -42,22 +43,35 @@ def credit_card_payments_monthly(
     return credit_card_payments_monthly_summary(session, months)
 
 
+@router.get("/credit-card-invoices/monthly")
+def credit_card_invoices_monthly(
+    months: int = DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
+    session: Session = Depends(get_session),
+):
+    _validate_month_window(months)
+    return credit_card_invoice_purchases_monthly_summary(session, months)
+
+
 @router.get("/credit-card-payments/history")
 def credit_card_payments_history(session: Session = Depends(get_session)):
     return credit_card_payments_history_summary(session)
 
 
-@router.get("/bank-income/monthly")
+@router.get("/bank-income/monthly", deprecated=True)
 def bank_income_monthly(
     months: int = 12,
     session: Session = Depends(get_session),
 ):
+    # Deprecated for the Historico UI in 11-B. Kept for compatibility and for
+    # shared backend income diagnostics; Entradas e Saidas uses /bank-cashflow.
     _validate_month_window(months)
     return bank_income_monthly_summary(session, months)
 
 
-@router.get("/bank-income/history")
+@router.get("/bank-income/history", deprecated=True)
 def bank_income_history(session: Session = Depends(get_session)):
+    # Deprecated for the Historico UI in 11-B; retained as a read-only
+    # snapshot compatibility endpoint.
     return bank_income_history_summary(session)
 
 
