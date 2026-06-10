@@ -70,6 +70,8 @@ def reclassify(database_url: str, apply: bool) -> dict:
     )
     changed = 0
     skipped_overrides = 0
+    no_longer_outros = 0
+    still_outros = 0
     totals = Counter()
     with engine.begin() as connection:
         columns = {
@@ -123,6 +125,10 @@ def reclassify(database_url: str, apply: bool) -> dict:
                 continue
             values = _classification_values(row_dict, account_type)
             totals[(values["internal_category"], values["cashflow_type"])] += 1
+            if values["internal_category"] == "Outros":
+                still_outros += 1
+            elif row_dict.get("internal_category") == "Outros":
+                no_longer_outros += 1
             if not _needs_update(row_dict, values):
                 continue
             changed += 1
@@ -152,6 +158,8 @@ def reclassify(database_url: str, apply: bool) -> dict:
         "would_change": changed,
         "changed": changed if apply else 0,
         "skipped_overrides": skipped_overrides,
+        "no_longer_outros": no_longer_outros,
+        "still_outros": still_outros,
         "buckets": totals,
     }
 
@@ -182,6 +190,8 @@ def main() -> None:
     print(f"would_change: {result['would_change']}")
     print(f"changed: {result['changed']}")
     print(f"skipped_overrides: {result['skipped_overrides']}")
+    print(f"no_longer_outros: {result['no_longer_outros']}")
+    print(f"still_outros: {result['still_outros']}")
     print("internal_category | cashflow_type | count")
     for (category, cashflow_type), count in result["buckets"].most_common():
         print(f"{category} | {cashflow_type} | {count}")

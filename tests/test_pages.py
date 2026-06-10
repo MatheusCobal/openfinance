@@ -207,7 +207,7 @@ class PageSmokeTest(unittest.TestCase):
         # Ensure the browser busts the cache for the updated dashboard.js.
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("dashboard.js?v=20260609-2", response.text)
+        self.assertIn("dashboard.js?v=20260610-1", response.text)
 
     def test_dashboard_js_uses_current_card_invoice_endpoint_for_invoice_card(self):
         response = self.client.get("/static/dashboard.js")
@@ -470,7 +470,7 @@ class DashboardCapacityTest(unittest.TestCase):
     def test_dashboard_html_uses_current_version(self):
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("dashboard.js?v=20260609-2", response.text)
+        self.assertIn("dashboard.js?v=20260610-1", response.text)
 
     def test_dashboard_js_has_build_dashboard_capacity(self):
         js = self._get_js()

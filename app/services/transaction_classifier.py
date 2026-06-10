@@ -108,6 +108,7 @@ class _Rule:
 _CATEGORY_RULES: dict[str, _Rule] = {
     "food": _Rule("Alimentação", "expense"),
     "food delivery": _Rule("Alimentação", "expense"),
+    "food and drinks": _Rule("Alimentação", "expense"),
     "delivery": _Rule("Alimentação", "expense"),
     "restaurant": _Rule("Alimentação", "expense"),
     "restaurants": _Rule("Alimentação", "expense"),
@@ -126,6 +127,7 @@ _CATEGORY_RULES: dict[str, _Rule] = {
     "parking": _Rule("Transporte", "expense"),
     "automotive": _Rule("Transporte", "expense"),
     "vehicle maintenance": _Rule("Transporte", "expense"),
+    "tolls and in vehicle payment": _Rule("Transporte", "expense"),
     "health": _Rule("Saúde", "expense"),
     "healthcare": _Rule("Saúde", "expense"),
     "pharmacy": _Rule("Saúde", "expense"),
@@ -139,21 +141,28 @@ _CATEGORY_RULES: dict[str, _Rule] = {
     "houseware": _Rule("Compras", "expense"),
     "clothing": _Rule("Compras", "expense"),
     "office supplies": _Rule("Compras", "expense"),
+    "sports goods": _Rule("Compras", "expense"),
     "bookstore": _Rule("Educação", "expense"),
     "school": _Rule("Educação", "expense"),
     "education": _Rule("Educação", "expense"),
+    "online courses": _Rule("Educação", "expense"),
     "pet": _Rule("Pet", "expense"),
     "pet supplies and vet": _Rule("Pet", "expense"),
     "digital services": _Rule("Assinaturas", "expense"),
     "telecommunications": _Rule("Assinaturas", "expense"),
     "services": _Rule("Assinaturas", "expense"),
+    "internet": _Rule("Assinaturas", "expense"),
+    "mobile": _Rule("Assinaturas", "expense"),
     "wellness and fitness": _Rule("Beleza / Cuidados pessoais", "expense"),
+    "wellness": _Rule("Beleza / Cuidados pessoais", "expense"),
     "gyms and fitness centers": _Rule("Beleza / Cuidados pessoais", "expense"),
     "beauty": _Rule("Beleza / Cuidados pessoais", "expense"),
     "personal care": _Rule("Beleza / Cuidados pessoais", "expense"),
     "cinema theater and concerts": _Rule("Lazer", "expense"),
     "gaming": _Rule("Lazer", "expense"),
     "stadiums and arenas": _Rule("Lazer", "expense"),
+    "tickets": _Rule("Lazer", "expense"),
+    "leisure": _Rule("Lazer", "expense"),
     "mileage programs": _Rule("Viagem", "expense"),
     "airport and airlines": _Rule("Viagem", "expense"),
     "accomodation": _Rule("Viagem", "expense"),
@@ -162,9 +171,13 @@ _CATEGORY_RULES: dict[str, _Rule] = {
     "donations": _Rule("Presentes", "expense"),
     "electricity": _Rule("Moradia", "expense"),
     "water": _Rule("Moradia", "expense"),
+    "housing": _Rule("Moradia", "expense"),
+    "rent": _Rule("Moradia", "expense"),
     "real estate financing": _Rule("Financiamentos", "expense"),
     "tax": _Rule("Impostos / Taxas", "expense"),
     "taxes": _Rule("Impostos / Taxas", "expense"),
+    "income taxes": _Rule("Impostos / Taxas", "expense"),
+    "vehicle ownership taxes and fees": _Rule("Impostos / Taxas", "expense"),
     "fee": _Rule("Impostos / Taxas", "expense"),
     "fees": _Rule("Impostos / Taxas", "expense"),
     "credit card fees": _Rule("Impostos / Taxas", "expense"),
@@ -180,6 +193,20 @@ _CATEGORY_RULES: dict[str, _Rule] = {
     "same person transfer": _Rule("Transferências", "transfer"),
     "internal transfer": _Rule("Transferências", "transfer"),
     "internal_transfer": _Rule("Transferências", "transfer"),
+    # "Transfer - Internal" normalizes to "transfer internal".
+    # This IS an account-to-account movement — safely classified as
+    # transfer/ignored so it doesn't pollute income or cashflow totals.
+    "transfer internal": _Rule("Transferências", "transfer"),
+    # "Transfer - Bank Slip" normalizes to "transfer bank slip".
+    # In Brazil this is a boleto payment (rent, utilities, third-party
+    # payables) — NOT necessarily an internal account transfer.
+    # Map to Outros/expense (medium confidence) so real outflows stay
+    # visible in cashflow instead of being silently excluded by the
+    # internal-transfer structural filter in classification.py.
+    # Descriptions matching "pagamento de boleto itau unibanco" / similar
+    # are already filtered from bank_outflow_transactions to avoid
+    # double-counting credit card invoice payments.
+    "transfer bank slip": _Rule("Outros", "expense", confidence="medium"),
     "credit card payment": _Rule("Pagamento de cartão", "credit_card_payment"),
     "card payment": _Rule("Pagamento de cartão", "credit_card_payment"),
     "card payments": _Rule("Pagamento de cartão", "credit_card_payment"),
