@@ -21,7 +21,14 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
-from app.models import Account, CreditCardInvoiceMonth, Item, MonthlyBalanceMonth, Transaction
+from app.models import (
+    Account,
+    CreditCardBill,
+    CreditCardInvoiceMonth,
+    Item,
+    MonthlyBalanceMonth,
+    Transaction,
+)
 from app.services.history import (
     bank_income_history_summary,
     credit_card_invoice_purchases_monthly_summary,
@@ -190,6 +197,25 @@ def _add_card_transaction(
             classification_rule_key=classification_rule_key,
             ignored_from_totals=ignored_from_totals,
             is_user_overridden=is_user_overridden,
+        )
+    )
+    session.commit()
+
+
+def _add_credit_card_bill(
+    session: Session,
+    *,
+    bill_id: str,
+    due_date: datetime.date,
+    total: Decimal,
+    account_id: str = CC_ACCOUNT_ID,
+) -> None:
+    session.add(
+        CreditCardBill(
+            id=bill_id,
+            account_id=account_id,
+            due_date=due_date,
+            total_amount=total,
         )
     )
     session.commit()
@@ -661,6 +687,125 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertEqual(by_category["Transporte"]["transactions"][0]["classification_source"], "manual_override")
         self.assertEqual(by_category["Pet"]["transactions"][0]["classification_source"], "user_rule")
 
+    def test_historical_month_uses_official_bill_as_display_total(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 6, 8))
+            account = session.get(Account, CC_ACCOUNT_ID)
+            account.balance = Decimal("28619.60")
+            session.add(account)
+            session.commit()
+            _add_credit_card_bill(
+                session,
+                bill_id="bill-jun-official",
+                due_date=datetime.date(2026, 6, 8),
+                total=Decimal("17131.28"),
+            )
+            _add_card_transaction(
+                session,
+                tx_id="classified-jun",
+                transaction_date=datetime.date(2026, 6, 2),
+                amount=Decimal("-164.00"),
+                description="Compra classificada",
+                category="Food",
+                internal_category="Alimentação",
+                cashflow_type="expense",
+                classification_source="pluggy_rule",
+                classification_confidence="high",
+                classification_rule_key="pluggy_raw_category:Food",
+            )
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 10)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        months = {month["month"]: month for month in result["months"]}
+        june = months["2026-06"]
+
+        self.assertEqual(result["current_invoice_month"], "2026-07")
+        self.assertFalse(june["is_current_invoice"])
+        self.assertEqual(june["invoice_total_source"], "pluggy_official_bill")
+        self.assertAlmostEqual(june["invoice_display_total"], 17131.28, places=2)
+        self.assertAlmostEqual(june["total"], 17131.28, places=2)
+        self.assertAlmostEqual(june["official_bill_total"], 17131.28, places=2)
+        self.assertAlmostEqual(june["classified_purchase_total"], 164.0, places=2)
+        self.assertNotEqual(june["invoice_display_total"], june["classified_purchase_total"])
+        self.assertAlmostEqual(
+            june["classified_purchase_difference_from_invoice"],
+            -16967.28,
+            places=2,
+        )
+        self.assertEqual(june["categories"][0]["name"], "Alimentação")
+        self.assertAlmostEqual(june["categories"][0]["total"], 164.0, places=2)
+
+    def test_current_invoice_uses_dashboard_total_not_official_bill(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 6, 8))
+            account = session.get(Account, CC_ACCOUNT_ID)
+            account.balance = Decimal("28619.60")
+            session.add(account)
+            session.commit()
+            _add_credit_card_bill(
+                session,
+                bill_id="bill-jun-closed",
+                due_date=datetime.date(2026, 6, 8),
+                total=Decimal("17131.28"),
+            )
+            _add_credit_card_bill(
+                session,
+                bill_id="bill-jul-premature",
+                due_date=datetime.date(2026, 7, 8),
+                total=Decimal("9999.00"),
+            )
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 10)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=1)
+
+        july = result["months"][0]
+
+        self.assertEqual(july["month"], "2026-07")
+        self.assertTrue(july["is_current_invoice"])
+        self.assertEqual(july["invoice_total_source"], "dashboard_current_invoice")
+        self.assertEqual(july["dashboard_current_invoice_source"], "adjusted_account_balance")
+        self.assertAlmostEqual(july["invoice_display_total"], 11488.32, places=2)
+        self.assertAlmostEqual(july["total"], 11488.32, places=2)
+        self.assertAlmostEqual(july["official_bill_total"], 9999.0, places=2)
+        self.assertNotEqual(july["invoice_display_total"], july["official_bill_total"])
+
+    def test_missing_historical_official_bill_uses_marked_classified_fallback(self):
+        with Session(self.engine) as session:
+            _seed_base(session)
+            _add_card_transaction(
+                session,
+                tx_id="classified-missing-bill",
+                transaction_date=datetime.date(2026, 6, 2),
+                amount=Decimal("-44.00"),
+                description="Compra sem bill oficial",
+                category="Food",
+                internal_category="Alimentação",
+                cashflow_type="expense",
+            )
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 10)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        june = {month["month"]: month for month in result["months"]}["2026-06"]
+
+        self.assertEqual(june["invoice_total_source"], "missing_official_bill_fallback")
+        self.assertIsNone(june["official_bill_total"])
+        self.assertAlmostEqual(june["invoice_display_total"], 44.0, places=2)
+        self.assertAlmostEqual(june["classified_purchase_total"], 44.0, places=2)
+
     def test_endpoint_returns_classified_invoice_payload(self):
         def override_get_session():
             with Session(self.engine) as session:
@@ -673,7 +818,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 _add_card_transaction(
                     session,
                     tx_id="food-endpoint",
-                    transaction_date=datetime.date.today(),
+                    transaction_date=datetime.date(2026, 6, 10),
                     amount=Decimal("-25.00"),
                     description="Padaria",
                     category="Food",
@@ -685,7 +830,13 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 )
 
             client = TestClient(app)
-            response = client.get("/credit-card-invoices/monthly", params={"months": 1})
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 10)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                response = client.get("/credit-card-invoices/monthly", params={"months": 2})
         finally:
             app.dependency_overrides.clear()
 
@@ -694,7 +845,11 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertEqual(body["purchase_boundary"]["account_type"], "CREDIT")
         self.assertEqual(body["purchase_boundary"]["cashflow_type"], "expense")
         self.assertEqual(body["total_count"], 1)
-        self.assertEqual(body["months"][0]["categories"][0]["name"], "Alimentação")
+        self.assertEqual(body["current_invoice_month"], "2026-07")
+        months = {month["month"]: month for month in body["months"]}
+        self.assertIn("invoice_display_total", months["2026-06"])
+        self.assertIn("classified_purchase_total", months["2026-06"])
+        self.assertEqual(months["2026-06"]["categories"][0]["name"], "Alimentação")
 
     def test_snapshot_refresh_uses_invoice_month_for_before_due_payment(self):
         with Session(self.engine) as session:
@@ -874,6 +1029,18 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertNotIn("/bank-income/exclusion-rules", js)
         self.assertIn("Entradas e saídas", js)
         self.assertIn("/bank-cashflow/monthly", js)
+
+    def test_historico_uses_invoice_display_total_for_invoice_values(self):
+        response = self.client.get("/historico")
+        self.assertEqual(response.status_code, 200)
+        html = response.text
+        js = Path("app/static/historico.js").read_text(encoding="utf-8")
+
+        self.assertIn("historico.js?v=20260610-2", html)
+        self.assertIn("function invoiceDisplayTotal", js)
+        self.assertIn("invoice_display_total", js)
+        self.assertIn("data.months.map((item) => invoiceDisplayTotal(item))", js)
+        self.assertIn("classified_purchase_total", js)
 
     def test_credit_card_payments_monthly_endpoint(self):
         response = self.client.get("/credit-card-payments/monthly?months=3")
