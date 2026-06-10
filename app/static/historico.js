@@ -78,6 +78,27 @@ function pluralMeses(n) {
   return n === 1 ? '1 mês' : `${n.toLocaleString('pt-BR')} meses`;
 }
 
+function invoiceDisplayTotal(item) {
+  return Number(item?.invoice_display_total ?? item?.total ?? 0);
+}
+
+function classifiedPurchaseTotal(item) {
+  return Number(item?.classified_purchase_total ?? item?.total ?? 0);
+}
+
+function hasInvoiceMonthData(item) {
+  return invoiceDisplayTotal(item) > 0 || Number(item?.count || 0) > 0;
+}
+
+function invoiceSourceLabel(item) {
+  const labels = {
+    pluggy_official_bill: 'Fatura oficial Pluggy',
+    dashboard_current_invoice: 'Fatura vigente Dashboard',
+    missing_official_bill_fallback: 'Total classificado',
+  };
+  return labels[item?.invoice_total_source] || 'Fatura';
+}
+
 function pluralRegras(n) {
   return n === 1 ? '1 regra' : `${n.toLocaleString('pt-BR')} regras`;
 }
@@ -341,7 +362,7 @@ function renderInvoiceChart(data) {
       labels: data.months.map((item) => formatMonthLabel(item.month)),
       datasets: [
         {
-          data: data.months.map((item) => item.total),
+          data: data.months.map((item) => invoiceDisplayTotal(item)),
           backgroundColor: INVOICE_COLOR,
           borderRadius: 4,
           maxBarThickness: 32,
@@ -365,7 +386,7 @@ function renderInvoiceChart(data) {
           callbacks: {
             label: (ctx) => {
               const item = data.months[ctx.dataIndex];
-              return ` ${currency.format(ctx.parsed.y)} · ${pluralCompras(item.count)}`;
+              return ` ${currency.format(invoiceDisplayTotal(item))} · ${pluralCompras(item.count)}`;
             },
           },
         },
@@ -415,7 +436,7 @@ function openInvoiceDrilldown(monthData) {
   document.getElementById('drilldown-title').textContent =
     `Faturas cartão · ${formatMonthLong(monthData.month)}`;
   document.getElementById('drilldown-subtitle').textContent =
-    `${currency.format(monthData.total)} · ${pluralCompras(monthData.count)}`;
+    `${currency.format(invoiceDisplayTotal(monthData))} · ${pluralCompras(monthData.count)}`;
 
   registerDrilldownTxs(monthData.transactions);
   const rows = monthData.transactions
@@ -598,30 +619,32 @@ function renderInvoiceHistory() {
   hideAllTabSections();
   invoices.classList.remove('hidden');
 
-  if (data.total_count === 0 || data.months.length === 0) {
+  const monthsWithInvoiceData = data.months.filter((item) => hasInvoiceMonthData(item));
+  if (monthsWithInvoiceData.length === 0 || data.months.length === 0) {
     invoices.innerHTML = '';
     renderEmpty(
-      'Nenhuma compra de cartão encontrada.',
-      'Compras CREDIT válidas aparecerão aqui por classificação.',
+      'Nenhuma fatura de cartão encontrada.',
+      'Faturas oficiais e compras CREDIT válidas aparecerão aqui.',
     );
-    subtitle.textContent = 'Nenhuma compra de cartão encontrada';
+    subtitle.textContent = 'Nenhuma fatura de cartão encontrada';
     return;
   }
   hideEmpty();
 
-  const monthsWithPurchases = data.months.filter((item) => item.count > 0);
   if (!selectedInvoiceMonth || !data.months.some((item) => item.month === selectedInvoiceMonth)) {
-    const latest = [...monthsWithPurchases].pop() || data.months[data.months.length - 1];
+    const latest = [...monthsWithInvoiceData].pop() || data.months[data.months.length - 1];
     selectedInvoiceMonth = latest.month;
   }
   const activeMonth = data.months.find((item) => item.month === selectedInvoiceMonth) || data.months[data.months.length - 1];
-  const largest = monthsWithPurchases.reduce(
-    (best, item) => (!best || item.total > best.total ? item : best),
+  const largest = monthsWithInvoiceData.reduce(
+    (best, item) => (!best || invoiceDisplayTotal(item) > invoiceDisplayTotal(best) ? item : best),
     null,
   );
-  const average = data.months.length > 0 ? data.total / data.months.length : 0;
+  const periodTotal = invoiceDisplayTotal(data);
+  const periodClassifiedTotal = classifiedPurchaseTotal(data);
+  const average = data.months.length > 0 ? periodTotal / data.months.length : 0;
   const rows = [...data.months].reverse().map((item) => {
-    const amount = item.count > 0
+    const amount = hasInvoiceMonthData(item)
       ? `
         <button
           type="button"
@@ -630,17 +653,17 @@ function renderInvoiceHistory() {
           title="Selecionar mês"
         >
           <span class="block text-sm font-semibold tabular text-slate-900 group-hover:text-blue-700">
-            ${currency.format(item.total)}
+            ${currency.format(invoiceDisplayTotal(item))}
           </span>
         </button>
       `
-      : '<span class="text-sm font-medium text-slate-400">Sem compras</span>';
+      : '<span class="text-sm font-medium text-slate-400">Sem fatura</span>';
     const activeClass = item.month === activeMonth.month ? 'bg-blue-50/60' : '';
     return `
       <li class="flex items-center justify-between gap-4 px-5 py-3 border-t border-slate-100 ${activeClass}">
         <div>
           <p class="text-sm font-medium text-slate-900">${escapeHtml(formatMonthLong(item.month))}</p>
-          <p class="text-xs text-slate-500 mt-0.5">${pluralCompras(item.count)}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${invoiceSourceLabel(item)} · ${pluralCompras(item.count)}</p>
         </div>
         ${amount}
       </li>
@@ -648,27 +671,27 @@ function renderInvoiceHistory() {
   }).join('');
 
   subtitle.textContent =
-    `Compras de cartão por classificação · ${formatMonthLong(activeMonth.month)}`;
+    `Faturas de cartão · ${formatMonthLong(activeMonth.month)}`;
 
   invoices.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="bg-white rounded-lg border border-slate-200 p-6">
-        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Compras no período</p>
-        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(data.total)}</p>
-        <p class="text-xs text-slate-500 mt-2">${pluralCompras(data.total_count)} em ${data.months.length} meses</p>
+        <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Faturas no período</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(periodTotal)}</p>
+        <p class="text-xs text-slate-500 mt-2">${pluralCompras(data.total_count)} classificadas · ${currency.format(periodClassifiedTotal)}</p>
       </div>
       <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Mês selecionado</p>
-        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(activeMonth.total)}</p>
-        <p class="text-xs text-slate-500 mt-2">${escapeHtml(formatMonthLong(activeMonth.month))} · ${pluralCompras(activeMonth.count)}</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(invoiceDisplayTotal(activeMonth))}</p>
+        <p class="text-xs text-slate-500 mt-2">${escapeHtml(formatMonthLong(activeMonth.month))} · ${invoiceSourceLabel(activeMonth)} · ${pluralCompras(activeMonth.count)}</p>
       </div>
       <div class="bg-white rounded-lg border border-slate-200 p-6">
         <p class="text-xs uppercase tracking-wider text-slate-500 font-medium">Maior mês</p>
-        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(largest.total)}</p>
+        <p class="mt-2 text-2xl font-bold tabular text-slate-900">${currency.format(invoiceDisplayTotal(largest))}</p>
         <p class="text-xs text-slate-500 mt-2">${escapeHtml(formatMonthLabel(largest.month))} · média ${currency.format(average)}</p>
       </div>
       <div class="bg-white rounded-lg border border-slate-200 p-6 lg:col-span-3">
-        <h2 class="font-semibold text-slate-900 mb-4">Evolução das compras de cartão</h2>
+        <h2 class="font-semibold text-slate-900 mb-4">Evolução das faturas de cartão</h2>
         <div class="relative h-64">
           <canvas id="chart-invoices"></canvas>
         </div>
