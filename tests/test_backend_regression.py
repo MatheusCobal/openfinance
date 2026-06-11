@@ -388,18 +388,48 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertAlmostEqual(float(invoice.total), 150.0, places=2)
         self.assertAlmostEqual(float(balance.invoice_paid), 150.0, places=2)
 
-    def test_bank_cashflow_includes_ignored_and_respects_cashflow_rules(self):
+    def test_bank_cashflow_includes_all_bank_movements_and_ignores_cashflow_rules(self):
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    Transaction(
+                        id="tx-boleto-outflow",
+                        account_id="bank-1",
+                        date=self.current_month_day,
+                        amount=Decimal("-1200.00"),
+                        description="Aluguel pago por boleto",
+                        category="Transfer - Bank Slip",
+                    ),
+                    Transaction(
+                        id="tx-boleto-inflow",
+                        account_id="bank-1",
+                        date=self.current_month_day,
+                        amount=Decimal("500.00"),
+                        description="Boleto recebido",
+                        category="Transfer - Bank Slip",
+                    ),
+                ]
+            )
+            session.commit()
+
         response = self.client.get("/bank-cashflow/monthly", params={"months": 1})
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
+        self.assertEqual(payload["source"], "raw_bank_transactions")
         month = payload["months"][0]
-        self.assertEqual(month["income"], 5000.01)
-        self.assertEqual(month["outflow"], 0.0)
-        self.assertEqual(month["income_count"], 2)
-        self.assertEqual(month["outflow_count"], 0)
+        self.assertEqual(month["income"], 5500.01)
+        self.assertEqual(month["outflow"], 1460.0)
+        self.assertEqual(month["income_count"], 3)
+        self.assertEqual(month["outflow_count"], 2)
         self.assertEqual(
-            {"tx-salary", "tx-interest"},
+            {
+                "tx-salary",
+                "tx-interest",
+                "tx-bank-outflow",
+                "tx-boleto-outflow",
+                "tx-boleto-inflow",
+            },
             {tx["id"] for tx in month["transactions"]},
         )
 
@@ -416,12 +446,18 @@ class BackendRegressionTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         month = response.json()["months"][0]
-        self.assertEqual(month["income"], 5000.0)
-        self.assertEqual(month["income_count"], 1)
-        self.assertEqual(month["outflow"], 0.0)
-        self.assertEqual(month["outflow_count"], 0)
+        self.assertEqual(month["income"], 5500.01)
+        self.assertEqual(month["outflow"], 1460.0)
+        self.assertEqual(month["income_count"], 3)
+        self.assertEqual(month["outflow_count"], 2)
         self.assertEqual(
-            {"tx-salary"},
+            {
+                "tx-salary",
+                "tx-interest",
+                "tx-bank-outflow",
+                "tx-boleto-outflow",
+                "tx-boleto-inflow",
+            },
             {tx["id"] for tx in month["transactions"]},
         )
 

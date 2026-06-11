@@ -1057,6 +1057,18 @@ class TestHistoricoPageLoads(unittest.TestCase):
             source,
         )
 
+    def test_historico_separates_invoice_history_from_classified_spending_and_raw_bank_cashflow(self):
+        source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("Histórico mensal das faturas", source)
+        self.assertIn("Valor oficial Pluggy nos meses fechados", source)
+        self.assertIn("Gastos por classificação", source)
+        self.assertIn("formatMoney(classifiedPurchaseTotal(active))", source)
+        self.assertIn("Todas as movimentações BANK", source)
+        self.assertIn("PIX, boleto, transferências e pagamentos", source)
+        self.assertNotIn("listCashflowRules", source)
+        self.assertNotIn("Regras do fluxo de caixa", source)
+
     def test_credit_card_payments_monthly_endpoint(self):
         response = self.client.get("/credit-card-payments/monthly?months=3")
         self.assertEqual(response.status_code, 200)

@@ -1,26 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Trash2 } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import {
-  createCashflowRule,
-  deleteCashflowRule,
   getCashflow,
   getClassificationOptions,
   getInvoiceHistory,
-  listCashflowRules,
   resetTransactionClassification,
   updateTransactionClassification,
 } from "../api/historico";
 import { BarChart } from "../components/charts/BarChart";
 import { PageContainer } from "../components/layout/PageContainer";
 import { Topbar } from "../components/layout/Topbar";
-import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ChartCard } from "../components/ui/ChartCard";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { FormField } from "../components/ui/FormField";
-import { Input } from "../components/ui/Input";
 import { LoadingState } from "../components/ui/LoadingState";
 import { MetricCard } from "../components/ui/MetricCard";
 import { Modal } from "../components/ui/Modal";
@@ -34,7 +29,6 @@ import { formatDayLabel, formatMonthCompact, formatMonthLong } from "../lib/date
 import { formatMoney } from "../lib/money";
 import type { ClassificationOptions, Transaction } from "../types/common";
 import type {
-  CashflowRule,
   CashflowSummary,
   InvoiceHistoryMonth,
   InvoiceHistorySummary,
@@ -43,10 +37,9 @@ import type {
 type HistoryTab = "invoices" | "cashflow";
 
 async function loadHistory() {
-  const [invoices, cashflow, cashflowRules] = await Promise.allSettled([
+  const [invoices, cashflow] = await Promise.allSettled([
     getInvoiceHistory(12),
     getCashflow(12),
-    listCashflowRules(),
   ]);
   if (invoices.status === "rejected" && cashflow.status === "rejected") {
     throw new Error("Falha ao carregar histórico");
@@ -54,7 +47,6 @@ async function loadHistory() {
   return {
     invoices: invoices.status === "fulfilled" ? invoices.value : null,
     cashflow: cashflow.status === "fulfilled" ? cashflow.value : null,
-    cashflowRules: cashflowRules.status === "fulfilled" ? cashflowRules.value : [],
     partialError: invoices.status === "rejected" || cashflow.status === "rejected",
   };
 }
@@ -283,7 +275,6 @@ function InvoiceTab({
     null,
   );
   const periodTotal = invoiceDisplayTotal(data);
-  const periodClassifiedTotal = classifiedPurchaseTotal(data);
   const average = data.months.length > 0 ? periodTotal / data.months.length : 0;
 
   if (!monthsWithData.length) {
@@ -301,7 +292,7 @@ function InvoiceTab({
         <MetricCard
           label="Faturas no período"
           value={formatMoney(periodTotal)}
-          subtitle={`${pluralCompras(data.total_count || 0)} classificadas · ${formatMoney(periodClassifiedTotal)}`}
+          subtitle="Meses fechados usam o valor oficial Pluggy; a vigente é calculada."
         />
         <MetricCard
           label="Mês selecionado"
@@ -334,7 +325,10 @@ function InvoiceTab({
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_1fr]">
         <Card className="overflow-hidden">
           <div className="px-5 py-4">
-            <h2 className="font-semibold text-slate-950">Histórico mensal</h2>
+            <h2 className="font-semibold text-slate-950">Histórico mensal das faturas</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Valor oficial Pluggy nos meses fechados, separado dos gastos por classificação.
+            </p>
           </div>
           <ul className="divide-y divide-slate-100">
             {[...data.months].reverse().map((item) => {
@@ -367,20 +361,21 @@ function InvoiceTab({
             <div>
               <h2 className="font-semibold text-slate-950">Gastos por classificação</h2>
               <p className="mt-0.5 text-xs text-slate-500">
-                {formatMonthLong(active.month)} · {pluralCompras(active.count)}
+                {formatMonthLong(active.month)} · {pluralCompras(active.count)} ·{" "}
+                {formatMoney(classifiedPurchaseTotal(active))}
               </p>
             </div>
             <Button
               type="button"
               onClick={() =>
                 onOpenTransactions(
-                  `Fatura · ${formatMonthLong(active.month)}`,
-                  `${pluralCompras(active.count)} · ${formatMoney(invoiceDisplayTotal(active))}`,
+                  `Compras classificadas · ${formatMonthLong(active.month)}`,
+                  `${pluralCompras(active.count)} · ${formatMoney(classifiedPurchaseTotal(active))}`,
                   active.transactions || [],
                 )
               }
             >
-              Ver transações do mês
+              Ver compras classificadas
             </Button>
           </div>
           {active.categories?.length ? (
@@ -443,48 +438,12 @@ function InvoiceTab({
 
 function CashflowTab({
   data,
-  rules,
-  onReload,
   onOpenTransactions,
 }: {
   data: CashflowSummary;
-  rules: CashflowRule[];
-  onReload: () => Promise<unknown>;
   onOpenTransactions: (title: string, subtitle: string, transactions: Transaction[]) => void;
 }) {
-  const { showToast } = useToast();
   const summary = useMemo(() => summarizeCashflow(data), [data]);
-  const [direction, setDirection] = useState("ALL");
-  const [kind, setKind] = useState("pluggy_category");
-  const [value, setValue] = useState("");
-
-  const submitRule = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!value.trim()) return;
-    try {
-      await createCashflowRule(
-        kind === "pluggy_category"
-          ? { direction, pluggy_category: value.trim() }
-          : { direction, pattern: value.trim() },
-      );
-      setValue("");
-      await onReload();
-      showToast("Regra criada e fluxo recalculado.", "success");
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Erro ao criar regra.", "error");
-    }
-  };
-
-  const removeRule = async (id: number) => {
-    if (!window.confirm("Remover esta regra?")) return;
-    try {
-      await deleteCashflowRule(id);
-      await onReload();
-      showToast("Regra removida e fluxo recalculado.", "success");
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Erro ao remover regra.", "error");
-    }
-  };
 
   if (!summary.months.length) {
     return (
@@ -518,7 +477,10 @@ function CashflowTab({
         />
       </div>
 
-      <ChartCard title="Entradas vs saídas por mês" subtitle="Clique numa barra para ver o mês">
+      <ChartCard
+        title="Entradas vs saídas por mês"
+        subtitle="Todas as movimentações BANK: PIX, boleto, transferências e pagamentos."
+      >
         <BarChart
           labels={summary.months.map((month) => formatMonthCompact(month.month))}
           datasets={[
@@ -549,7 +511,7 @@ function CashflowTab({
         <div className="border-b border-slate-100 px-5 py-4">
           <h2 className="font-semibold text-slate-950">Detalhamento mensal</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Apenas movimentações bancárias; cartão aparece quando a fatura é paga.
+            Somente contas BANK. Entradas são valores positivos; saídas são valores negativos.
           </p>
         </div>
         <Table>
@@ -593,54 +555,6 @@ function CashflowTab({
         </Table>
       </Card>
 
-      <Card className="p-5">
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-950">Regras do fluxo de caixa</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Remove investimentos, transferências internas e ruídos bancários.
-            </p>
-          </div>
-          <Badge>{rules.length} regras</Badge>
-        </div>
-        <form className="grid grid-cols-1 gap-2 lg:grid-cols-[170px_180px_1fr_auto]" onSubmit={submitRule}>
-          <Select value={direction} onChange={(event) => setDirection(event.target.value)}>
-            <option value="ALL">Entradas e saídas</option>
-            <option value="IN">Somente entradas</option>
-            <option value="OUT">Somente saídas</option>
-          </Select>
-          <Select value={kind} onChange={(event) => setKind(event.target.value)}>
-            <option value="pluggy_category">Por categoria Pluggy</option>
-            <option value="pattern">Por descrição</option>
-          </Select>
-          <Input
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            placeholder="Ex: Fixed income, Resgate CDB, Same person transfer"
-          />
-          <Button type="submit" variant="primary">
-            Adicionar
-          </Button>
-        </form>
-        <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-100">
-          {rules.map((rule) => (
-            <li key={rule.id} className="flex items-center justify-between gap-4 px-4 py-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-900">
-                  {rule.pluggy_category || rule.pattern || "-"}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {rule.direction || "ALL"} · {rule.affected_count ?? 0} transações removidas
-                </p>
-              </div>
-              <Button type="button" variant="ghost" className="size-8 px-0" onClick={() => void removeRule(rule.id)}>
-                <Trash2 className="size-4" aria-hidden="true" />
-              </Button>
-            </li>
-          ))}
-          {!rules.length ? <li className="px-4 py-6 text-center text-sm text-slate-500">Nenhuma regra cadastrada.</li> : null}
-        </ul>
-      </Card>
     </div>
   );
 }
@@ -699,8 +613,6 @@ export function HistoricoPage() {
           {data && activeTab === "cashflow" && data.cashflow ? (
             <CashflowTab
               data={data.cashflow}
-              rules={data.cashflowRules}
-              onReload={run}
               onOpenTransactions={(title, subtitle, transactions) =>
                 setModal({ title, subtitle, transactions })
               }

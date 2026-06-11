@@ -28,7 +28,6 @@ from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
     _non_duplicate_clause,
     account_ids_by_type,
-    bank_cashflow_exclusion_rules,
     bank_income_transactions,
     credit_card_payment_transactions,
     credit_card_spend_transactions,
@@ -597,6 +596,15 @@ def bank_income_history_summary(session: Session):
 
 
 def bank_cashflow_monthly_summary(session: Session, months: int):
+    """Return raw monthly BANK inflows and outflows.
+
+    This endpoint backs Historico's "Entradas e saidas" tab.  It is meant to
+    behave like a bank-account cash movement view, so it includes every
+    non-duplicate transaction from active BANK accounts: PIX, boleto, card
+    payments, transfers and other Pluggy categories.  Classification remains
+    serialized for display/editing, but it must not decide whether a BANK
+    transaction appears in this view.
+    """
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
@@ -609,22 +617,17 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
     }
     accounts_by_id = bank_accounts
     user_rules = load_compiled_user_rules(session)
-    exclusion_rules = bank_cashflow_exclusion_rules(session)
-    classifier = TransactionClassifier.from_session(session)
     transactions = session.exec(
         select(Transaction)
         .where(
+            Transaction.account_id.in_(active_bank_ids),
             Transaction.date >= start_date,
             Transaction.date <= today,
             _non_duplicate_clause(),
         )
         .order_by(Transaction.date.desc())
     ).all()
-    bank_transactions = [
-        tx
-        for tx in transactions
-        if tx.account_id in bank_accounts and classifier.is_bank_cashflow(tx)
-    ]
+    bank_transactions = [tx for tx in transactions if tx.account_id in bank_accounts]
 
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
     for tx in bank_transactions:
@@ -676,7 +679,8 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
         "summary": {key: float(value) for key, value in totals.items()},
         "transaction_count": len(bank_transactions),
         "bank_account_count": len(bank_accounts),
-        "excluded_rule_count": len(exclusion_rules),
+        "excluded_rule_count": 0,
+        "source": "raw_bank_transactions",
     }
 
 
