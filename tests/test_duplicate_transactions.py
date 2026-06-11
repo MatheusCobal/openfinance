@@ -21,7 +21,7 @@ from app.database import get_session
 from app.main import app
 from app.models import Account, Item, Transaction
 from app.services.sync import compute_dedupe_key
-from app.services.transaction_reports import invoice_summary, monthly_stats_summary
+from app.services.transaction_reports import invoice_summary
 from app.services.transactions import account_ids_by_type, credit_card_spend_transactions
 
 

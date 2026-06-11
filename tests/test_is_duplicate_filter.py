@@ -389,19 +389,6 @@ class TestEndpointsExcludeMarkedDuplicates(unittest.TestCase):
         self.assertNotIn("tx-dup", ids)
         self.assertEqual(len(ids), 1)
 
-    def setUp(self):
-        self.engine = _make_engine()
-
-        def override_get_session():
-            with Session(self.engine) as s:
-                yield s
-
-        app.dependency_overrides[get_session] = override_get_session
-        self.client = TestClient(app)
-
-    def tearDown(self):
-        app.dependency_overrides.clear()
-
     def test_debug_endpoint_counts_already_marked(self):
         """Transactions with is_duplicate=True must be visible in the debug endpoint."""
         with Session(self.engine) as s:

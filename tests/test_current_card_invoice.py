@@ -12,7 +12,6 @@ from app.models import (
     Account,
     CreditCardBill,
     ExpectedIncome,
-    IgnoredDescriptionRule,
     Item,
     Transaction,
 )
