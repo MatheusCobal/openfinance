@@ -160,6 +160,7 @@ export interface CreditCardInvoice {
   due_dates?: string[];
   cards?: Array<Record<string, any>>;
   categories?: InvoiceCategory[];
+  raw_purchase_transactions?: Transaction[];
   reconciliation?: Record<string, any>;
   year_month?: string;
   [key: string]: any;

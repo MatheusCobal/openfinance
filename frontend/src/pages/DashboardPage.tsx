@@ -28,15 +28,31 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { LoadingState } from "../components/ui/LoadingState";
 import { MetricCard } from "../components/ui/MetricCard";
-import { Modal } from "../components/ui/Modal";
 import { SectionHeader } from "../components/ui/SectionHeader";
+import { Table } from "../components/ui/Table";
 import { useAsync } from "../hooks/useAsync";
 import { useToast } from "../hooks/useToast";
 import { formatDayLabel, formatMonthLong, formatMonthShort, getDefaultPlanningMonth } from "../lib/dates";
 import { dashboardAvailableToSpend, normalizePlanningOverview, planStatusLabel } from "../lib/planning";
 import { extractPluggyItemId, ensurePluggyConnectSdkLoaded } from "../lib/pluggy";
 import { formatMoney } from "../lib/money";
-import type { InvoiceCategory } from "../types/planejamento";
+import type { Transaction } from "../types/common";
+
+const RECENT_CARD_PURCHASE_LIMIT = 8;
+
+function latestCardPurchases(transactions: Transaction[] = []) {
+  return [...transactions]
+    .filter((tx) => {
+      const cashflowType = String(tx.cashflow_type ?? "expense").toLowerCase();
+      return !tx.ignored_from_totals && cashflowType === "expense";
+    })
+    .sort((a, b) => {
+      const dateOrder = new Date(b.date).getTime() - new Date(a.date).getTime();
+      if (dateOrder !== 0) return dateOrder;
+      return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
+    })
+    .slice(0, RECENT_CARD_PURCHASE_LIMIT);
+}
 
 async function loadDashboardData() {
   const planningMonth = getDefaultPlanningMonth();
@@ -55,7 +71,7 @@ async function loadDashboardData() {
     currentInvoice,
     bankBalance,
     upcoming,
-    categories: currentInvoice.categories || [],
+    recentCardPurchases: latestCardPurchases(currentInvoice.raw_purchase_transactions || []),
   };
 }
 
@@ -92,7 +108,6 @@ function InvoiceReconciliation({ reconciliation }: { reconciliation?: Record<str
 export function DashboardPage() {
   const { showToast } = useToast();
   const { data, loading, error, run } = useAsync(loadDashboardData, []);
-  const [selectedCategory, setSelectedCategory] = useState<InvoiceCategory | null>(null);
   const [connecting, setConnecting] = useState(false);
 
   const connectBank = async () => {
@@ -326,82 +341,57 @@ export function DashboardPage() {
 
             <section>
               <SectionHeader
-                title="Classificação das compras"
-                subtitle="Quebra por categoria da fatura vigente"
+                title="Últimas compras do cartão"
+                subtitle="Compras mais recentes da fatura vigente"
               />
-              {data.categories.length === 0 ? (
+              {data.recentCardPurchases.length === 0 ? (
                 <EmptyState
-                  title="Nenhuma compra categorizada na fatura vigente."
-                  detail="Quando houver compras ativas categorizadas, elas aparecem aqui."
+                  title="Nenhuma compra recente na fatura vigente."
+                  detail="Quando houver compras ativas no cartão, elas aparecem aqui."
                 />
               ) : (
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-                  {data.categories.map((category) => (
-                    <button
-                      key={String(category.id)}
-                      type="button"
-                      onClick={() => setSelectedCategory(category)}
-                      className="rounded-lg border border-slate-200 bg-white p-5 text-left transition hover:border-blue-200 hover:shadow-soft"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span
-                              className="size-2.5 shrink-0 rounded-sm"
-                              style={{ background: category.color || "#64748b" }}
-                            />
-                            <h3 className="truncate font-semibold text-slate-950">{category.name}</h3>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {(category.count ?? 0).toLocaleString("pt-BR")} compras
-                          </p>
-                        </div>
-                        <p className="shrink-0 font-bold text-slate-950 tabular">
-                          {formatMoney(category.total)}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                <Card className="overflow-hidden">
+                  <Table>
+                    <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-5 py-3">Data</th>
+                        <th className="px-5 py-3">Compra</th>
+                        <th className="px-5 py-3">Classificação</th>
+                        <th className="px-5 py-3 text-right">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {data.recentCardPurchases.map((tx) => (
+                        <tr key={tx.id}>
+                          <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-500">
+                            {formatDayLabel(tx.date)}
+                          </td>
+                          <td className="px-5 py-4">
+                            <p className="max-w-[34rem] truncate text-sm font-medium text-slate-950">
+                              {tx.description}
+                            </p>
+                            {tx.installment_number && tx.total_installments ? (
+                              <p className="mt-1 text-xs text-slate-500">
+                                Parcela {tx.installment_number}/{tx.total_installments}
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-5 py-4 text-sm text-slate-600">
+                            {tx.internal_category || tx.category || "Sem classificação"}
+                          </td>
+                          <td className="whitespace-nowrap px-5 py-4 text-right text-sm font-semibold tabular text-slate-950">
+                            {formatMoney(tx.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </Card>
               )}
             </section>
           </div>
         ) : null}
       </PageContainer>
-
-      <Modal
-        open={!!selectedCategory}
-        title={selectedCategory?.name || ""}
-        subtitle={
-          selectedCategory
-            ? `${selectedCategory.count ?? 0} compras · ${formatMoney(selectedCategory.total)}`
-            : undefined
-        }
-        onClose={() => setSelectedCategory(null)}
-      >
-        <ul className="divide-y divide-slate-100">
-          {(selectedCategory?.transactions || []).map((tx) => (
-            <li key={tx.id} className="flex items-baseline justify-between gap-4 px-5 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-950">{tx.description}</p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {formatDayLabel(tx.date)}
-                  {tx.installment_number && tx.total_installments
-                    ? ` · ${tx.installment_number}/${tx.total_installments}`
-                    : ""}
-                  {tx.classification_source ? ` · ${tx.classification_source}` : ""}
-                </p>
-              </div>
-              <span className="shrink-0 text-sm font-semibold tabular text-slate-900">
-                {formatMoney(tx.amount)}
-              </span>
-            </li>
-          ))}
-          {selectedCategory?.transactions?.length ? null : (
-            <li className="px-5 py-8 text-center text-sm text-slate-500">Sem transações detalhadas.</li>
-          )}
-        </ul>
-      </Modal>
     </>
   );
 }

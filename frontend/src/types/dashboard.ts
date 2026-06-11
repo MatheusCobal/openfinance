@@ -1,4 +1,5 @@
-import type { CreditCardInvoice, InvoiceCategory, PlanningOverview } from "./planejamento";
+import type { CreditCardInvoice, PlanningOverview } from "./planejamento";
+import type { Transaction } from "./common";
 import type { UpcomingSummary } from "./proximos";
 
 export interface BankBalanceSummary {
@@ -32,5 +33,5 @@ export interface DashboardData {
   currentInvoice: CreditCardInvoice;
   bankBalance: BankBalanceSummary | null;
   upcoming: UpcomingSummary | null;
-  categories: InvoiceCategory[];
+  recentCardPurchases: Transaction[];
 }
