@@ -1,6 +1,7 @@
 import { apiGet, apiPost } from "./client";
 import type { BankBalanceSummary } from "../types/dashboard";
 import type { CreditCardInvoice, PlanningMonth } from "../types/planejamento";
+import type { UpcomingSummary } from "../types/proximos";
 
 export function getPlanningMonth(yearMonth: string) {
   return apiGet<PlanningMonth>(`/planning/month/${yearMonth}`);
@@ -12,6 +13,10 @@ export function getCurrentInvoice() {
 
 export function getBankBalance() {
   return apiGet<BankBalanceSummary>("/bank/balance-summary");
+}
+
+export function getUpcoming() {
+  return apiGet<UpcomingSummary>("/upcoming");
 }
 
 export function createConnectToken(itemId?: string) {

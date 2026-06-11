@@ -258,6 +258,38 @@ def upcoming_summary(
         "is_estimated": planning_inv["is_estimated"],
     }
 
+    next_invoice_amount = Decimal(str(next_invoice["amount"] or 0))
+    vigente_row = next(
+        (month for month in months_out if month["month"] == vigente_month),
+        None,
+    )
+    if vigente_row is not None:
+        vigente_row["scheduled_total"] = vigente_row["total"]
+        vigente_row["scheduled_count"] = vigente_row["count"]
+        vigente_row["total"] = float(next_invoice_amount)
+        vigente_row["invoice_total"] = float(next_invoice_amount)
+        vigente_row["invoice_source"] = next_invoice["source"]
+        vigente_row["invoice_source_label"] = next_invoice["source_label"]
+        vigente_row["is_current_invoice"] = True
+    elif next_invoice_amount > 0:
+        months_out.append(
+            {
+                "month": vigente_month,
+                "total": float(next_invoice_amount),
+                "count": planning_inv.get("transaction_count", 0),
+                "scheduled_total": 0.0,
+                "scheduled_count": 0,
+                "invoice_total": float(next_invoice_amount),
+                "invoice_source": next_invoice["source"],
+                "invoice_source_label": next_invoice["source_label"],
+                "is_current_invoice": True,
+                "categories": [],
+                "transactions": [],
+                "legacy_category_breakdown_removed": False,
+            }
+        )
+        months_out.sort(key=lambda month: month["month"])
+
     return {
         "total_count": len(future_txs),
         "months": months_out,

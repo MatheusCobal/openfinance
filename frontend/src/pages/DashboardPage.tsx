@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ArrowUpRight,
   Banknote,
+  CalendarDays,
   CreditCard,
   Link as LinkIcon,
   RefreshCw,
@@ -14,6 +15,7 @@ import {
   getBankBalance,
   getCurrentInvoice,
   getPlanningMonth,
+  getUpcoming,
   registerPluggyItem,
   syncPluggyItem,
 } from "../api/dashboard";
@@ -42,13 +44,17 @@ async function loadDashboardData() {
     getPlanningMonth(planningMonth),
     getCurrentInvoice(),
   ]);
-  const bankBalance = await getBankBalance().catch(() => null);
+  const [bankBalance, upcoming] = await Promise.all([
+    getBankBalance().catch(() => null),
+    getUpcoming().catch(() => null),
+  ]);
   const capacity = normalizePlanningOverview(planning);
   return {
     planningMonth,
     capacity,
     currentInvoice,
     bankBalance,
+    upcoming,
     categories: currentInvoice.categories || [],
   };
 }
@@ -188,7 +194,7 @@ export function DashboardPage() {
               </div>
             </Card>
 
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <Card className="p-6">
                 <div className="flex min-h-[160px] flex-col justify-between gap-5">
                   <div className="flex items-start justify-between gap-4">
@@ -237,6 +243,36 @@ export function DashboardPage() {
                   </div>
                 </div>
                 <InvoiceReconciliation reconciliation={data.currentInvoice.reconciliation} />
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex min-h-[160px] flex-col justify-between gap-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">Próxima fatura</p>
+                      <p className="mt-3 text-3xl font-semibold text-slate-950 tabular">
+                        {data.upcoming?.next_invoice
+                          ? formatMoney(data.upcoming.next_invoice.amount)
+                          : "-"}
+                      </p>
+                    </div>
+                    <span className="inline-flex size-10 items-center justify-center rounded-md bg-indigo-50 text-indigo-700">
+                      <CalendarDays className="size-5" aria-hidden="true" />
+                    </span>
+                  </div>
+                  <div className="space-y-2 text-xs leading-relaxed text-slate-500">
+                    <p className="text-sm text-slate-600">
+                      {data.upcoming?.next_invoice
+                        ? `${formatMonthLong(data.upcoming.next_invoice.year_month)} · ${
+                            data.upcoming.next_invoice.source_label || "Fatura vigente"
+                          }`
+                        : "Próximos indisponível agora."}
+                    </p>
+                    <Link to="/proximos" className="font-medium text-blue-700 hover:text-blue-800">
+                      Ver próximos gastos
+                    </Link>
+                  </div>
+                </div>
               </Card>
             </div>
 

@@ -467,8 +467,8 @@ class CurrentCardInvoiceTest(unittest.TestCase):
 
     def test_upcoming_summary_next_invoice_matches_dashboard(self):
         """Upcoming ("Próximos") exposes next_invoice with the same value as
-        the Dashboard current invoice, not the stale installments-only sum,
-        while the months listing itself stays untouched."""
+        the Dashboard current invoice, not the stale installments-only sum.
+        The vigente month row must use that same value too."""
         from app.services.transaction_reports import upcoming_summary
 
         with Session(self.engine) as session:
@@ -485,9 +485,12 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["next_invoice"]["amount"], dashboard["amount"])
         self.assertEqual(summary["next_invoice"]["amount"], 11488.32)
         self.assertEqual(summary["next_invoice"]["source"], "dashboard_current_invoice")
-        # The future-installments listing is preserved as-is.
         self.assertEqual(summary["months"][0]["month"], "2026-07")
-        self.assertEqual(summary["months"][0]["total"], 7993.58)
+        self.assertEqual(summary["months"][0]["total"], 11488.32)
+        self.assertEqual(summary["months"][0]["invoice_total"], 11488.32)
+        self.assertEqual(summary["months"][0]["scheduled_total"], 7993.58)
+        self.assertEqual(summary["months"][0]["invoice_source"], "dashboard_current_invoice")
+        self.assertTrue(summary["months"][0]["is_current_invoice"])
 
     def test_vigente_spending_capacity_uses_dashboard_invoice(self):
         """Spending capacity for the vigente month subtracts the Dashboard

@@ -21,6 +21,15 @@ function pluralParcelas(n: number) {
   return n === 1 ? "1 parcela" : `${n.toLocaleString("pt-BR")} parcelas`;
 }
 
+function monthSubtitle(month: UpcomingMonth) {
+  if (month.is_current_invoice) {
+    const label = month.invoice_source_label || "Fatura vigente";
+    const scheduledCount = month.scheduled_count ?? month.count ?? 0;
+    return `${label} · ${pluralParcelas(scheduledCount)}`;
+  }
+  return pluralParcelas(month.count || 0);
+}
+
 function transactionList(transactions: UpcomingMonth["transactions"]) {
   if (!transactions?.length) {
     return <p className="px-5 py-6 text-sm text-slate-500">Sem parcelas detalhadas.</p>;
@@ -112,13 +121,21 @@ export function ProximosPage() {
                 <MetricCard
                   label="3 meses"
                   value={formatMoney(summary.quarterTotal)}
-                  subtitle={pluralParcelas(summary.quarterCount)}
+                  subtitle={
+                    data.next_invoice
+                      ? `Inclui ${formatMonthLong(data.next_invoice.year_month)} vigente`
+                      : pluralParcelas(summary.quarterCount)
+                  }
                   icon={<CalendarDays className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
                   label="Total futuro"
                   value={formatMoney(summary.totalFuture)}
-                  subtitle={pluralParcelas(summary.totalCount)}
+                  subtitle={
+                    data.next_invoice
+                      ? "Fatura vigente + parcelas futuras"
+                      : pluralParcelas(summary.totalCount)
+                  }
                   tone="amber"
                   icon={<TrendingUp className="size-4" aria-hidden="true" />}
                 />
@@ -181,7 +198,7 @@ export function ProximosPage() {
                           {formatMoney(selected.total)}
                         </p>
                       </div>
-                      <p className="text-sm text-slate-500 tabular">{pluralParcelas(selected.count)}</p>
+                      <p className="text-sm text-slate-500 tabular">{monthSubtitle(selected)}</p>
                     </div>
                   </Card>
 
