@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>OpenFinance — Sua vida financeira com clareza total</title>
+    <meta name="description" content="O OpenFinance conecta contas, cartões, faturas e transações em uma experiência única. Planejamento mensal, classificação automática e histórico completo — com seus dados sob seu controle." />
+    <meta property="og:title" content="OpenFinance — Sua vida financeira com clareza total" />
+    <meta property="og:description" content="Contas, cartões, faturas e transações organizados em um único lugar, conectados via Open Finance." />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_BR" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B3%3C/text%3E%3C/svg%3E" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] } } },
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+    <link rel="stylesheet" href="/static/landing.css?v=20260611-1" />
+    <style>
+      /* Critical inline CSS: avoid flash of unstyled content before the CDN loads. */
+      body { background: #020617; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased; }
+      .tabular { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body class="bg-slate-950 text-slate-900" style="color-scheme:light">
+
+    <a href="#conteudo" class="lp-skip-link">Pular para o conteúdo</a>
+
+    <!-- ── Header ──────────────────────────────────────────────────────── -->
+    <header id="lp-header" class="fixed inset-x-0 top-0 z-50 transition-colors">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="h-16 flex items-center justify-between gap-4">
+          <a href="/" class="flex items-center gap-2.5 min-w-0" aria-label="OpenFinance — página inicial">
+            <span class="size-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-base leading-none select-none shrink-0">💳</span>
+            <span class="font-semibold text-white text-[15px] tracking-tight">OpenFinance</span>
+          </a>
+
+          <nav class="hidden md:flex items-center gap-1" aria-label="Navegação principal">
+            <a href="#beneficios" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Benefícios</a>
+            <a href="#produto" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Produto</a>
+            <a href="#como-funciona" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Como funciona</a>
+            <a href="#seguranca" class="px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Segurança</a>
+          </nav>
+
+          <div class="flex items-center gap-2">
+            <a href="/dashboard"
+              class="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 transition-colors lp-cta">
+              Entrar no app
+              <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </a>
+            <button id="lp-menu-btn" type="button"
+              class="md:hidden size-9 rounded-md flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+              aria-expanded="false" aria-controls="lp-mobile-menu" aria-label="Abrir menu">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile menu -->
+      <div id="lp-mobile-menu" class="hidden md:hidden border-t border-white/10 bg-slate-950/95 backdrop-blur">
+        <nav class="px-4 py-3 space-y-1" aria-label="Navegação móvel">
+          <a href="#beneficios" class="block px-3 py-2.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Benefícios</a>
+          <a href="#produto" class="block px-3 py-2.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Produto</a>
+          <a href="#como-funciona" class="block px-3 py-2.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Como funciona</a>
+          <a href="#seguranca" class="block px-3 py-2.5 rounded-md text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5">Segurança</a>
+          <a href="/dashboard" class="mt-2 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700">Entrar no app</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="conteudo">
+
+      <!-- ── Hero ──────────────────────────────────────────────────────── -->
+      <section class="lp-hero relative overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-20 sm:pt-36 sm:pb-24 lg:pt-40 lg:pb-28 relative">
+          <div class="grid lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+
+            <div class="lg:col-span-6 xl:col-span-5 text-center lg:text-left">
+              <span class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-slate-300 mb-6">
+                <span class="size-1.5 rounded-full bg-emerald-400" aria-hidden="true"></span>
+                Conectado via Open Finance
+              </span>
+
+              <h1 class="text-4xl sm:text-5xl xl:text-[3.4rem] font-extrabold tracking-tight text-white leading-[1.08]">
+                Sua vida financeira com uma visão
+                <span class="lp-gradient-text">clara, conectada e inteligente</span>.
+              </h1>
+
+              <p class="mt-6 text-lg text-slate-400 leading-relaxed max-w-xl mx-auto lg:mx-0">
+                O OpenFinance organiza contas, cartões, faturas e transações em uma
+                experiência única, simples e confiável — sincronizada direto com seus bancos.
+              </p>
+
+              <div class="mt-9 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3">
+                <a href="/dashboard"
+                  class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-blue-600 text-[15px] font-semibold text-white hover:bg-blue-700 transition-colors lp-cta">
+                  Acessar minha conta
+                  <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </a>
+                <a href="#como-funciona"
+                  class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg border border-white/15 bg-white/5 text-[15px] font-semibold text-slate-200 hover:bg-white/10 hover:text-white transition-colors">
+                  Ver como funciona
+                </a>
+              </div>
+
+              <dl class="mt-12 grid grid-cols-3 gap-4 max-w-md mx-auto lg:mx-0 text-center lg:text-left">
+                <div>
+                  <dt class="text-xs text-slate-500 font-medium order-last">Sincronização</dt>
+                  <dd class="text-white font-bold text-lg tracking-tight">Diária</dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-slate-500 font-medium order-last">Classificação</dt>
+                  <dd class="text-white font-bold text-lg tracking-tight">Automática</dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-slate-500 font-medium order-last">Seus dados</dt>
+                  <dd class="text-white font-bold text-lg tracking-tight">Com você</dd>
+                </div>
+              </dl>
+            </div>
+
+            <!-- Financial cockpit mockup (simulated data only) -->
+            <div class="lg:col-span-6 xl:col-span-7 relative" aria-hidden="true">
+              <div class="lp-mockup-glow" aria-hidden="true"></div>
+
+              <div class="relative max-w-2xl mx-auto">
+                <div class="lp-mockup-frame rounded-2xl overflow-hidden">
+                  <!-- Browser chrome -->
+                  <div class="flex items-center gap-2 px-4 py-3 bg-slate-800/90 border-b border-white/10">
+                    <span class="flex gap-1.5">
+                      <span class="size-2.5 rounded-full bg-rose-400/80"></span>
+                      <span class="size-2.5 rounded-full bg-amber-400/80"></span>
+                      <span class="size-2.5 rounded-full bg-emerald-400/80"></span>
+                    </span>
+                    <span class="ml-3 flex-1 max-w-[240px] rounded-md bg-slate-700/60 px-3 py-1 text-[11px] text-slate-400 truncate">openfinance/dashboard</span>
+                  </div>
+
+                  <!-- App preview -->
+                  <div class="bg-slate-50 p-4 sm:p-5 space-y-3">
+                    <!-- Hero card (mirrors the real app's primary card) -->
+                    <div class="bg-slate-900 rounded-xl p-5 text-white">
+                      <div class="flex items-start justify-between gap-3">
+                        <div>
+                          <p class="text-[11px] uppercase tracking-wider text-slate-400 font-medium">Disponível para gastar</p>
+                          <p class="text-3xl font-extrabold tabular tracking-tight mt-1.5">R$ 2.847<span class="text-xl text-slate-400">,90</span></p>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[11px] font-semibold px-2.5 py-1">
+                          <span class="size-1.5 rounded-full bg-emerald-400"></span>
+                          Dentro do plano
+                        </span>
+                      </div>
+                      <div class="mt-4">
+                        <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div class="h-full w-[64%] rounded-full bg-gradient-to-r from-blue-500 to-sky-400"></div>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-2 tabular">Fatura vigente no cálculo: R$ 1.932,45</p>
+                      </div>
+                    </div>
+
+                    <!-- Secondary cards -->
+                    <div class="grid grid-cols-2 gap-3">
+                      <div class="bg-white rounded-xl border border-slate-200 p-4">
+                        <p class="text-[11px] text-slate-500 font-medium">Saldo em contas</p>
+                        <p class="text-lg font-bold text-slate-900 tabular tracking-tight mt-1">R$ 8.412,07</p>
+                        <p class="text-[11px] text-slate-400 mt-1.5">2 contas conectadas</p>
+                      </div>
+                      <div class="bg-white rounded-xl border border-slate-200 p-4">
+                        <div class="flex items-center justify-between">
+                          <p class="text-[11px] text-slate-500 font-medium">Fatura vigente</p>
+                          <span class="text-[10px] font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">Fecha em 9 dias</span>
+                        </div>
+                        <p class="text-lg font-bold text-slate-900 tabular tracking-tight mt-1">R$ 1.932,45</p>
+                        <div class="h-1 rounded-full bg-slate-100 overflow-hidden mt-2">
+                          <div class="h-full w-[62%] rounded-full bg-blue-600 progress-bar"></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Category chips (mirrors the classification grid) -->
+                    <div class="bg-white rounded-xl border border-slate-200 p-4">
+                      <p class="text-[11px] text-slate-500 font-medium mb-2.5">Classificação das compras</p>
+                      <div class="flex flex-wrap gap-1.5">
+                        <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 tabular">🛒 Mercado <strong>R$ 612</strong></span>
+                        <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 tabular">🍽️ Restaurantes <strong>R$ 348</strong></span>
+                        <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 tabular">🚗 Transporte <strong>R$ 187</strong></span>
+                        <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700 tabular">📺 Assinaturas <strong>R$ 129</strong></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Floating insight cards -->
+                <div class="lp-float hidden sm:flex absolute -top-5 -right-3 lg:-right-6 items-center gap-2.5 rounded-xl px-4 py-3 lp-glass">
+                  <span class="size-8 rounded-lg bg-amber-100 flex items-center justify-center text-base shrink-0">💡</span>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-900">Insight automático</p>
+                    <p class="text-[11px] text-slate-600 tabular">Assinaturas +12% vs. maio</p>
+                  </div>
+                </div>
+                <div class="lp-float-slow hidden sm:flex absolute -bottom-5 -left-3 lg:-left-6 items-center gap-2.5 rounded-xl px-4 py-3 lp-glass">
+                  <span class="size-8 rounded-lg bg-emerald-100 flex items-center justify-center text-base shrink-0">📅</span>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-900">Próximos compromissos</p>
+                    <p class="text-[11px] text-slate-600 tabular">3 parcelas terminam em agosto</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Benefícios ────────────────────────────────────────────────── -->
+      <section id="beneficios" class="bg-white py-20 sm:py-24 lg:py-28">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="max-w-2xl mx-auto text-center lp-reveal">
+            <p class="text-sm font-semibold text-blue-700 uppercase tracking-wider">Benefícios</p>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+              Tudo o que importa, em um só lugar
+            </h2>
+            <p class="mt-4 text-lg text-slate-600 leading-relaxed">
+              Pare de juntar extratos, planilhas e apps de banco. O OpenFinance consolida
+              sua vida financeira e devolve o que você mais precisa: clareza.
+            </p>
+          </div>
+
+          <div class="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <article class="lp-benefit-card lp-reveal rounded-2xl border border-slate-200 bg-white p-6">
+              <span class="size-11 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-slate-900">Contas consolidadas</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Conecte todos os seus bancos e veja saldos e movimentações em uma visão única,
+                sem alternar entre apps.
+              </p>
+            </article>
+
+            <article class="lp-benefit-card lp-reveal rounded-2xl border border-slate-200 bg-white p-6">
+              <span class="size-11 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M16 15h2"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-slate-900">Cartões e faturas reais</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Fatura vigente, faturas futuras e parcelas conhecidas — o impacto do cartão
+                no seu mês, sem surpresas no fechamento.
+              </p>
+            </article>
+
+            <article class="lp-benefit-card lp-reveal rounded-2xl border border-slate-200 bg-white p-6">
+              <span class="size-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-slate-900">Histórico completo</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Faturas mês a mês, receitas bancárias e evolução dos seus gastos —
+                a memória financeira que planilha nenhuma mantém em dia.
+              </p>
+            </article>
+
+            <article class="lp-benefit-card lp-reveal rounded-2xl border border-slate-200 bg-white p-6">
+              <span class="size-11 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6L19 9.5l-4.1 1.9L12 16l-1.9-4.6L6 9.5l4.1-1.9z"/><path d="M19 16l.8 1.9 1.9.8-1.9.8L19 21l-.8-1.9-1.9-.8 1.9-.8z"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-slate-900">Classificação inteligente</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Transações classificadas automaticamente por categoria, com regras manuais
+                para ajustar tudo do seu jeito.
+              </p>
+            </article>
+
+            <article class="lp-benefit-card lp-reveal rounded-2xl border border-slate-200 bg-white p-6">
+              <span class="size-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-slate-900">Dashboards e insights</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Resumo executivo do mês, capacidade de gasto calculada e insights
+                automáticos sobre para onde seu dinheiro está indo.
+              </p>
+            </article>
+
+            <article class="lp-benefit-card lp-reveal rounded-2xl border border-slate-200 bg-white p-6">
+              <span class="size-11 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-slate-900">Clareza mensal</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Receita esperada, custos fixos, metas variáveis e sobra planejada —
+                você sabe quanto pode gastar antes de o mês começar.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Produto em ação ───────────────────────────────────────────── -->
+      <section id="produto" class="bg-slate-50 py-20 sm:py-24 lg:py-28 border-y border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="max-w-2xl mx-auto text-center lp-reveal">
+            <p class="text-sm font-semibold text-blue-700 uppercase tracking-wider">Produto</p>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+              Veja o OpenFinance em ação
+            </h2>
+            <p class="mt-4 text-lg text-slate-600 leading-relaxed">
+              Linha do tempo de faturas, parcelas futuras e insights automáticos —
+              com dados simulados para você sentir a experiência.
+            </p>
+          </div>
+
+          <div class="mt-14 grid lg:grid-cols-5 gap-6 items-start">
+
+            <!-- Invoice timeline. min-w-0 lets the inner overflow-x-auto strip
+                 scroll instead of blowing the grid column wide on mobile. -->
+            <div class="lg:col-span-3 min-w-0 lp-reveal rounded-2xl border border-slate-200 bg-white p-6 sm:p-7">
+              <div class="flex items-baseline justify-between gap-3 mb-6">
+                <h3 class="text-base font-bold text-slate-900">Linha do tempo da fatura</h3>
+                <span class="text-xs text-slate-500">Cartão final 4821 · simulado</span>
+              </div>
+
+              <ol class="lp-timeline chip-strip flex gap-3 overflow-x-auto pb-2" aria-label="Faturas por mês (dados simulados)">
+                <li class="lp-timeline-item shrink-0 w-32 rounded-xl border border-slate-200 bg-white p-3.5">
+                  <p class="text-xs font-semibold text-slate-500">Março</p>
+                  <p class="text-sm font-bold text-slate-700 tabular mt-1">R$ 1.604,12</p>
+                  <span class="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                    <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4 10-10"/></svg>
+                    Paga
+                  </span>
+                </li>
+                <li class="lp-timeline-item shrink-0 w-32 rounded-xl border border-slate-200 bg-white p-3.5">
+                  <p class="text-xs font-semibold text-slate-500">Abril</p>
+                  <p class="text-sm font-bold text-slate-700 tabular mt-1">R$ 1.387,55</p>
+                  <span class="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                    <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4 10-10"/></svg>
+                    Paga
+                  </span>
+                </li>
+                <li class="lp-timeline-item shrink-0 w-32 rounded-xl border border-slate-200 bg-white p-3.5">
+                  <p class="text-xs font-semibold text-slate-500">Maio</p>
+                  <p class="text-sm font-bold text-slate-700 tabular mt-1">R$ 1.751,30</p>
+                  <span class="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                    <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4 10-10"/></svg>
+                    Paga
+                  </span>
+                </li>
+                <li class="lp-timeline-item lp-timeline-current shrink-0 w-40 rounded-xl border-2 border-blue-600 bg-blue-50/50 p-3.5 relative">
+                  <span class="absolute -top-2.5 left-3 rounded-full bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5">VIGENTE</span>
+                  <p class="text-xs font-semibold text-blue-800 mt-1">Junho</p>
+                  <p class="text-base font-extrabold text-slate-900 tabular mt-1">R$ 1.932,45</p>
+                  <div class="h-1 rounded-full bg-blue-100 overflow-hidden mt-2">
+                    <div class="h-full w-[62%] rounded-full bg-blue-600 progress-bar"></div>
+                  </div>
+                  <p class="text-[11px] text-blue-800/80 font-medium mt-1.5">Fecha em 9 dias</p>
+                </li>
+                <li class="lp-timeline-item shrink-0 w-32 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5">
+                  <p class="text-xs font-semibold text-slate-500">Julho</p>
+                  <p class="text-sm font-bold text-slate-600 tabular mt-1">R$ 1.184,20</p>
+                  <span class="mt-2 inline-block text-[11px] font-semibold text-slate-500">Prevista · 6 parcelas</span>
+                </li>
+                <li class="lp-timeline-item shrink-0 w-32 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5">
+                  <p class="text-xs font-semibold text-slate-500">Agosto</p>
+                  <p class="text-sm font-bold text-slate-600 tabular mt-1">R$ 743,10</p>
+                  <span class="mt-2 inline-block text-[11px] font-semibold text-slate-500">Prevista · 3 parcelas</span>
+                </li>
+              </ol>
+
+              <p class="mt-5 text-sm text-slate-500 leading-relaxed">
+                Faturas passadas, vigente e previstas em uma única linha do tempo — incluindo
+                as parcelas que você já assumiu. É assim que o OpenFinance elimina a surpresa
+                do fechamento do cartão.
+              </p>
+            </div>
+
+            <!-- Automatic insights -->
+            <div class="lg:col-span-2 space-y-4">
+              <div class="lp-reveal rounded-2xl border border-slate-200 bg-white p-5 lp-insight border-l-4 border-l-amber-400">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-base" aria-hidden="true">💡</span>
+                  <span class="text-[11px] font-bold uppercase tracking-wider text-amber-700">Insight automático</span>
+                </div>
+                <p class="text-sm text-slate-700 leading-relaxed">
+                  Assinaturas somaram <strong class="tabular">R$ 129,90</strong> este mês —
+                  <strong>12% acima</strong> da média dos últimos 3 meses.
+                </p>
+              </div>
+
+              <div class="lp-reveal rounded-2xl border border-slate-200 bg-white p-5 lp-insight border-l-4 border-l-blue-500">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-base" aria-hidden="true">📅</span>
+                  <span class="text-[11px] font-bold uppercase tracking-wider text-blue-700">Próximos meses</span>
+                </div>
+                <p class="text-sm text-slate-700 leading-relaxed">
+                  Sua fatura prevista de julho já tem <strong class="tabular">R$ 1.184,20</strong>
+                  em parcelas conhecidas. Três delas terminam em agosto.
+                </p>
+              </div>
+
+              <div class="lp-reveal rounded-2xl border border-slate-200 bg-white p-5 lp-insight border-l-4 border-l-emerald-500">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-base" aria-hidden="true">🎯</span>
+                  <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Planejamento</span>
+                </div>
+                <p class="text-sm text-slate-700 leading-relaxed">
+                  Custos fixos representam <strong>41%</strong> da sua renda esperada de junho.
+                  Sobra planejada: <strong class="tabular">R$ 1.218,00</strong>.
+                </p>
+              </div>
+
+              <p class="lp-reveal text-xs text-slate-400 px-1">
+                * Valores simulados para demonstração. Nenhum dado real é exibido nesta página.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Como funciona ─────────────────────────────────────────────── -->
+      <section id="como-funciona" class="bg-white py-20 sm:py-24 lg:py-28">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="max-w-2xl mx-auto text-center lp-reveal">
+            <p class="text-sm font-semibold text-blue-700 uppercase tracking-wider">Como funciona</p>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900">
+              Do primeiro acesso à clareza total em 4 passos
+            </h2>
+          </div>
+
+          <ol class="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-6 lp-steps">
+            <li class="lp-step lp-reveal relative text-center sm:text-left">
+              <span class="lp-step-number">1</span>
+              <h3 class="mt-5 text-base font-bold text-slate-900">Conecte seus bancos</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Conexão segura via Open Finance (Pluggy). Suas senhas bancárias nunca
+                passam pelo OpenFinance.
+              </p>
+            </li>
+            <li class="lp-step lp-reveal relative text-center sm:text-left">
+              <span class="lp-step-number">2</span>
+              <h3 class="mt-5 text-base font-bold text-slate-900">Sincronize automaticamente</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Transações, saldos e faturas atualizados diariamente — sem digitação
+                manual, sem importar arquivos.
+              </p>
+            </li>
+            <li class="lp-step lp-reveal relative text-center sm:text-left">
+              <span class="lp-step-number">3</span>
+              <h3 class="mt-5 text-base font-bold text-slate-900">Classifique do seu jeito</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Categorias automáticas desde o primeiro sync, com regras manuais para
+                refinar o que for preciso.
+              </p>
+            </li>
+            <li class="lp-step lp-reveal relative text-center sm:text-left">
+              <span class="lp-step-number">4</span>
+              <h3 class="mt-5 text-base font-bold text-slate-900">Planeje com clareza</h3>
+              <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+                Dashboard executivo, planejamento mensal, próximos compromissos e
+                histórico completo em um só lugar.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- ── Segurança ─────────────────────────────────────────────────── -->
+      <section id="seguranca" class="lp-security relative overflow-hidden py-20 sm:py-24 lg:py-28">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+          <div class="max-w-2xl mx-auto text-center lp-reveal">
+            <p class="text-sm font-semibold text-sky-400 uppercase tracking-wider">Segurança e privacidade</p>
+            <h2 class="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+              Seus dados financeiros, sob o seu controle
+            </h2>
+            <p class="mt-4 text-lg text-slate-400 leading-relaxed">
+              Transparência total sobre como o OpenFinance trata o que é seu.
+            </p>
+          </div>
+
+          <div class="mt-14 grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-4xl mx-auto">
+            <article class="lp-reveal rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+              <span class="size-11 rounded-xl bg-sky-500/15 text-sky-400 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-white">Conexão regulada</h3>
+              <p class="mt-2 text-sm text-slate-400 leading-relaxed">
+                A integração bancária usa a Pluggy, infraestrutura do ecossistema regulado de
+                Open Finance. Suas credenciais bancárias nunca passam pelo OpenFinance.
+              </p>
+            </article>
+
+            <article class="lp-reveal rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+              <span class="size-11 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-white">Seus dados ficam com você</h3>
+              <p class="mt-2 text-sm text-slate-400 leading-relaxed">
+                O banco de dados roda na sua própria infraestrutura. Nenhum dado financeiro
+                é enviado a terceiros ou usado para qualquer outro fim.
+              </p>
+            </article>
+
+            <article class="lp-reveal rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+              <span class="size-11 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-white">Acesso protegido</h3>
+              <p class="mt-2 text-sm text-slate-400 leading-relaxed">
+                Autenticação obrigatória em produção protege todas as telas e APIs.
+                O app se recusa a iniciar exposto sem credenciais configuradas.
+              </p>
+            </article>
+
+            <article class="lp-reveal rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+              <span class="size-11 rounded-xl bg-violet-500/15 text-violet-400 flex items-center justify-center mb-4">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+              </span>
+              <h3 class="text-base font-bold text-white">Somente leitura</h3>
+              <p class="mt-2 text-sm text-slate-400 leading-relaxed">
+                O OpenFinance lê transações e saldos para organizar sua vida financeira.
+                Ele nunca movimenta dinheiro nem executa operações na sua conta.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── CTA final ─────────────────────────────────────────────────── -->
+      <section class="bg-white py-20 sm:py-24">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="lp-final-cta lp-reveal relative overflow-hidden rounded-3xl px-6 py-14 sm:px-12 sm:py-16 text-center">
+            <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white relative">
+              Pronto para ver suas finanças com clareza?
+            </h2>
+            <p class="mt-4 text-lg text-blue-100 max-w-xl mx-auto relative">
+              Conecte seus bancos e tenha o controle do seu mês em minutos.
+            </p>
+            <div class="mt-8 relative">
+              <a href="/dashboard"
+                class="inline-flex items-center gap-2 px-7 py-3.5 rounded-lg bg-white text-[15px] font-bold text-blue-700 hover:bg-blue-50 transition-colors lp-cta">
+                Acessar minha conta
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ── Footer ──────────────────────────────────────────────────────── -->
+    <footer class="bg-slate-950 border-t border-white/10">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-10">
+          <div class="md:col-span-2">
+            <a href="/" class="flex items-center gap-2.5" aria-label="OpenFinance — página inicial">
+              <span class="size-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-base leading-none select-none">💳</span>
+              <span class="font-semibold text-white text-[15px] tracking-tight">OpenFinance</span>
+            </a>
+            <p class="mt-4 text-sm text-slate-400 leading-relaxed max-w-sm">
+              Planejamento financeiro pessoal conectado aos seus bancos via Open Finance.
+              Contas, cartões, faturas e transações com clareza total.
+            </p>
+          </div>
+
+          <nav aria-label="Links do produto">
+            <h3 class="text-sm font-semibold text-white mb-4">Produto</h3>
+            <ul class="space-y-2.5 text-sm">
+              <li><a href="/dashboard" class="text-slate-400 hover:text-white transition-colors">Dashboard</a></li>
+              <li><a href="/planejamento" class="text-slate-400 hover:text-white transition-colors">Planejamento</a></li>
+              <li><a href="/proximos" class="text-slate-400 hover:text-white transition-colors">Próximos</a></li>
+              <li><a href="/historico" class="text-slate-400 hover:text-white transition-colors">Histórico</a></li>
+            </ul>
+          </nav>
+
+          <nav aria-label="Links institucionais">
+            <h3 class="text-sm font-semibold text-white mb-4">Recursos</h3>
+            <ul class="space-y-2.5 text-sm">
+              <li><a href="#beneficios" class="text-slate-400 hover:text-white transition-colors">Benefícios</a></li>
+              <li><a href="#produto" class="text-slate-400 hover:text-white transition-colors">Produto</a></li>
+              <li><a href="#como-funciona" class="text-slate-400 hover:text-white transition-colors">Como funciona</a></li>
+              <li><a href="#seguranca" class="text-slate-400 hover:text-white transition-colors">Segurança</a></li>
+            </ul>
+          </nav>
+        </div>
+
+        <div class="mt-12 pt-8 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p class="text-xs text-slate-500">© <span id="lp-year">2026</span> OpenFinance · Planejamento financeiro pessoal</p>
+          <p class="text-xs text-slate-500 flex items-center gap-1.5">
+            <span class="size-1.5 rounded-full bg-emerald-400" aria-hidden="true"></span>
+            Conectado via Open Finance
+          </p>
+        </div>
+      </div>
+    </footer>
+
+    <script src="/static/landing.js?v=20260611-1"></script>
+  </body>
+</html>

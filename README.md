@@ -49,7 +49,7 @@ Tela de planejamento e controle mensal. Visão mensal futura com:
 ### Páginas
 
 ```text
-GET /              → redirect para /dashboard
+GET /              → landing page pública (institucional)
 GET /dashboard     → resumo executivo
 GET /planejamento  → tela de planejamento e controle
 GET /proximos      → tela Próximos

@@ -27,10 +27,10 @@ class StaticAssetParser(HTMLParser):
 class PageSmokeTest(unittest.TestCase):
     """Routing/navigation smoke tests.
 
-    Main landing page: /dashboard (executive summary)
+    Public landing page: / (institutional/product page, no financial data)
+    Main app page: /dashboard (executive summary)
     Primary planning route: /planejamento (serves planejamento.html)
     Legacy aliases:
-    - GET /  → 302 redirect to /dashboard
     - GET /custos-fixos → 302 redirect to /planejamento
     - GET /orcamento → 307 redirect to /planejamento
     Other screens:
@@ -58,10 +58,49 @@ class PageSmokeTest(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def test_root_redirects_to_dashboard(self):
+    def test_root_serves_public_landing_page(self):
         response = self.client.get("/")
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["location"], "/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+        self.assertIn("landing.css", response.text)
+        self.assertIn("landing.js", response.text)
+
+    def test_landing_has_primary_cta_to_app(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('href="/dashboard"', response.text)
+        self.assertIn("Acessar minha conta", response.text)
+
+    def test_landing_has_secondary_cta(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Ver como funciona", response.text)
+        self.assertIn('href="#como-funciona"', response.text)
+
+    def test_landing_does_not_load_app_bundles_or_sdks(self):
+        # The landing page is static marketing content: it must not pull the
+        # app bundles nor the Pluggy SDK (no financial data, no API surface).
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        html = response.text
+        self.assertNotIn("planning_common.js", html)
+        self.assertNotIn("dashboard.js", html)
+        self.assertNotIn("cdn.pluggy.ai", html)
+
+    def test_landing_js_makes_no_api_calls(self):
+        # Critical: any fetch() to a protected endpoint would trigger the
+        # browser Basic Auth popup on the public page when auth is enabled.
+        response = self.client.get("/static/landing.js")
+        self.assertEqual(response.status_code, 200)
+        js = response.text
+        self.assertNotIn("fetch(", js)
+        self.assertNotIn("XMLHttpRequest", js)
+
+    def test_landing_uses_cache_busted_assets(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("landing.css?v=", response.text)
+        self.assertIn("landing.js?v=", response.text)
 
     def test_dashboard_loads(self):
         response = self.client.get("/dashboard")

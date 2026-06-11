@@ -10,7 +10,9 @@ router = APIRouter()
 
 @router.get("/", include_in_schema=False)
 def index():
-    return RedirectResponse(url="/dashboard", status_code=302)
+    # Public institutional landing page (kept public by the auth middleware).
+    # The logged-in app entry point remains /dashboard.
+    return FileResponse(STATIC_DIR / "landing.html")
 
 
 @router.get("/dashboard", include_in_schema=False)

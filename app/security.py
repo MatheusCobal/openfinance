@@ -7,6 +7,8 @@ local machine with lower risk. It is intentionally simple:
   credentials automatically on every request, including ``fetch()`` calls from
   the static frontend, so no login screen or frontend change is needed.
 * ``/static/*`` is always public (no secrets live there).
+* ``/`` (institutional landing page) is always public — it is a static
+  marketing page with simulated data only, no financial information.
 * ``/health`` is public when ``OPENFINANCE_PUBLIC_HEALTH`` is true.
 * ``/webhooks/pluggy`` is validated by its OWN secret in the query string
   (``?token=...``).  Once a webhook secret is configured it is enforced
@@ -40,6 +42,10 @@ CONFIG_MODEL = SettingsConfigDict(
 WEBHOOK_PATH = "/webhooks/pluggy"
 STATIC_PREFIX = "/static/"
 HEALTH_PATH = "/health"
+# Pages that stay public even with auth enabled. Keep this list minimal and
+# explicit: only static institutional pages with zero financial data belong
+# here. The logged-in app (/dashboard and friends) must NEVER be added.
+PUBLIC_PAGE_PATHS = frozenset({"/"})
 
 
 class SecuritySettings(BaseSettings):
@@ -94,6 +100,10 @@ def validate_security_configuration(settings: SecuritySettings) -> None:
 
 def is_static_path(path: str) -> bool:
     return path.startswith(STATIC_PREFIX)
+
+
+def is_public_page(path: str) -> bool:
+    return path in PUBLIC_PAGE_PATHS
 
 
 def is_public_health(path: str, settings: SecuritySettings) -> bool:
@@ -169,7 +179,7 @@ class OpenFinanceAuthMiddleware(BaseHTTPMiddleware):
          - If no secret is set and require_auth=false: pass through (local dev).
          - If no secret is set and require_auth=true: deny (misconfigured).
       2. Auth disabled → pass everything else (local dev / test suite).
-      3. ``/static/*`` → public.
+      3. ``/static/*`` and public pages (``/``) → public.
       4. ``/health`` → public when OPENFINANCE_PUBLIC_HEALTH is true.
       5. Fail-safe: auth required but no admin token → 500.
       6. Everything else → require valid Basic Auth.
@@ -201,6 +211,9 @@ class OpenFinanceAuthMiddleware(BaseHTTPMiddleware):
 
         # Steps 3-6: auth is required.
         if is_static_path(path):
+            return await call_next(request)
+
+        if is_public_page(path):
             return await call_next(request)
 
         if is_public_health(path, settings):

@@ -200,6 +200,25 @@ class AuthMiddlewareTest(unittest.TestCase):
             response = self.client.get("/static/dashboard.js")
         self.assertEqual(response.status_code, 200)
 
+    # ── 5b. Public landing page ─────────────────────────────────────────────
+
+    def test_landing_public_even_with_auth_active(self):
+        # The institutional landing page at / has no financial data and must
+        # stay reachable without credentials, like /static/*.
+        with self._use(require_auth=True, admin_token=ADMIN_TOKEN):
+            response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+
+    def test_dashboard_still_protected_with_public_landing(self):
+        # Opening / must not weaken the gate on the logged-in area.
+        with self._use(require_auth=True, admin_token=ADMIN_TOKEN):
+            landing = self.client.get("/")
+            dashboard = self.client.get("/dashboard")
+        self.assertEqual(landing.status_code, 200)
+        self.assertEqual(dashboard.status_code, 401)
+        self.assertEqual(dashboard.headers.get("WWW-Authenticate"), "Basic")
+
     # ── 6-7. Health public/private ──────────────────────────────────────────
 
     def test_health_public_when_configured(self):
