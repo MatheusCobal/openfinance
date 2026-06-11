@@ -74,8 +74,8 @@ function hasInvoiceMonthData(item: InvoiceHistoryMonth) {
 function invoiceSourceLabel(item?: Partial<InvoiceHistoryMonth> | null) {
   const labels: Record<string, string> = {
     pluggy_official_bill: "Fatura oficial Pluggy",
-    dashboard_current_invoice: "Fatura vigente Dashboard",
-    missing_official_bill_fallback: "Total classificado",
+    dashboard_current_invoice: "Fatura vigente calculada",
+    missing_official_bill_fallback: "Sem fatura oficial",
   };
   return labels[item?.invoice_total_source || ""] || "Fatura";
 }
@@ -306,7 +306,7 @@ function InvoiceTab({
         <MetricCard
           label="Mês selecionado"
           value={formatMoney(invoiceDisplayTotal(active))}
-          subtitle={`${formatMonthLong(active.month)} · ${invoiceSourceLabel(active)} · ${pluralCompras(active.count)}`}
+          subtitle={`${formatMonthLong(active.month)} · ${invoiceSourceLabel(active)}`}
           tone="blue"
         />
         <MetricCard
@@ -349,7 +349,7 @@ function InvoiceTab({
                     <div>
                       <p className="text-sm font-medium text-slate-950">{formatMonthLong(item.month)}</p>
                       <p className="mt-0.5 text-xs text-slate-500">
-                        {invoiceSourceLabel(item)} · {pluralCompras(item.count)}
+                        {invoiceSourceLabel(item)}
                       </p>
                     </div>
                     <span className="text-sm font-semibold tabular text-slate-950">
