@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, Trash2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, Minus, RefreshCw, Trash2 } from "lucide-react";
 import {
   createCashflowRule,
   deleteCashflowRule,
@@ -16,6 +16,7 @@ import { Topbar } from "../components/layout/Topbar";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { CategoryBreakdown } from "../components/ui/CategoryBreakdown";
 import { ChartCard } from "../components/ui/ChartCard";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
@@ -29,8 +30,15 @@ import { Table } from "../components/ui/Table";
 import { Tabs } from "../components/ui/Tabs";
 import { useAsync } from "../hooks/useAsync";
 import { useToast } from "../hooks/useToast";
-import { CATEGORY_COLORS } from "../lib/constants";
+import { CHART_COLORS } from "../lib/chartTheme";
 import { formatDayLabel, formatMonthCompact, formatMonthLong } from "../lib/dates";
+import {
+  cashflowTypeLabel,
+  classificationSourceLabel,
+  invoiceSourceLabel,
+  pluralCompras,
+  pluralize,
+} from "../lib/labels";
 import { formatMoney } from "../lib/money";
 import type { ClassificationOptions, Transaction } from "../types/common";
 import type {
@@ -71,21 +79,12 @@ function hasInvoiceMonthData(item: InvoiceHistoryMonth) {
   return invoiceDisplayTotal(item) > 0 || Number(item.count || 0) > 0;
 }
 
-function invoiceSourceLabel(item?: Partial<InvoiceHistoryMonth> | null) {
-  const labels: Record<string, string> = {
-    pluggy_official_bill: "Fatura oficial Pluggy",
-    dashboard_current_invoice: "Fatura vigente Dashboard",
-    missing_official_bill_fallback: "Total classificado",
-  };
-  return labels[item?.invoice_total_source || ""] || "Fatura";
-}
-
-function categoryColor(name: string) {
-  return CATEGORY_COLORS[name] || "#64748b";
-}
-
-function pluralCompras(n: number) {
-  return n === 1 ? "1 compra" : `${n.toLocaleString("pt-BR")} compras`;
+function monthSourceBadge(item?: Partial<InvoiceHistoryMonth> | null) {
+  const source = item?.invoice_total_source || "";
+  if (source === "pluggy_official_bill") return <Badge tone="positive">Fatura oficial Pluggy</Badge>;
+  if (source === "dashboard_current_invoice") return <Badge tone="primary">Fatura vigente calculada</Badge>;
+  if (source === "missing_official_bill_fallback") return <Badge>Sem fatura oficial</Badge>;
+  return null;
 }
 
 function summarizeCashflow(data: CashflowSummary | null) {
@@ -105,10 +104,7 @@ function summarizeCashflow(data: CashflowSummary | null) {
     })
     .filter(
       (month) =>
-        month.entradas_count > 0 ||
-        month.saidas_count > 0 ||
-        month.entradas > 0 ||
-        month.saidas > 0,
+        month.entradas_count > 0 || month.saidas_count > 0 || month.entradas > 0 || month.saidas > 0,
     );
   return {
     months,
@@ -120,6 +116,17 @@ function summarizeCashflow(data: CashflowSummary | null) {
   };
 }
 
+function transactionMeta(tx: Transaction): string {
+  const parts = [formatDayLabel(tx.date)];
+  if (tx.account_name) parts.push(tx.account_name);
+  if (tx.internal_category) parts.push(tx.internal_category);
+  const flow = cashflowTypeLabel(tx.cashflow_type);
+  if (flow) parts.push(flow);
+  const source = classificationSourceLabel(tx.classification_source);
+  if (source) parts.push(source);
+  return parts.join(" · ");
+}
+
 function TransactionRows({
   transactions,
   onEdit,
@@ -127,29 +134,24 @@ function TransactionRows({
   transactions: Transaction[];
   onEdit: (tx: Transaction) => void;
 }) {
-  if (!transactions.length) return <p className="px-5 py-8 text-center text-sm text-slate-500">Sem transações.</p>;
+  if (!transactions.length)
+    return <p className="px-5 py-8 text-center text-sm text-ink-500">Sem transações.</p>;
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul className="divide-y divide-ink-100">
       {transactions.map((tx) => (
         <li key={tx.id} className="flex items-start justify-between gap-4 px-5 py-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-950">{tx.description}</p>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {formatDayLabel(tx.date)}
-              {tx.account_name ? ` · ${tx.account_name}` : ""}
-              {tx.internal_category ? ` · ${tx.internal_category}` : ""}
-              {tx.cashflow_type ? ` · ${tx.cashflow_type}` : ""}
-              {tx.classification_source ? ` · ${tx.classification_source}` : ""}
-            </p>
+            <p className="truncate text-sm font-medium text-ink-900">{tx.description}</p>
+            <p className="mt-0.5 text-xs text-ink-500">{transactionMeta(tx)}</p>
             <button
               type="button"
-              className="mt-1 text-xs font-medium text-blue-700 hover:text-blue-800"
+              className="mt-1 text-xs font-medium text-primary-700 hover:text-primary-800"
               onClick={() => onEdit(tx)}
             >
               Editar classificação
             </button>
           </div>
-          <p className="shrink-0 text-sm font-semibold tabular text-slate-900">
+          <p className="shrink-0 text-sm font-semibold tabular text-ink-900">
             {formatMoney(Math.abs(Number(tx.amount)))}
           </p>
         </li>
@@ -188,7 +190,7 @@ function ClassificationEditor({
         cashflow_type: cashflow,
         ignored_from_totals: ignored,
       });
-      showToast("Classificação manual salva.", "success");
+      showToast("Classificação salva.", "success");
       onSaved();
       onClose();
     } catch (err) {
@@ -200,11 +202,11 @@ function ClassificationEditor({
     if (!tx) return;
     try {
       await resetTransactionClassification(tx.id);
-      showToast("Classificação manual removida.", "success");
+      showToast("Ajuste manual removido. A classificação automática voltou a valer.", "success");
       onSaved();
       onClose();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Erro ao remover override.", "error");
+      showToast(err instanceof Error ? err.message : "Erro ao remover ajuste.", "error");
     }
   };
 
@@ -212,7 +214,7 @@ function ClassificationEditor({
     <Modal open={!!tx} title="Editar classificação" subtitle={tx?.description} onClose={onClose}>
       <div className="space-y-4 p-5">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <FormField label="Categoria interna">
+          <FormField label="Categoria">
             <Select value={category} onChange={(event) => setCategory(event.target.value)}>
               {(options?.internal_categories || []).map((item) => (
                 <option key={item} value={item}>
@@ -221,28 +223,28 @@ function ClassificationEditor({
               ))}
             </Select>
           </FormField>
-          <FormField label="Tipo de fluxo">
+          <FormField label="Tipo de movimentação">
             <Select value={cashflow} onChange={(event) => setCashflow(event.target.value)}>
               {(options?.cashflow_types || []).map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {cashflowTypeLabel(item) || item}
                 </option>
               ))}
             </Select>
           </FormField>
         </div>
-        <label className="flex items-center gap-2 text-sm text-slate-600">
+        <label className="flex items-center gap-2 text-sm text-ink-600">
           <input
             type="checkbox"
-            className="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+            className="rounded border-ink-300 text-primary-600 focus:ring-primary-200"
             checked={ignored}
             onChange={(event) => setIgnored(event.target.checked)}
           />
-          Ignorar dos totais
+          Não contar nos totais do mês
         </label>
         <div className="flex flex-wrap justify-between gap-2">
           <Button type="button" variant="danger" onClick={reset}>
-            Remover override
+            Remover ajuste manual
           </Button>
           <div className="flex gap-2">
             <Button type="button" onClick={onClose}>
@@ -277,20 +279,26 @@ function InvoiceTab({
     setSelectedMonth(latest?.month || "");
   }, [data.months, monthsWithData, selectedMonth]);
 
-  const active = data.months.find((item) => item.month === selectedMonth) || data.months[data.months.length - 1];
+  const active =
+    data.months.find((item) => item.month === selectedMonth) || data.months[data.months.length - 1];
   const largest = monthsWithData.reduce<InvoiceHistoryMonth | null>(
     (best, item) => (!best || invoiceDisplayTotal(item) > invoiceDisplayTotal(best) ? item : best),
     null,
   );
   const periodTotal = invoiceDisplayTotal(data);
   const periodClassifiedTotal = classifiedPurchaseTotal(data);
-  const average = data.months.length > 0 ? periodTotal / data.months.length : 0;
+  const average = monthsWithData.length > 0 ? periodTotal / monthsWithData.length : 0;
+
+  const barColors = data.months.map((item) =>
+    item.month === active?.month ? "#1d4ed8" : "#93c5fd",
+  );
 
   if (!monthsWithData.length) {
     return (
       <EmptyState
+        icon={<BarChart3 className="size-5" aria-hidden="true" />}
         title="Nenhuma fatura de cartão encontrada."
-        detail="Faturas oficiais e compras CREDIT válidas aparecerão aqui."
+        detail="Quando houver faturas fechadas ou compras de cartão classificadas, a análise aparece aqui."
       />
     );
   }
@@ -301,30 +309,39 @@ function InvoiceTab({
         <MetricCard
           label="Faturas no período"
           value={formatMoney(periodTotal)}
-          subtitle={`${pluralCompras(data.total_count || 0)} classificadas · ${formatMoney(periodClassifiedTotal)}`}
+          subtitle={`Compras classificadas para análise: ${formatMoney(periodClassifiedTotal)}`}
         />
         <MetricCard
           label="Mês selecionado"
           value={formatMoney(invoiceDisplayTotal(active))}
-          subtitle={`${formatMonthLong(active.month)} · ${invoiceSourceLabel(active)} · ${pluralCompras(active.count)}`}
-          tone="blue"
+          subtitle={`${formatMonthLong(active.month)} · ${invoiceSourceLabel(active.invoice_total_source)}`}
+          tone="primary"
         />
         <MetricCard
-          label="Maior mês"
-          value={largest ? formatMoney(invoiceDisplayTotal(largest)) : "-"}
-          subtitle={largest ? `${formatMonthCompact(largest.month)} · média ${formatMoney(average)}` : "-"}
-          tone="amber"
+          label="Maior fatura"
+          value={largest ? formatMoney(invoiceDisplayTotal(largest)) : "—"}
+          subtitle={
+            largest
+              ? `${formatMonthCompact(largest.month)} · média do período ${formatMoney(average)}`
+              : "—"
+          }
+          tone="warning"
         />
       </div>
 
-      <ChartCard title="Evolução das faturas de cartão">
+      <ChartCard
+        title="Evolução das faturas"
+        subtitle="Clique em um mês para analisar — o mês selecionado fica em destaque"
+      >
         <BarChart
           labels={data.months.map((month) => formatMonthCompact(month.month))}
+          ariaLabel="Evolução mensal das faturas de cartão"
           datasets={[
             {
               label: "Fatura",
               data: data.months.map(invoiceDisplayTotal),
-              backgroundColor: "#475569",
+              backgroundColor: "#93c5fd",
+              backgroundColors: barColors,
             },
           ]}
           onBarClick={(index) => setSelectedMonth(data.months[index]?.month || selectedMonth)}
@@ -332,27 +349,30 @@ function InvoiceTab({
       </ChartCard>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_1fr]">
-        <Card className="overflow-hidden">
-          <div className="px-5 py-4">
-            <h2 className="font-semibold text-slate-950">Histórico mensal</h2>
+        <Card className="h-fit overflow-hidden">
+          <div className="border-b border-ink-100 px-5 py-4">
+            <h2 className="text-sm font-semibold text-ink-900">Mês a mês</h2>
+            <p className="mt-0.5 text-xs text-ink-500">
+              Faturas fechadas valem o valor oficial do banco.
+            </p>
           </div>
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-ink-100">
             {[...data.months].reverse().map((item) => {
               const activeRow = item.month === active.month;
               return (
-                <li key={item.month} className={activeRow ? "bg-blue-50/60" : undefined}>
+                <li key={item.month} className={activeRow ? "bg-primary-50/60" : undefined}>
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-4 px-5 py-3 text-left"
+                    className="flex w-full items-center justify-between gap-4 px-5 py-3 text-left transition-colors hover:bg-surface-muted"
                     onClick={() => setSelectedMonth(item.month)}
                   >
                     <div>
-                      <p className="text-sm font-medium text-slate-950">{formatMonthLong(item.month)}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {invoiceSourceLabel(item)} · {pluralCompras(item.count)}
-                      </p>
+                      <p className="text-sm font-medium text-ink-900">{formatMonthLong(item.month)}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
+                        {monthSourceBadge(item)}
+                      </div>
                     </div>
-                    <span className="text-sm font-semibold tabular text-slate-950">
+                    <span className="text-sm font-semibold tabular text-ink-900">
                       {hasInvoiceMonthData(item) ? formatMoney(invoiceDisplayTotal(item)) : "Sem fatura"}
                     </span>
                   </button>
@@ -365,9 +385,9 @@ function InvoiceTab({
         <section>
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="font-semibold text-slate-950">Gastos por classificação</h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {formatMonthLong(active.month)} · {pluralCompras(active.count)}
+              <h2 className="text-sm font-semibold text-ink-900">Para onde o dinheiro foi</h2>
+              <p className="mt-0.5 text-xs text-ink-500">
+                {formatMonthLong(active.month)} · {invoiceSourceLabel(active.invoice_total_source)}
               </p>
             </div>
             <Button
@@ -375,63 +395,66 @@ function InvoiceTab({
               onClick={() =>
                 onOpenTransactions(
                   `Fatura · ${formatMonthLong(active.month)}`,
-                  `${pluralCompras(active.count)} · ${formatMoney(invoiceDisplayTotal(active))}`,
+                  `${invoiceSourceLabel(active.invoice_total_source)} · ${formatMoney(invoiceDisplayTotal(active))}`,
                   active.transactions || [],
                 )
               }
             >
-              Ver transações do mês
+              Ver compras classificadas
             </Button>
           </div>
           {active.categories?.length ? (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              {active.categories.map((category) => (
-                <button
-                  key={category.id}
-                  type="button"
-                  onClick={() =>
-                    onOpenTransactions(
-                      category.name,
-                      `${formatMonthLong(active.month)} · ${pluralCompras(category.count)}`,
-                      category.transactions || [],
-                    )
-                  }
-                  className="rounded-lg border border-slate-200 bg-white p-5 text-left transition hover:border-blue-200 hover:shadow-soft"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span
-                          className="size-2.5 shrink-0 rounded-sm"
-                          style={{ background: categoryColor(category.name) }}
-                        />
-                        <h3 className="truncate font-semibold text-slate-950">{category.name}</h3>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">{pluralCompras(category.count)}</p>
-                    </div>
-                    <p className="shrink-0 font-bold tabular text-slate-950">
-                      {formatMoney(category.total)}
-                    </p>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-3 text-xs">
-                    <div>
-                      <p className="text-slate-500">Média 12m</p>
-                      <p className="mt-0.5 font-semibold tabular text-slate-800">
-                        {category.average_months_used
-                          ? `${formatMoney(category.average_12m)} em ${category.average_months_used} meses`
-                          : "sem histórico anterior"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Vs. média</p>
-                      <p className="mt-0.5 font-semibold tabular text-slate-800">
-                        {formatMoney(category.difference_from_average || 0)}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <CategoryBreakdown
+              items={active.categories.map((category) => {
+                const diff = Number(category.difference_from_average || 0);
+                const hasAverage = Boolean(category.average_months_used);
+                const detail = hasAverage ? (
+                  <p className="flex items-center gap-1.5 text-xs text-ink-500">
+                    {Math.abs(diff) < 0.005 ? (
+                      <Minus className="size-3 text-ink-400" aria-hidden="true" />
+                    ) : diff > 0 ? (
+                      <ArrowUpRight className="size-3 text-danger-600" aria-hidden="true" />
+                    ) : (
+                      <ArrowDownRight className="size-3 text-positive-600" aria-hidden="true" />
+                    )}
+                    <span>
+                      <span
+                        className={
+                          Math.abs(diff) < 0.005
+                            ? "font-semibold text-ink-600"
+                            : diff > 0
+                              ? "font-semibold text-danger-700"
+                              : "font-semibold text-positive-700"
+                        }
+                      >
+                        {diff > 0 ? "+" : diff < 0 ? "−" : ""}
+                        {formatMoney(Math.abs(diff))}
+                      </span>{" "}
+                      vs. média de {formatMoney(category.average_12m)} ({category.average_months_used}{" "}
+                      {Number(category.average_months_used) === 1 ? "mês" : "meses"})
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-ink-400">Sem histórico anterior para comparar</p>
+                );
+                return {
+                  id: category.id,
+                  name: category.name,
+                  total: Number(category.total),
+                  count: category.count,
+                  detail,
+                };
+              })}
+              onSelect={(id) => {
+                const category = active.categories?.find((item) => String(item.id) === String(id));
+                if (!category) return;
+                onOpenTransactions(
+                  category.name,
+                  `${formatMonthLong(active.month)} · ${pluralCompras(category.count)}`,
+                  category.transactions || [],
+                );
+              }}
+            />
           ) : (
             <EmptyState title="Sem categorias para este mês." />
           )}
@@ -469,20 +492,20 @@ function CashflowTab({
       );
       setValue("");
       await onReload();
-      showToast("Regra criada e fluxo recalculado.", "success");
+      showToast("Filtro criado e fluxo recalculado.", "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Erro ao criar regra.", "error");
+      showToast(err instanceof Error ? err.message : "Erro ao criar filtro.", "error");
     }
   };
 
   const removeRule = async (id: number) => {
-    if (!window.confirm("Remover esta regra?")) return;
+    if (!window.confirm("Remover este filtro?")) return;
     try {
       await deleteCashflowRule(id);
       await onReload();
-      showToast("Regra removida e fluxo recalculado.", "success");
+      showToast("Filtro removido e fluxo recalculado.", "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Erro ao remover regra.", "error");
+      showToast(err instanceof Error ? err.message : "Erro ao remover filtro.", "error");
     }
   };
 
@@ -490,7 +513,7 @@ function CashflowTab({
     return (
       <EmptyState
         title="Sem entradas ou saídas nos últimos 12 meses."
-        detail="Conecte uma conta bancária pelo Pluggy para acompanhar o fluxo de caixa."
+        detail="Conecte uma conta bancária para acompanhar o fluxo de caixa."
       />
     );
   }
@@ -501,36 +524,39 @@ function CashflowTab({
         <MetricCard
           label="Total de entradas"
           value={formatMoney(summary.total_entradas)}
-          subtitle={`${summary.total_entradas_count.toLocaleString("pt-BR")} créditos`}
-          tone="emerald"
+          subtitle={pluralize(summary.total_entradas_count, "crédito no período", "créditos no período")}
+          tone="positive"
+          icon={<ArrowDownRight className="size-4" aria-hidden="true" />}
         />
         <MetricCard
           label="Total de saídas"
           value={formatMoney(summary.total_saidas)}
-          subtitle={`${summary.total_saidas_count.toLocaleString("pt-BR")} débitos`}
-          tone="rose"
+          subtitle={pluralize(summary.total_saidas_count, "débito no período", "débitos no período")}
+          tone="danger"
+          icon={<ArrowUpRight className="size-4" aria-hidden="true" />}
         />
         <MetricCard
-          label="Saldo"
-          value={`${summary.net >= 0 ? "+" : "-"}${formatMoney(Math.abs(summary.net))}`}
+          label="Resultado"
+          value={`${summary.net >= 0 ? "+" : "−"}${formatMoney(Math.abs(summary.net))}`}
           subtitle="Entradas menos saídas bancárias"
-          tone={summary.net >= 0 ? "emerald" : "rose"}
+          tone={summary.net >= 0 ? "positive" : "danger"}
         />
       </div>
 
-      <ChartCard title="Entradas vs saídas por mês" subtitle="Clique numa barra para ver o mês">
+      <ChartCard title="Entradas e saídas por mês" subtitle="Clique em uma barra para abrir o mês">
         <BarChart
           labels={summary.months.map((month) => formatMonthCompact(month.month))}
+          ariaLabel="Entradas e saídas bancárias por mês"
           datasets={[
             {
               label: "Entradas",
               data: summary.months.map((month) => month.entradas),
-              backgroundColor: "#10b981",
+              backgroundColor: CHART_COLORS.positive,
             },
             {
               label: "Saídas",
               data: summary.months.map((month) => month.saidas),
-              backgroundColor: "#ef4444",
+              backgroundColor: CHART_COLORS.negative,
             },
           ]}
           onBarClick={(index) => {
@@ -546,26 +572,26 @@ function CashflowTab({
       </ChartCard>
 
       <Card className="overflow-hidden">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 className="font-semibold text-slate-950">Detalhamento mensal</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Apenas movimentações bancárias; cartão aparece quando a fatura é paga.
+        <div className="border-b border-ink-100 px-5 py-4">
+          <h2 className="text-sm font-semibold text-ink-900">Mês a mês</h2>
+          <p className="mt-0.5 text-xs text-ink-500">
+            Somente movimentações bancárias; o cartão entra quando a fatura é paga.
           </p>
         </div>
         <Table>
           <thead>
-            <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-5 py-2 text-left font-medium">Mês</th>
-              <th className="px-5 py-2 text-right font-medium">Entradas</th>
-              <th className="px-5 py-2 text-right font-medium">Saídas</th>
-              <th className="px-5 py-2 text-right font-medium">Saldo</th>
+            <tr className="bg-surface-muted text-xs uppercase tracking-wide text-ink-500">
+              <th className="px-5 py-2.5 text-left font-medium">Mês</th>
+              <th className="px-5 py-2.5 text-right font-medium">Entradas</th>
+              <th className="px-5 py-2.5 text-right font-medium">Saídas</th>
+              <th className="px-5 py-2.5 text-right font-medium">Resultado</th>
             </tr>
           </thead>
           <tbody>
             {[...summary.months].reverse().map((month) => (
               <tr
                 key={month.month}
-                className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                className="cursor-pointer border-t border-ink-100 transition-colors hover:bg-surface-muted"
                 onClick={() =>
                   onOpenTransactions(
                     `Entradas e saídas · ${formatMonthLong(month.month)}`,
@@ -574,17 +600,21 @@ function CashflowTab({
                   )
                 }
               >
-                <td className="whitespace-nowrap px-5 py-3 text-sm font-medium text-slate-950">
+                <td className="whitespace-nowrap px-5 py-3 text-sm font-medium text-ink-900">
                   {formatMonthLong(month.month)}
                 </td>
-                <td className="px-5 py-3 text-right text-sm tabular text-emerald-700">
+                <td className="px-5 py-3 text-right text-sm tabular text-positive-700">
                   {formatMoney(month.entradas)}
                 </td>
-                <td className="px-5 py-3 text-right text-sm tabular text-rose-700">
+                <td className="px-5 py-3 text-right text-sm tabular text-danger-700">
                   {formatMoney(month.saidas)}
                 </td>
-                <td className="px-5 py-3 text-right text-sm font-medium tabular text-slate-950">
-                  {month.net >= 0 ? "+" : "-"}
+                <td
+                  className={`px-5 py-3 text-right text-sm font-semibold tabular ${
+                    month.net >= 0 ? "text-positive-700" : "text-danger-700"
+                  }`}
+                >
+                  {month.net >= 0 ? "+" : "−"}
                   {formatMoney(Math.abs(month.net))}
                 </td>
               </tr>
@@ -596,49 +626,62 @@ function CashflowTab({
       <Card className="p-5">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="font-semibold text-slate-950">Regras do fluxo de caixa</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Remove investimentos, transferências internas e ruídos bancários.
+            <h2 className="text-sm font-semibold text-ink-900">Filtros do fluxo de caixa</h2>
+            <p className="mt-0.5 text-xs text-ink-500">
+              Tire investimentos, transferências internas e ruído bancário da leitura.
             </p>
           </div>
-          <Badge>{rules.length} regras</Badge>
+          <Badge>{pluralize(rules.length, "filtro ativo", "filtros ativos")}</Badge>
         </div>
         <form className="grid grid-cols-1 gap-2 lg:grid-cols-[170px_180px_1fr_auto]" onSubmit={submitRule}>
-          <Select value={direction} onChange={(event) => setDirection(event.target.value)}>
+          <Select aria-label="Direção" value={direction} onChange={(event) => setDirection(event.target.value)}>
             <option value="ALL">Entradas e saídas</option>
             <option value="IN">Somente entradas</option>
             <option value="OUT">Somente saídas</option>
           </Select>
-          <Select value={kind} onChange={(event) => setKind(event.target.value)}>
-            <option value="pluggy_category">Por categoria Pluggy</option>
+          <Select aria-label="Tipo de filtro" value={kind} onChange={(event) => setKind(event.target.value)}>
+            <option value="pluggy_category">Por categoria do banco</option>
             <option value="pattern">Por descrição</option>
           </Select>
           <Input
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            placeholder="Ex: Fixed income, Resgate CDB, Same person transfer"
+            placeholder="Ex.: Fixed income, Resgate CDB, Same person transfer"
           />
           <Button type="submit" variant="primary">
             Adicionar
           </Button>
         </form>
-        <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-100">
+        <ul className="mt-4 divide-y divide-ink-100 rounded-control border border-ink-100">
           {rules.map((rule) => (
             <li key={rule.id} className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-900">
-                  {rule.pluggy_category || rule.pattern || "-"}
+                <p className="truncate text-sm font-medium text-ink-900">
+                  {rule.pluggy_category || rule.pattern || "—"}
                 </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {rule.direction || "ALL"} · {rule.affected_count ?? 0} transações removidas
+                <p className="mt-0.5 text-xs text-ink-500">
+                  {rule.direction === "IN"
+                    ? "Somente entradas"
+                    : rule.direction === "OUT"
+                      ? "Somente saídas"
+                      : "Entradas e saídas"}{" "}
+                  · {pluralize(rule.affected_count ?? 0, "transação filtrada", "transações filtradas")}
                 </p>
               </div>
-              <Button type="button" variant="ghost" className="size-8 px-0" onClick={() => void removeRule(rule.id)}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="size-8 px-0"
+                aria-label="Remover filtro"
+                onClick={() => void removeRule(rule.id)}
+              >
                 <Trash2 className="size-4" aria-hidden="true" />
               </Button>
             </li>
           ))}
-          {!rules.length ? <li className="px-4 py-6 text-center text-sm text-slate-500">Nenhuma regra cadastrada.</li> : null}
+          {!rules.length ? (
+            <li className="px-4 py-6 text-center text-sm text-ink-500">Nenhum filtro criado.</li>
+          ) : null}
         </ul>
       </Card>
     </div>
@@ -649,7 +692,11 @@ export function HistoricoPage() {
   const { showToast } = useToast();
   const { data, loading, error, run } = useAsync(loadHistory, []);
   const [activeTab, setActiveTab] = useState<HistoryTab>("invoices");
-  const [modal, setModal] = useState<{ title: string; subtitle: string; transactions: Transaction[] } | null>(null);
+  const [modal, setModal] = useState<{
+    title: string;
+    subtitle: string;
+    transactions: Transaction[];
+  } | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [options, setOptions] = useState<ClassificationOptions | null>(null);
 
@@ -668,7 +715,11 @@ export function HistoricoPage() {
   return (
     <>
       <Topbar
-        subtitle={activeTab === "invoices" ? "Faturas de cartão" : "Fluxo de caixa bancário"}
+        subtitle={
+          activeTab === "invoices"
+            ? "Como as faturas evoluíram e para onde o dinheiro foi."
+            : "Entradas e saídas bancárias dos últimos meses."
+        }
         actions={
           <Button type="button" onClick={() => void run()} loading={loading}>
             <RefreshCw className="size-4" aria-hidden="true" />
@@ -682,7 +733,7 @@ export function HistoricoPage() {
             value={activeTab}
             onChange={setActiveTab}
             items={[
-              { key: "invoices", label: "Faturas cartão" },
+              { key: "invoices", label: "Faturas do cartão" },
               { key: "cashflow", label: "Entradas e saídas" },
             ]}
           />
