@@ -4,8 +4,24 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse, RedirectResponse
 
 STATIC_DIR = Path(__file__).parents[1] / "static"
+PROJECT_ROOT = Path(__file__).parents[2]
+REACT_BUILD_DIR = STATIC_DIR / "react"
+FRONTEND_SOURCE_INDEX = PROJECT_ROOT / "frontend" / "index.html"
 
 router = APIRouter()
+
+
+def react_app():
+    """Serve the authenticated React app for legacy internal routes.
+
+    Production Docker builds copy the Vite output to app/static/react.
+    The source index fallback keeps route smoke tests and local backend-only
+    runs readable before the frontend build has been produced.
+    """
+    build_index = REACT_BUILD_DIR / "index.html"
+    if build_index.is_file():
+        return FileResponse(build_index)
+    return FileResponse(FRONTEND_SOURCE_INDEX)
 
 
 @router.get("/", include_in_schema=False)
@@ -17,22 +33,22 @@ def index():
 
 @router.get("/dashboard", include_in_schema=False)
 def dashboard():
-    return FileResponse(STATIC_DIR / "dashboard.html")
+    return react_app()
 
 
 @router.get("/planejamento", include_in_schema=False)
 def planejamento():
-    return FileResponse(STATIC_DIR / "planejamento.html")
+    return react_app()
 
 
 @router.get("/historico", include_in_schema=False)
 def historico():
-    return FileResponse(STATIC_DIR / "historico.html")
+    return react_app()
 
 
 @router.get("/proximos", include_in_schema=False)
 def proximos():
-    return FileResponse(STATIC_DIR / "proximos.html")
+    return react_app()
 
 
 @router.get("/custos-fixos", include_in_schema=False)
@@ -49,7 +65,7 @@ def orcamento():
 
 @router.get("/regras", include_in_schema=False)
 def regras():
-    return FileResponse(STATIC_DIR / "regras.html")
+    return react_app()
 
 
 @router.get("/health")

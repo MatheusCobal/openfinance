@@ -2,7 +2,7 @@
 
 Aplicativo pessoal de planejamento financeiro integrado à [Pluggy](https://pluggy.ai), com foco em visibilidade mensal de receitas, custos fixos, faturas futuras do cartão e histórico financeiro.
 
-Backend em FastAPI + SQLModel/SQLAlchemy + SQLite; frontend em HTML estático + Tailwind + Chart.js, sem build step.
+Backend em FastAPI + SQLModel/SQLAlchemy + SQLite; landing pública estática em `app/static`; área interna autenticada em React + Vite + TypeScript + Tailwind CSS servida pelo FastAPI.
 
 ---
 
@@ -139,14 +139,17 @@ openfinance/
     │   ├── classification.py  classificação operacional de fluxo
     │   ├── transaction_classifier.py classificação Pluggy-based 10D-B
     │   └── transactions.py    consultas de transações
-    ├── static/                frontend HTML/JS
-    │   ├── dashboard.html    / dashboard.js
-    │   ├── planejamento.html / planejamento.js
-    │   ├── proximos.html     / proximos.js
-    │   ├── historico.html    / historico.js
-    │   ├── regras.html       / regras.js
-    │   └── styles.css        estilos compartilhados
+    ├── static/
+    │   ├── landing.html       landing pública
+    │   ├── landing.css/js     assets da landing pública
+    │   ├── react/             build Vite gerado, gitignored
+    │   └── *.html/*.js        telas internas antigas mantidas como legado
     └── docs/                  documentação auxiliar e backlog
+├── frontend/                  app interna React/Vite/TypeScript/Tailwind
+│   ├── src/pages/             Dashboard, Planejamento, Histórico, Próximos, Regras
+│   ├── src/api/               cliente fetch tipado por domínio
+│   ├── src/components/        shell, UI e gráficos
+│   └── vite.config.ts         build para app/static/react
 ```
 
 ---
@@ -166,7 +169,21 @@ fastapi dev app/main.py
 # ou: .venv/bin/fastapi dev app/main.py
 ```
 
-Abre em http://127.0.0.1:8000 (redireciona para `/dashboard`).
+Abre em http://127.0.0.1:8000; `/` mostra a landing pública e `/dashboard` abre a área interna.
+
+### Frontend interno React
+
+```bash
+cd frontend
+npm install
+npm run typecheck
+npm run lint
+npm run build
+```
+
+O build Vite é gerado em `app/static/react/` com `base=/static/react/`. O FastAPI serve esse `index.html` para `/dashboard`, `/planejamento`, `/historico`, `/proximos` e `/regras`; `/` continua servindo a landing pública estática. Antes de um build local existir, as rotas internas usam `frontend/index.html` apenas como fallback de desenvolvimento/teste.
+
+Os arquivos antigos `app/static/dashboard.html`, `planejamento.html`, `historico.html`, `proximos.html`, `regras.html` e seus `.js` continuam no repositório como legado de referência, mas `app/routes/pages.py` não os usa mais como fonte das páginas internas.
 
 ---
 

@@ -1,3 +1,14 @@
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /build
+
+COPY frontend/package*.json frontend/
+WORKDIR /build/frontend
+RUN npm ci
+
+COPY frontend/ /build/frontend/
+RUN npm run build
+
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -9,6 +20,7 @@ COPY app/ app/
 COPY alembic/ alembic/
 COPY alembic.ini .
 COPY scripts/ scripts/
+COPY --from=frontend-builder /build/app/static/react/ app/static/react/
 
 # Install the package in editable mode.
 # This installs all declared dependencies and adds /app to sys.path via a .pth

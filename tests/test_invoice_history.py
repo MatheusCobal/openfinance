@@ -1021,26 +1021,26 @@ class TestHistoricoPageLoads(unittest.TestCase):
         response = self.client.get("/historico")
         self.assertEqual(response.status_code, 200)
         html = response.text
-        js = Path("app/static/historico.js").read_text(encoding="utf-8")
+        source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
 
         self.assertNotIn("income-tab", html)
-        self.assertNotIn("Receitas", js)
-        self.assertNotIn("/bank-income/monthly", js)
-        self.assertNotIn("/bank-income/exclusion-rules", js)
-        self.assertIn("Entradas e saídas", js)
-        self.assertIn("/bank-cashflow/monthly", js)
+        self.assertNotIn("Receitas", source)
+        self.assertNotIn("/bank-income/monthly", source)
+        self.assertNotIn("/bank-income/exclusion-rules", source)
+        self.assertIn("Entradas e saídas", source)
+        self.assertIn("/bank-cashflow/monthly", Path("frontend/src/api/historico.ts").read_text())
 
     def test_historico_uses_invoice_display_total_for_invoice_values(self):
         response = self.client.get("/historico")
         self.assertEqual(response.status_code, 200)
         html = response.text
-        js = Path("app/static/historico.js").read_text(encoding="utf-8")
+        source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("historico.js?v=20260610-2", html)
-        self.assertIn("function invoiceDisplayTotal", js)
-        self.assertIn("invoice_display_total", js)
-        self.assertIn("data.months.map((item) => invoiceDisplayTotal(item))", js)
-        self.assertIn("classified_purchase_total", js)
+        self.assertIn('<div id="root"></div>', html)
+        self.assertIn("function invoiceDisplayTotal", source)
+        self.assertIn("invoice_display_total", source)
+        self.assertIn("data.months.map(invoiceDisplayTotal)", source)
+        self.assertIn("classified_purchase_total", source)
 
     def test_credit_card_payments_monthly_endpoint(self):
         response = self.client.get("/credit-card-payments/monthly?months=3")
