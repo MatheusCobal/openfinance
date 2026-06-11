@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import Chart from "chart.js/auto";
+import type { Chart as ChartInstance, Plugin } from "chart.js";
 
 interface BarDataset {
   label: string;
@@ -12,9 +13,52 @@ interface BarChartProps {
   datasets: BarDataset[];
   stacked?: boolean;
   onBarClick?: (index: number) => void;
+  showValueLabels?: boolean;
 }
 
-export function BarChart({ labels, datasets, stacked = false, onBarClick }: BarChartProps) {
+function compactCurrency(value: number) {
+  if (Math.abs(value) >= 1000) {
+    return `${(value / 1000).toLocaleString("pt-BR", {
+      maximumFractionDigits: 1,
+    })} mil`;
+  }
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
+}
+
+const valueLabelPlugin: Plugin<"bar"> = {
+  id: "value-labels",
+  afterDatasetsDraw(chart: ChartInstance<"bar">) {
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = "600 10px Inter, system-ui, sans-serif";
+    ctx.fillStyle = "#334155";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+
+    chart.data.datasets.forEach((dataset, datasetIndex) => {
+      const meta = chart.getDatasetMeta(datasetIndex);
+      meta.data.forEach((element, index) => {
+        const value = Number(dataset.data[index] || 0);
+        if (!Number.isFinite(value) || value === 0) return;
+        const point = element as unknown as { x: number; y: number };
+        ctx.fillText(compactCurrency(value), point.x, point.y - 5);
+      });
+    });
+    ctx.restore();
+  },
+};
+
+export function BarChart({
+  labels,
+  datasets,
+  stacked = false,
+  onBarClick,
+  showValueLabels = false,
+}: BarChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -30,9 +74,13 @@ export function BarChart({ labels, datasets, stacked = false, onBarClick }: BarC
           maxBarThickness: 36,
         })),
       },
+      plugins: showValueLabels ? [valueLabelPlugin] : [],
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        layout: {
+          padding: { top: showValueLabels ? 18 : 0 },
+        },
         onClick: (_event, elements) => {
           if (elements.length > 0) onBarClick?.(elements[0].index);
         },
@@ -72,7 +120,7 @@ export function BarChart({ labels, datasets, stacked = false, onBarClick }: BarC
       },
     });
     return () => chart.destroy();
-  }, [datasets, labels, onBarClick, stacked]);
+  }, [datasets, labels, onBarClick, showValueLabels, stacked]);
 
   return <canvas ref={canvasRef} />;
 }

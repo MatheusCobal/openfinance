@@ -63,6 +63,7 @@ import type {
 } from "../types/planejamento";
 
 type PlanningTab = "overview" | "custos" | "variaveis" | "receita";
+const PLANNING_MONTH_WINDOW_SIZE = 12;
 
 interface PlanningData {
   selectedMonth: string;
@@ -965,7 +966,7 @@ export function PlanejamentoPage() {
   const [activeTab, setActiveTab] = useState<PlanningTab>(() => selectedTabFromLocation());
   const [showInactiveCosts, setShowInactiveCosts] = useState(false);
   const [showInactiveIncome, setShowInactiveIncome] = useState(false);
-  const months = useMemo(() => monthWindow(getDefaultPlanningMonth(), 6), []);
+  const months = useMemo(() => monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE), []);
   const { data, loading, error, run } = useAsync(
     () => loadPlanningData(selectedMonth, showInactiveCosts, showInactiveIncome),
     [selectedMonth, showInactiveCosts, showInactiveIncome],

@@ -34,7 +34,7 @@ import type {
   InvoiceHistorySummary,
 } from "../types/historico";
 
-type HistoryTab = "invoices" | "cashflow";
+type HistoryTab = "invoices" | "categories" | "cashflow";
 
 async function loadHistory() {
   const [invoices, cashflow] = await Promise.allSettled([
@@ -253,10 +253,8 @@ function ClassificationEditor({
 
 function InvoiceTab({
   data,
-  onOpenTransactions,
 }: {
   data: InvoiceHistorySummary;
-  onOpenTransactions: (title: string, subtitle: string, transactions: Transaction[]) => void;
 }) {
   const monthsWithData = data.months.filter(hasInvoiceMonthData);
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -309,7 +307,10 @@ function InvoiceTab({
         />
       </div>
 
-      <ChartCard title="Evolução das faturas de cartão">
+      <ChartCard
+        title="Evolução das faturas de cartão"
+        subtitle="Os valores das faturas aparecem diretamente no gráfico."
+      >
         <BarChart
           labels={data.months.map((month) => formatMonthCompact(month.month))}
           datasets={[
@@ -319,16 +320,107 @@ function InvoiceTab({
               backgroundColor: "#475569",
             },
           ]}
+          showValueLabels
           onBarClick={(index) => setSelectedMonth(data.months[index]?.month || selectedMonth)}
         />
       </ChartCard>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_1fr]">
+      <Card className="overflow-hidden">
+        <div className="px-5 py-4">
+          <h2 className="font-semibold text-slate-950">Histórico mensal das faturas</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Valor oficial Pluggy nos meses fechados; a fatura vigente usa o valor calculado da Dashboard.
+          </p>
+        </div>
+        <ul className="divide-y divide-slate-100">
+          {[...data.months].reverse().map((item) => {
+            const activeRow = item.month === active.month;
+            return (
+              <li key={item.month} className={activeRow ? "bg-blue-50/60" : undefined}>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-4 px-5 py-3 text-left"
+                  onClick={() => setSelectedMonth(item.month)}
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-950">{formatMonthLong(item.month)}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {invoiceSourceLabel(item)}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold tabular text-slate-950">
+                    {hasInvoiceMonthData(item) ? formatMoney(invoiceDisplayTotal(item)) : "Sem fatura"}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </Card>
+    </div>
+  );
+}
+
+function CategorySpendingTab({
+  data,
+  onOpenTransactions,
+}: {
+  data: InvoiceHistorySummary;
+  onOpenTransactions: (title: string, subtitle: string, transactions: Transaction[]) => void;
+}) {
+  const monthsWithCategories = data.months.filter((month) => (month.categories || []).length > 0);
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const latest = [...monthsWithCategories].pop() || data.months[data.months.length - 1];
+    return latest?.month || "";
+  });
+
+  useEffect(() => {
+    if (selectedMonth && data.months.some((item) => item.month === selectedMonth)) return;
+    const latest = [...monthsWithCategories].pop() || data.months[data.months.length - 1];
+    setSelectedMonth(latest?.month || "");
+  }, [data.months, monthsWithCategories, selectedMonth]);
+
+  const active = data.months.find((item) => item.month === selectedMonth) || data.months[data.months.length - 1];
+  const monthsWithData = data.months.filter(hasInvoiceMonthData);
+  const periodClassifiedTotal = data.months.reduce((sum, item) => sum + classifiedPurchaseTotal(item), 0);
+
+  if (!monthsWithCategories.length) {
+    return (
+      <EmptyState
+        title="Sem gastos por categoria."
+        detail="Quando houver compras CREDIT classificadas, elas aparecem nesta aba."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <MetricCard
+          label="Gastos classificados"
+          value={formatMoney(periodClassifiedTotal)}
+          subtitle={`${monthsWithData.length.toLocaleString("pt-BR")} meses analisados`}
+        />
+        <MetricCard
+          label="Mês selecionado"
+          value={formatMoney(classifiedPurchaseTotal(active))}
+          subtitle={`${formatMonthLong(active.month)} · ${pluralCompras(active.count)}`}
+          tone="blue"
+        />
+        <MetricCard
+          label="Categorias"
+          value={(active.categories?.length || 0).toLocaleString("pt-BR")}
+          subtitle="Categorias com compras no mês"
+          tone="amber"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[340px_1fr]">
         <Card className="overflow-hidden">
           <div className="px-5 py-4">
-            <h2 className="font-semibold text-slate-950">Histórico mensal das faturas</h2>
+            <h2 className="font-semibold text-slate-950">Meses com gastos</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Valor oficial Pluggy nos meses fechados, separado dos gastos por classificação.
+              Totais por classificação, separados do valor oficial da fatura.
             </p>
           </div>
           <ul className="divide-y divide-slate-100">
@@ -343,12 +435,10 @@ function InvoiceTab({
                   >
                     <div>
                       <p className="text-sm font-medium text-slate-950">{formatMonthLong(item.month)}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {invoiceSourceLabel(item)}
-                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">{pluralCompras(item.count)}</p>
                     </div>
                     <span className="text-sm font-semibold tabular text-slate-950">
-                      {hasInvoiceMonthData(item) ? formatMoney(invoiceDisplayTotal(item)) : "Sem fatura"}
+                      {classifiedPurchaseTotal(item) > 0 ? formatMoney(classifiedPurchaseTotal(item)) : "Sem compras"}
                     </span>
                   </button>
                 </li>
@@ -360,7 +450,7 @@ function InvoiceTab({
         <section>
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="font-semibold text-slate-950">Gastos por classificação</h2>
+              <h2 className="font-semibold text-slate-950">Gastos por categorias</h2>
               <p className="mt-0.5 text-xs text-slate-500">
                 {formatMonthLong(active.month)} · {pluralCompras(active.count)} ·{" "}
                 {formatMoney(classifiedPurchaseTotal(active))}
@@ -583,7 +673,13 @@ export function HistoricoPage() {
   return (
     <>
       <Topbar
-        subtitle={activeTab === "invoices" ? "Faturas de cartão" : "Fluxo de caixa bancário"}
+        subtitle={
+          activeTab === "invoices"
+            ? "Faturas de cartão"
+            : activeTab === "categories"
+              ? "Gastos por categorias"
+              : "Fluxo de caixa bancário"
+        }
         actions={
           <Button type="button" onClick={() => void run()} loading={loading}>
             <RefreshCw className="size-4" aria-hidden="true" />
@@ -598,13 +694,17 @@ export function HistoricoPage() {
             onChange={setActiveTab}
             items={[
               { key: "invoices", label: "Faturas cartão" },
+              { key: "categories", label: "Gastos por categorias" },
               { key: "cashflow", label: "Entradas e saídas" },
             ]}
           />
           {loading && !data ? <LoadingState label="Carregando histórico..." /> : null}
           {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
           {data && activeTab === "invoices" && data.invoices ? (
-            <InvoiceTab
+            <InvoiceTab data={data.invoices} />
+          ) : null}
+          {data && activeTab === "categories" && data.invoices ? (
+            <CategorySpendingTab
               data={data.invoices}
               onOpenTransactions={(title, subtitle, transactions) =>
                 setModal({ title, subtitle, transactions })

@@ -1114,12 +1114,21 @@ class TestHistoricoPageLoads(unittest.TestCase):
 
         self.assertIn("Histórico mensal das faturas", source)
         self.assertIn("Valor oficial Pluggy nos meses fechados", source)
-        self.assertIn("Gastos por classificação", source)
+        self.assertIn('key: "categories", label: "Gastos por categorias"', source)
+        self.assertIn("function CategorySpendingTab", source)
+        self.assertIn("Gastos por categorias", source)
         self.assertIn("formatMoney(classifiedPurchaseTotal(active))", source)
+        self.assertIn("showValueLabels", source)
         self.assertIn("Todas as movimentações BANK", source)
         self.assertIn("PIX, boleto, transferências e pagamentos", source)
         self.assertNotIn("listCashflowRules", source)
         self.assertNotIn("Regras do fluxo de caixa", source)
+
+    def test_planejamento_shows_next_12_months(self):
+        source = Path("frontend/src/pages/PlanejamentoPage.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("const PLANNING_MONTH_WINDOW_SIZE = 12", source)
+        self.assertIn("monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE)", source)
 
     def test_credit_card_payments_monthly_endpoint(self):
         response = self.client.get("/credit-card-payments/monthly?months=3")
