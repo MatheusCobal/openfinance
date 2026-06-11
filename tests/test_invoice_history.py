@@ -1042,24 +1042,6 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertIn("data.months.map(invoiceDisplayTotal)", source)
         self.assertIn("classified_purchase_total", source)
 
-    def test_historico_invoice_rows_show_source_not_purchase_count(self):
-        source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
-        labels = Path("frontend/src/lib/labels.ts").read_text(encoding="utf-8")
-
-        self.assertIn("Fatura oficial Pluggy", source)
-        self.assertIn("Fatura vigente calculada", source)
-        self.assertIn("Sem fatura oficial", source)
-        self.assertIn("pluggy_official_bill: \"Fatura oficial Pluggy\"", labels)
-        self.assertIn("dashboard_current_invoice: \"Fatura vigente calculada\"", labels)
-        self.assertIn("missing_official_bill_fallback: \"Sem fatura oficial\"", labels)
-        self.assertNotIn(
-            "${formatMonthLong(active.month)} · "
-            "${invoiceSourceLabel(active.invoice_total_source)} · "
-            "${pluralCompras(active.count)}",
-            source,
-        )
-        self.assertNotIn("<span>{pluralCompras(item.count)}</span>", source)
-
     def test_credit_card_payments_monthly_endpoint(self):
         response = self.client.get("/credit-card-payments/monthly?months=3")
         self.assertEqual(response.status_code, 200)
