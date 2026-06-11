@@ -330,6 +330,24 @@ class ReactSourceContractTest(unittest.TestCase):
             self.assertNotIn(name, pages)
         self.assertIn("react_app()", pages)
 
+    def test_old_internal_static_pages_were_removed(self):
+        static_dir = Path("app/static")
+        for name in (
+            "dashboard.html",
+            "dashboard.js",
+            "planejamento.html",
+            "planejamento.js",
+            "historico.html",
+            "historico.js",
+            "proximos.html",
+            "proximos.js",
+            "regras.html",
+            "regras.js",
+            "planning_common.js",
+            "styles.css",
+        ):
+            self.assertFalse((static_dir / name).exists(), name)
+
 
 if __name__ == "__main__":
     unittest.main()

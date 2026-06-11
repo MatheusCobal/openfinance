@@ -142,8 +142,7 @@ openfinance/
     ├── static/
     │   ├── landing.html       landing pública
     │   ├── landing.css/js     assets da landing pública
-    │   ├── react/             build Vite gerado, gitignored
-    │   └── *.html/*.js        telas internas antigas mantidas como legado
+    │   └── react/             build Vite gerado, gitignored
     └── docs/                  documentação auxiliar e backlog
 ├── frontend/                  app interna React/Vite/TypeScript/Tailwind
 │   ├── src/pages/             Dashboard, Planejamento, Histórico, Próximos, Regras
@@ -182,8 +181,6 @@ npm run build
 ```
 
 O build Vite é gerado em `app/static/react/` com `base=/static/react/`. O FastAPI serve esse `index.html` para `/dashboard`, `/planejamento`, `/historico`, `/proximos` e `/regras`; `/` continua servindo a landing pública estática. Antes de um build local existir, as rotas internas usam `frontend/index.html` apenas como fallback de desenvolvimento/teste.
-
-Os arquivos antigos `app/static/dashboard.html`, `planejamento.html`, `historico.html`, `proximos.html`, `regras.html` e seus `.js` continuam no repositório como legado de referência, mas `app/routes/pages.py` não os usa mais como fonte das páginas internas.
 
 ---
 

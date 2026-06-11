@@ -1,6 +1,5 @@
 /* OpenFinance — public landing page styles.
-   Scoped with the lp- prefix so nothing here can collide with the app's
-   shared styles.css (which the landing page intentionally does not load). */
+   Scoped with the lp- prefix so nothing here can collide with the React app. */
 
 /* ── Smooth in-page navigation (disabled for reduced-motion users) ────── */
 html { scroll-behavior: smooth; }
