@@ -700,6 +700,13 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 due_date=datetime.date(2026, 6, 8),
                 total=Decimal("17131.28"),
             )
+            session.add(
+                CreditCardInvoiceMonth(
+                    year_month="2026-06",
+                    total=Decimal("31211.90"),
+                    payment_count=3,
+                )
+            )
             _add_card_transaction(
                 session,
                 tx_id="classified-jun",
@@ -730,6 +737,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(june["invoice_display_total"], 17131.28, places=2)
         self.assertAlmostEqual(june["total"], 17131.28, places=2)
         self.assertAlmostEqual(june["official_bill_total"], 17131.28, places=2)
+        self.assertAlmostEqual(june["snapshot_invoice_total"], 31211.90, places=2)
         self.assertAlmostEqual(june["classified_purchase_total"], 164.0, places=2)
         self.assertNotEqual(june["invoice_display_total"], june["classified_purchase_total"])
         self.assertAlmostEqual(
@@ -739,6 +747,49 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         )
         self.assertEqual(june["categories"][0]["name"], "Alimentação")
         self.assertAlmostEqual(june["categories"][0]["total"], 164.0, places=2)
+
+    def test_historical_month_uses_invoice_snapshot_when_official_bill_is_missing(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 6, 8))
+            session.add(
+                CreditCardInvoiceMonth(
+                    year_month="2026-06",
+                    total=Decimal("31211.90"),
+                    payment_count=3,
+                )
+            )
+            _add_card_transaction(
+                session,
+                tx_id="classified-jun-snapshot",
+                transaction_date=datetime.date(2026, 6, 2),
+                amount=Decimal("-44.00"),
+                description="Compra com snapshot",
+                category="Food",
+                internal_category="Alimentação",
+                cashflow_type="expense",
+            )
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 10)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        june = {month["month"]: month for month in result["months"]}["2026-06"]
+
+        self.assertEqual(june["invoice_total_source"], "credit_card_invoice_snapshot")
+        self.assertIsNone(june["official_bill_total"])
+        self.assertEqual(june["official_bill_count"], 0)
+        self.assertAlmostEqual(june["snapshot_invoice_total"], 31211.90, places=2)
+        self.assertEqual(june["snapshot_payment_count"], 3)
+        self.assertAlmostEqual(june["invoice_display_total"], 31211.90, places=2)
+        self.assertAlmostEqual(june["classified_purchase_total"], 44.0, places=2)
+        self.assertAlmostEqual(
+            june["classified_purchase_difference_from_invoice"],
+            -31167.90,
+            places=2,
+        )
 
     def test_current_invoice_uses_dashboard_total_not_official_bill(self):
         with Session(self.engine) as session:
@@ -1046,6 +1097,7 @@ class TestHistoricoPageLoads(unittest.TestCase):
         source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
 
         self.assertIn('pluggy_official_bill: "Fatura oficial Pluggy"', source)
+        self.assertIn('credit_card_invoice_snapshot: "Fatura histórica registrada"', source)
         self.assertIn('dashboard_current_invoice: "Fatura vigente calculada"', source)
         self.assertIn('missing_official_bill_fallback: "Sem fatura oficial"', source)
         self.assertNotIn(

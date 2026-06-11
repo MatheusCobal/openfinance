@@ -285,6 +285,26 @@ def _credit_card_official_bill_totals_by_month(
     }
 
 
+def _credit_card_invoice_snapshot_totals_by_month(
+    session: Session,
+    selected_months: set[str],
+) -> dict[str, dict[str, Any]]:
+    snapshots = session.exec(
+        select(CreditCardInvoiceMonth).where(
+            CreditCardInvoiceMonth.year_month.in_(selected_months)
+        )
+    ).all()
+    return {
+        snapshot.year_month: {
+            "total": Decimal(snapshot.total),
+            "payment_count": snapshot.payment_count,
+            "captured_at": snapshot.captured_at.isoformat(),
+            "updated_at": snapshot.updated_at.isoformat(),
+        }
+        for snapshot in snapshots
+    }
+
+
 def credit_card_invoice_purchases_monthly_summary(session: Session, months: int):
     """Return invoice history with display totals separated from classifications.
 
@@ -303,6 +323,10 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
     first_selected_month = _month_start_from_key(selected_months[0])
     average_window_start = shift_month(first_selected_month, -12)
     official_bills_by_month = _credit_card_official_bill_totals_by_month(
+        session,
+        selected_month_set,
+    )
+    invoice_snapshots_by_month = _credit_card_invoice_snapshot_totals_by_month(
         session,
         selected_month_set,
     )
@@ -374,6 +398,12 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
             if bill_bucket is not None
             else None
         )
+        snapshot_bucket = invoice_snapshots_by_month.get(selected_month)
+        snapshot_invoice_total = (
+            Decimal(snapshot_bucket["total"])
+            if snapshot_bucket is not None
+            else None
+        )
         is_current_invoice = selected_month == vigente_month
         if is_current_invoice:
             month_invoice_display_total = current_invoice_total
@@ -381,6 +411,9 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
         elif official_bill_total is not None:
             month_invoice_display_total = official_bill_total
             invoice_total_source = "pluggy_official_bill"
+        elif snapshot_invoice_total is not None:
+            month_invoice_display_total = snapshot_invoice_total
+            invoice_total_source = "credit_card_invoice_snapshot"
         else:
             month_invoice_display_total = month_classified_total
             invoice_total_source = "missing_official_bill_fallback"
@@ -451,6 +484,20 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
                 "official_bill_count": bill_bucket["bill_count"] if bill_bucket else 0,
                 "official_bill_due_dates": bill_bucket["due_dates"] if bill_bucket else [],
                 "official_bills": bill_bucket["bills"] if bill_bucket else [],
+                "snapshot_invoice_total": (
+                    float(snapshot_invoice_total)
+                    if snapshot_invoice_total is not None
+                    else None
+                ),
+                "snapshot_payment_count": (
+                    snapshot_bucket["payment_count"] if snapshot_bucket else 0
+                ),
+                "snapshot_captured_at": (
+                    snapshot_bucket["captured_at"] if snapshot_bucket else None
+                ),
+                "snapshot_updated_at": (
+                    snapshot_bucket["updated_at"] if snapshot_bucket else None
+                ),
                 "classified_purchase_total": float(month_classified_total),
                 "classified_purchase_difference_from_invoice": float(
                     month_classified_total - month_invoice_display_total

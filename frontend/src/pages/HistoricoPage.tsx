@@ -66,6 +66,7 @@ function hasInvoiceMonthData(item: InvoiceHistoryMonth) {
 function invoiceSourceLabel(item?: Partial<InvoiceHistoryMonth> | null) {
   const labels: Record<string, string> = {
     pluggy_official_bill: "Fatura oficial Pluggy",
+    credit_card_invoice_snapshot: "Fatura histórica registrada",
     dashboard_current_invoice: "Fatura vigente calculada",
     missing_official_bill_fallback: "Sem fatura oficial",
   };
