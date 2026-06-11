@@ -118,7 +118,7 @@ def _next_calendar_month(today: datetime.date) -> str:
     """The ``YYYY-MM`` of the month immediately after ``today``'s month.
 
     This is the "fatura vigente" month: the dashboard's default planning month
-    (getDefaultPlanningMonth in planning_common.js) is always currentMonth + 1.
+    is always currentMonth + 1.
     """
     if today.month == 12:
         return f"{today.year + 1:04d}-01"

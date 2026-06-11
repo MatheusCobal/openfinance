@@ -142,8 +142,7 @@ openfinance/
     ├── static/
     │   ├── landing.html       landing pública
     │   ├── landing.css/js     assets da landing pública
-    │   ├── react/             build Vite gerado, gitignored
-    │   └── *.html/*.js        telas internas antigas mantidas como legado
+    │   └── react/             build Vite gerado (gitignored)
     └── docs/                  documentação auxiliar e backlog
 ├── frontend/                  app interna React/Vite/TypeScript/Tailwind
 │   ├── src/pages/             Dashboard, Planejamento, Histórico, Próximos, Regras
@@ -173,17 +172,18 @@ Abre em http://127.0.0.1:8000; `/` mostra a landing pública e `/dashboard` abre
 
 ### Frontend interno React
 
+A área interna do app está em `frontend/` (React + Vite + TypeScript + Tailwind CSS). O build é gerado em `app/static/react/` (gitignored) e servido pelo FastAPI nas rotas internas.
+
 ```bash
-cd frontend
-npm install
+cd frontend && npm ci
 npm run typecheck
 npm run lint
 npm run build
 ```
 
-O build Vite é gerado em `app/static/react/` com `base=/static/react/`. O FastAPI serve esse `index.html` para `/dashboard`, `/planejamento`, `/historico`, `/proximos` e `/regras`; `/` continua servindo a landing pública estática. Antes de um build local existir, as rotas internas usam `frontend/index.html` apenas como fallback de desenvolvimento/teste.
+O FastAPI serve o `index.html` gerado pelo Vite para as rotas internas (`/dashboard`, `/planejamento`, `/historico`, `/proximos`, `/regras`). A landing pública em `/` continua sendo `app/static/landing.html`, sem envolver o build React.
 
-Os arquivos antigos `app/static/dashboard.html`, `planejamento.html`, `historico.html`, `proximos.html`, `regras.html` e seus `.js` continuam no repositório como legado de referência, mas `app/routes/pages.py` não os usa mais como fonte das páginas internas.
+> Os HTML/JS antigos da área interna (`dashboard.html`, `planejamento.html`, etc.) foram removidos após a migração para React. O único frontend estático que permanece é a landing pública em `app/static/landing.html`.
 
 ---
 

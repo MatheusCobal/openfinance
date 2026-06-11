@@ -197,7 +197,7 @@ class AuthMiddlewareTest(unittest.TestCase):
 
     def test_static_public_even_with_auth_active(self):
         with self._use(require_auth=True, admin_token=ADMIN_TOKEN):
-            response = self.client.get("/static/dashboard.js")
+            response = self.client.get("/static/landing.js")
         self.assertEqual(response.status_code, 200)
 
     # ── 5b. Public landing page ─────────────────────────────────────────────
