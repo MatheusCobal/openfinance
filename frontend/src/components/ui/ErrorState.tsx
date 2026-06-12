@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { Button } from "./Button";
 
 interface ErrorStateProps {
@@ -8,9 +9,12 @@ interface ErrorStateProps {
 
 export function ErrorState({ title = "Não foi possível carregar os dados.", message, onRetry }: ErrorStateProps) {
   return (
-    <div className="rounded-lg border border-rose-100 bg-rose-50 px-4 py-10 text-center">
-      <p className="text-sm font-semibold text-rose-800">{title}</p>
-      <p className="mt-1 text-sm text-rose-700">{message}</p>
+    <div className="rounded-card border border-danger-200 bg-danger-50 px-6 py-10 text-center">
+      <span className="mx-auto mb-3 inline-flex size-10 items-center justify-center rounded-full bg-danger-100 text-danger-600">
+        <AlertTriangle className="size-5" aria-hidden="true" />
+      </span>
+      <p className="text-sm font-semibold text-danger-800">{title}</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-danger-700">{message}</p>
       {onRetry ? (
         <Button type="button" className="mt-4" variant="secondary" onClick={onRetry}>
           Tentar novamente

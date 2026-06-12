@@ -1,25 +1,27 @@
 import type { HTMLAttributes } from "react";
 import { classNames } from "../../lib/classNames";
 
-type Tone = "slate" | "blue" | "emerald" | "amber" | "rose";
+type Tone = "neutral" | "primary" | "positive" | "warning" | "danger" | "accent" | "inverse";
 
 const tones: Record<Tone, string> = {
-  slate: "bg-slate-100 text-slate-700",
-  blue: "bg-blue-50 text-blue-700",
-  emerald: "bg-emerald-50 text-emerald-700",
-  amber: "bg-amber-50 text-amber-800",
-  rose: "bg-rose-50 text-rose-700",
+  neutral: "bg-ink-100 text-ink-700",
+  primary: "bg-primary-50 text-primary-700",
+  positive: "bg-positive-50 text-positive-700",
+  warning: "bg-warning-50 text-warning-800",
+  danger: "bg-danger-50 text-danger-700",
+  accent: "bg-accent-50 text-accent-700",
+  inverse: "bg-white/10 text-white/90 ring-1 ring-inset ring-white/15",
 };
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   tone?: Tone;
 }
 
-export function Badge({ className, tone = "slate", ...props }: BadgeProps) {
+export function Badge({ className, tone = "neutral", ...props }: BadgeProps) {
   return (
     <span
       className={classNames(
-        "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium",
         tones[tone],
         className,
       )}

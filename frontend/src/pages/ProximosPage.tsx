@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ListChecks, RefreshCw, TrendingUp, WalletCards } from "lucide-react";
+import { CalendarClock, CalendarDays, CreditCard, RefreshCw, TrendingUp } from "lucide-react";
 import { getUpcoming } from "../api/proximos";
 import { BarChart } from "../components/charts/BarChart";
 import { PageContainer } from "../components/layout/PageContainer";
 import { Topbar } from "../components/layout/Topbar";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ChartCard } from "../components/ui/ChartCard";
@@ -11,19 +12,17 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { LoadingState } from "../components/ui/LoadingState";
 import { MetricCard } from "../components/ui/MetricCard";
+import { MonthStrip } from "../components/ui/MonthStrip";
 import { useAsync } from "../hooks/useAsync";
-import { classNames } from "../lib/classNames";
+import { categoryColor } from "../lib/categories";
 import { formatDayLabel, formatMonthCompact, formatMonthLong } from "../lib/dates";
+import { invoiceSourceLabel, pluralParcelas } from "../lib/labels";
 import { formatMoney } from "../lib/money";
 import type { UpcomingMonth } from "../types/proximos";
 
-function pluralParcelas(n: number) {
-  return n === 1 ? "1 parcela" : `${n.toLocaleString("pt-BR")} parcelas`;
-}
-
 function monthSubtitle(month: UpcomingMonth) {
   if (month.is_current_invoice) {
-    const label = month.invoice_source_label || "Fatura vigente";
+    const label = invoiceSourceLabel(month.invoice_source, month.invoice_source_label || "Fatura vigente");
     const scheduledCount = month.scheduled_count ?? month.count ?? 0;
     return `${label} · ${pluralParcelas(scheduledCount)}`;
   }
@@ -32,22 +31,22 @@ function monthSubtitle(month: UpcomingMonth) {
 
 function transactionList(transactions: UpcomingMonth["transactions"]) {
   if (!transactions?.length) {
-    return <p className="px-5 py-6 text-sm text-slate-500">Sem parcelas detalhadas.</p>;
+    return <p className="px-5 py-6 text-sm text-ink-500">Sem parcelas detalhadas.</p>;
   }
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul className="divide-y divide-ink-100">
       {transactions.map((tx) => (
         <li key={tx.id} className="flex items-baseline justify-between gap-4 px-5 py-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-slate-950">{tx.description}</p>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p className="truncate text-sm text-ink-900">{tx.description}</p>
+            <p className="mt-0.5 text-xs text-ink-500">
               {formatDayLabel(tx.date)}
-              {tx.internal_category ? ` · ${tx.internal_category}` : ""}
-              {tx.cashflow_type ? ` · ${tx.cashflow_type}` : ""}
-              {tx.pluggy_category ? ` · ${tx.pluggy_category}` : ""}
+              {tx.installment_number && tx.total_installments
+                ? ` · parcela ${tx.installment_number} de ${tx.total_installments}`
+                : ""}
             </p>
           </div>
-          <p className="shrink-0 text-sm font-medium tabular text-slate-900">{formatMoney(tx.amount)}</p>
+          <p className="shrink-0 text-sm font-medium tabular text-ink-900">{formatMoney(tx.amount)}</p>
         </li>
       ))}
     </ul>
@@ -81,13 +80,27 @@ export function ProximosPage() {
     return { next, totalFuture, totalCount, quarterTotal, quarterCount, largest };
   }, [data]);
 
+  const monthTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const month of data?.months || []) map.set(month.month, Number(month.total || 0));
+    return map;
+  }, [data]);
+
+  const barColors = useMemo(() => {
+    return (data?.months || []).map((month) => {
+      if (month.month === selectedMonth) return "#1d4ed8";
+      if (summary.largest && month.month === summary.largest.month) return "#f59e0b";
+      return "#93c5fd";
+    });
+  }, [data, selectedMonth, summary.largest]);
+
   return (
     <>
       <Topbar
         subtitle={
           data?.months?.length
-            ? `${pluralParcelas(data.total_count || summary.totalCount)} em ${data.months.length} meses`
-            : "Parcelas e faturas futuras"
+            ? `${pluralParcelas(data.total_count || summary.totalCount)} já comprometidas nos próximos ${data.months.length} meses`
+            : "O que já está comprometido nos próximos meses"
         }
         actions={
           <Button type="button" onClick={() => void run()} loading={loading}>
@@ -97,7 +110,7 @@ export function ProximosPage() {
         }
       />
       <PageContainer>
-        {loading && !data ? <LoadingState label="Carregando próximos gastos..." /> : null}
+        {loading && !data ? <LoadingState label="Carregando compromissos futuros..." /> : null}
         {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
         {data ? (
           data.months?.length ? (
@@ -109,129 +122,153 @@ export function ProximosPage() {
                   subtitle={
                     data.next_invoice
                       ? `${formatMonthLong(data.next_invoice.year_month)} · ${
-                          data.next_invoice.source_label || "Fatura estimada"
+                          data.next_invoice.source_label || "Fatura vigente"
                         }`
                       : summary.next
                         ? `${formatMonthLong(summary.next.month)} · ${pluralParcelas(summary.next.count)}`
                         : "Sem parcelas"
                   }
-                  tone="blue"
-                  icon={<WalletCards className="size-4" aria-hidden="true" />}
+                  tone="primary"
+                  icon={<CreditCard className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
-                  label="3 meses"
+                  label="Próximos 3 meses"
                   value={formatMoney(summary.quarterTotal)}
                   subtitle={
                     data.next_invoice
-                      ? `Inclui ${formatMonthLong(data.next_invoice.year_month)} vigente`
+                      ? `Inclui a fatura vigente de ${formatMonthLong(data.next_invoice.year_month)}`
                       : pluralParcelas(summary.quarterCount)
                   }
                   icon={<CalendarDays className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
-                  label="Total futuro"
+                  label="Total comprometido"
                   value={formatMoney(summary.totalFuture)}
                   subtitle={
                     data.next_invoice
                       ? "Fatura vigente + parcelas futuras"
-                      : pluralParcelas(summary.totalCount)
+                      : `${pluralParcelas(summary.totalCount)} no horizonte`
                   }
-                  tone="amber"
+                  tone="warning"
                   icon={<TrendingUp className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
-                  label="Mês com mais parcelas"
-                  value={summary.largest ? formatMoney(summary.largest.total) : "-"}
+                  label="Mês mais pesado"
+                  value={summary.largest ? formatMoney(summary.largest.total) : "—"}
                   subtitle={
                     summary.largest
                       ? `${formatMonthLong(summary.largest.month)} · ${pluralParcelas(summary.largest.count)}`
                       : "Sem parcelas"
                   }
-                  icon={<ListChecks className="size-4" aria-hidden="true" />}
+                  tone="danger"
+                  icon={<CalendarClock className="size-4" aria-hidden="true" />}
                 />
               </section>
 
-              <ChartCard title="Próximos meses">
+              <ChartCard
+                title="Pressão dos próximos meses"
+                subtitle="Clique em um mês para abrir o detalhe — o mês mais pesado fica em destaque"
+              >
                 <BarChart
                   labels={data.months.map((month) => formatMonthCompact(month.month))}
+                  ariaLabel={`Compromissos futuros por mês. Mês mais pesado: ${
+                    summary.largest ? formatMonthLong(summary.largest.month) : "nenhum"
+                  }.`}
                   datasets={[
                     {
-                      label: "Parcelas",
+                      label: "Comprometido",
                       data: data.months.map((month) => month.total),
-                      backgroundColor: "#1d4ed8",
+                      backgroundColor: "#93c5fd",
+                      backgroundColors: barColors,
                     },
                   ]}
                   onBarClick={(index) => setSelectedMonth(data.months[index]?.month || null)}
                 />
               </ChartCard>
 
-              <div className="chip-strip flex gap-2 overflow-x-auto pb-2">
-                {data.months.map((month) => {
-                  const active = month.month === selectedMonth;
-                  return (
-                    <button
-                      key={month.month}
-                      type="button"
-                      onClick={() => setSelectedMonth(month.month)}
-                      className={classNames(
-                        "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors",
-                        active
-                          ? "bg-blue-700 text-white"
-                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                      )}
-                    >
-                      {formatMonthCompact(month.month)}
-                    </button>
-                  );
-                })}
-              </div>
+              <MonthStrip
+                months={data.months.map((month) => month.month)}
+                value={selectedMonth}
+                onChange={setSelectedMonth}
+                captionFor={(ym) => {
+                  const total = monthTotals.get(ym);
+                  return total ? formatMoney(total) : null;
+                }}
+              />
 
               {selected ? (
                 <>
-                  <Card className="p-6">
-                    <div className="flex items-baseline justify-between gap-4">
+                  <Card className="p-5 sm:p-6">
+                    <div className="flex flex-wrap items-baseline justify-between gap-4">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          {formatMonthLong(selected.month)}
-                        </p>
-                        <p className="mt-1 text-3xl font-bold tabular text-slate-950">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                            {formatMonthLong(selected.month)}
+                          </p>
+                          {selected.is_current_invoice ? (
+                            <Badge tone="primary">Fatura vigente</Badge>
+                          ) : null}
+                          {summary.largest && selected.month === summary.largest.month ? (
+                            <Badge tone="warning">Mês mais pesado</Badge>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-3xl font-bold tracking-tight tabular text-ink-900">
                           {formatMoney(selected.total)}
                         </p>
                       </div>
-                      <p className="text-sm text-slate-500 tabular">{monthSubtitle(selected)}</p>
+                      <p className="text-sm text-ink-500 tabular">{monthSubtitle(selected)}</p>
                     </div>
                   </Card>
 
-                  <section className="space-y-3">
+                  <section className="space-y-3" aria-label="Compromissos por categoria">
                     {selected.categories?.length ? (
-                      selected.categories.map((category) => (
-                        <details
-                          key={String(category.id ?? category.name)}
-                          className="overflow-hidden rounded-lg border border-slate-200 bg-white"
-                          open
-                        >
-                          <summary className="flex cursor-pointer items-center gap-3 px-5 py-4 hover:bg-slate-50">
-                            <span className="flex-1 font-medium text-slate-950">
-                              {category.name || "Outros"}
-                            </span>
-                            <span className="text-xs text-slate-500 tabular">
-                              {pluralParcelas(category.count || 0)}
-                            </span>
-                            <span className="ml-3 font-semibold tabular text-slate-950">
-                              {formatMoney(category.total || 0)}
-                            </span>
-                          </summary>
-                          {transactionList(category.transactions)}
-                        </details>
-                      ))
+                      selected.categories.map((category) => {
+                        const color = categoryColor(category.name);
+                        const share =
+                          Number(selected.total) > 0
+                            ? Math.round((Number(category.total || 0) / Number(selected.total)) * 100)
+                            : 0;
+                        return (
+                          <details
+                            key={String(category.id ?? category.name)}
+                            className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
+                            open
+                          >
+                            <summary className="flex cursor-pointer items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted">
+                              <span
+                                className="size-2.5 shrink-0 rounded-[4px]"
+                                style={{ background: color }}
+                                aria-hidden="true"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-semibold text-ink-900">
+                                  {category.name || "Outros"}
+                                </span>
+                                <span className="block text-xs text-ink-500">
+                                  {pluralParcelas(category.count || 0)} · {share}% do mês
+                                </span>
+                              </span>
+                              <span className="ml-3 text-sm font-bold tabular text-ink-900">
+                                {formatMoney(category.total || 0)}
+                              </span>
+                            </summary>
+                            {transactionList(category.transactions)}
+                          </details>
+                        );
+                      })
                     ) : (
-                      <details className="overflow-hidden rounded-lg border border-slate-200 bg-white" open>
-                        <summary className="flex cursor-pointer items-center gap-3 px-5 py-4 hover:bg-slate-50">
-                          <span className="flex-1 font-medium text-slate-950">Classificação Pluggy-based</span>
-                          <span className="text-xs text-slate-500 tabular">
+                      <details
+                        className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
+                        open
+                      >
+                        <summary className="flex cursor-pointer items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted">
+                          <span className="min-w-0 flex-1 text-sm font-semibold text-ink-900">
+                            Parcelas do mês
+                          </span>
+                          <span className="text-xs text-ink-500 tabular">
                             {pluralParcelas(selected.count || 0)}
                           </span>
-                          <span className="ml-3 font-semibold tabular text-slate-950">
+                          <span className="ml-3 text-sm font-bold tabular text-ink-900">
                             {formatMoney(selected.total || 0)}
                           </span>
                         </summary>
@@ -244,8 +281,9 @@ export function ProximosPage() {
             </div>
           ) : (
             <EmptyState
+              icon={<CalendarClock className="size-5" aria-hidden="true" />}
               title="Nenhuma parcela futura encontrada."
-              detail="Você está em dia ou ainda não conectou contas com parcelamento."
+              detail="Você está em dia — ou ainda não conectou contas com compras parceladas."
             />
           )
         ) : null}

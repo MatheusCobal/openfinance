@@ -1094,12 +1094,16 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertIn("classified_purchase_total", source)
 
     def test_historico_monthly_invoice_label_uses_source_without_purchase_count(self):
+        # Invoice-source labels now live in the shared copy helper (lib/labels.ts)
+        # and the month list renders one badge per source, never "label · N compras".
         source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
+        labels = Path("frontend/src/lib/labels.ts").read_text(encoding="utf-8")
 
-        self.assertIn('pluggy_official_bill: "Fatura oficial Pluggy"', source)
-        self.assertIn('credit_card_invoice_snapshot: "Fatura histórica registrada"', source)
-        self.assertIn('dashboard_current_invoice: "Fatura vigente calculada"', source)
-        self.assertIn('missing_official_bill_fallback: "Sem fatura oficial"', source)
+        self.assertIn('pluggy_official_bill: "Fatura fechada do banco"', labels)
+        self.assertIn('credit_card_invoice_snapshot: "Registro histórico"', labels)
+        self.assertIn('dashboard_current_invoice: "Fatura vigente"', labels)
+        self.assertIn('missing_official_bill_fallback: "Sem fatura oficial"', labels)
+        self.assertIn("monthSourceBadge(item)", source)
         self.assertNotIn(
             "{invoiceSourceLabel(item)} · {pluralCompras(item.count)}",
             source,
@@ -1112,14 +1116,11 @@ class TestHistoricoPageLoads(unittest.TestCase):
     def test_historico_separates_invoice_history_from_classified_spending_and_raw_bank_cashflow(self):
         source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("Histórico mensal das faturas", source)
-        self.assertIn("Valor oficial Pluggy nos meses fechados", source)
-        self.assertIn('key: "categories", label: "Gastos por categorias"', source)
+        self.assertIn("Meses fechados respeitam o valor oficial do banco", source)
+        self.assertIn('key: "categories", label: "Gastos por categoria"', source)
         self.assertIn("function CategorySpendingTab", source)
-        self.assertIn("Gastos por categorias", source)
         self.assertIn("formatMoney(classifiedPurchaseTotal(active))", source)
         self.assertIn("showValueLabels", source)
-        self.assertIn("Todas as movimentações BANK", source)
         self.assertIn("PIX, boleto, transferências e pagamentos", source)
         self.assertNotIn("listCashflowRules", source)
         self.assertNotIn("Regras do fluxo de caixa", source)

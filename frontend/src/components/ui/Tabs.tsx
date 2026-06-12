@@ -11,21 +11,27 @@ interface TabsProps<T extends string> {
   onChange: (value: T) => void;
 }
 
+/** Segmented control — quieter than button-tabs, reads as one component. */
 export function Tabs<T extends string>({ items, value, onChange }: TabsProps<T>) {
   return (
-    <div className="chip-strip flex gap-2 overflow-x-auto pb-1">
+    <div
+      role="tablist"
+      className="chip-strip inline-flex max-w-full gap-1 overflow-x-auto rounded-control border border-ink-200/70 bg-ink-100/70 p-1"
+    >
       {items.map((item) => {
         const active = item.key === value;
         return (
           <button
             key={item.key}
             type="button"
+            role="tab"
+            aria-selected={active}
             onClick={() => onChange(item.key)}
             className={classNames(
-              "shrink-0 rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+              "shrink-0 rounded-[7px] px-3 py-1.5 text-sm font-medium transition-colors duration-150",
               active
-                ? "border-blue-700 bg-blue-700 text-white"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+                ? "bg-surface text-ink-900 shadow-sm"
+                : "text-ink-500 hover:bg-white/60 hover:text-ink-800",
             )}
           >
             {item.label}

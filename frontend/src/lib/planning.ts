@@ -1,16 +1,45 @@
 import { asMoneyNumber } from "./money";
 import type { CreditCardInvoice, PlanningMonth, PlanningOverview } from "../types/planejamento";
 
-export const PLAN_STATUS_LABELS: Record<string, string> = {
-  comfortable: "Confortável",
-  healthy: "Saudável",
-  tight: "Apertado",
-  over: "Estourado",
-  unknown: "Sem receita",
+export type PlanStatusTone = "positive" | "warning" | "danger" | "neutral";
+
+export const PLAN_STATUS_META: Record<
+  string,
+  { label: string; tone: PlanStatusTone; description: string }
+> = {
+  comfortable: {
+    label: "Saudável",
+    tone: "positive",
+    description: "O mês cabe no plano com folga.",
+  },
+  healthy: {
+    label: "Saudável",
+    tone: "positive",
+    description: "O mês cabe no plano com folga.",
+  },
+  tight: {
+    label: "No limite",
+    tone: "warning",
+    description: "Pouca margem: acompanhe os gastos variáveis de perto.",
+  },
+  over: {
+    label: "Estourado",
+    tone: "danger",
+    description: "Os compromissos passaram da receita esperada.",
+  },
+  unknown: {
+    label: "Sem receita prevista",
+    tone: "neutral",
+    description: "Cadastre a receita esperada para acompanhar o mês.",
+  },
 };
 
+export function planStatusMeta(status?: string) {
+  return PLAN_STATUS_META[status || "unknown"] || PLAN_STATUS_META.unknown;
+}
+
 export function planStatusLabel(status?: string): string {
-  return PLAN_STATUS_LABELS[status || "unknown"] || PLAN_STATUS_LABELS.unknown;
+  return planStatusMeta(status).label;
 }
 
 export function normalizePlanningOverview(planning?: PlanningMonth | null): PlanningOverview {

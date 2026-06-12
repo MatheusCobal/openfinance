@@ -1,12 +1,18 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
+  ArrowDownRight,
   ArrowUpRight,
   Banknote,
+  CalendarClock,
   CalendarDays,
   CreditCard,
+  Landmark,
   Link as LinkIcon,
   RefreshCw,
+  Scale,
+  ShieldCheck,
   Tags,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -21,22 +27,35 @@ import {
 } from "../api/dashboard";
 import { Topbar } from "../components/layout/Topbar";
 import { PageContainer } from "../components/layout/PageContainer";
-import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { CategoryBreakdown } from "../components/ui/CategoryBreakdown";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
+import { FinancialFlow } from "../components/ui/FinancialFlow";
+import { InsightCard } from "../components/ui/InsightCard";
 import { LoadingState } from "../components/ui/LoadingState";
 import { MetricCard } from "../components/ui/MetricCard";
+import { Modal } from "../components/ui/Modal";
+import { PressureMeter } from "../components/ui/PressureMeter";
 import { SectionHeader } from "../components/ui/SectionHeader";
+import { StatusPill } from "../components/ui/StatusPill";
 import { Table } from "../components/ui/Table";
 import { useAsync } from "../hooks/useAsync";
 import { useToast } from "../hooks/useToast";
 import { formatDayLabel, formatMonthLong, formatMonthShort, getDefaultPlanningMonth } from "../lib/dates";
-import { dashboardAvailableToSpend, normalizePlanningOverview, planStatusLabel } from "../lib/planning";
+import {
+  classificationSourceLabel,
+  invoiceSourceLabel,
+  pluralCompras,
+  pluralItens,
+  pluralize,
+} from "../lib/labels";
+import { dashboardAvailableToSpend, normalizePlanningOverview, planStatusMeta } from "../lib/planning";
 import { extractPluggyItemId, ensurePluggyConnectSdkLoaded } from "../lib/pluggy";
 import { formatMoney } from "../lib/money";
 import type { Transaction } from "../types/common";
+import type { InvoiceCategory } from "../types/planejamento";
 
 const RECENT_CARD_PURCHASE_LIMIT = 8;
 
@@ -71,33 +90,29 @@ async function loadDashboardData() {
     currentInvoice,
     bankBalance,
     upcoming,
+    categories: currentInvoice.categories || [],
     recentCardPurchases: latestCardPurchases(currentInvoice.raw_purchase_transactions || []),
   };
-}
-
-function statusTone(status: string) {
-  if (status === "over") return "rose";
-  if (status === "tight") return "amber";
-  if (status === "unknown") return "slate";
-  return "emerald";
 }
 
 function InvoiceReconciliation({ reconciliation }: { reconciliation?: Record<string, any> }) {
   if (!reconciliation) return null;
   const rows = [
     ["Compras classificadas", reconciliation.classified_purchase_total],
-    ["Pagamentos/estornos", reconciliation.refund_abs_total],
+    ["Pagamentos e estornos", reconciliation.refund_abs_total],
     ["Diferença", reconciliation.difference],
   ].filter(([, value]) => value !== undefined && value !== null);
   if (rows.length === 0) return null;
   return (
-    <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50/80 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reconciliação</p>
-      <div className="mt-3 grid gap-2 text-sm">
+    <div className="mt-4 rounded-control border border-ink-100 bg-surface-muted p-3.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+        Conferência da fatura
+      </p>
+      <div className="mt-2.5 grid gap-1.5 text-sm">
         {rows.map(([label, value]) => (
           <div key={label as string} className="flex items-center justify-between gap-4">
-            <span className="text-slate-500">{label as string}</span>
-            <span className="font-semibold tabular text-slate-800">{formatMoney(value)}</span>
+            <span className="text-xs text-ink-500">{label as string}</span>
+            <span className="text-xs font-semibold tabular text-ink-800">{formatMoney(value)}</span>
           </div>
         ))}
       </div>
@@ -108,6 +123,7 @@ function InvoiceReconciliation({ reconciliation }: { reconciliation?: Record<str
 export function DashboardPage() {
   const { showToast } = useToast();
   const { data, loading, error, run } = useAsync(loadDashboardData, []);
+  const [selectedCategory, setSelectedCategory] = useState<InvoiceCategory | null>(null);
   const [connecting, setConnecting] = useState(false);
 
   const connectBank = async () => {
@@ -155,12 +171,94 @@ export function DashboardPage() {
 
   const dashCap = data ? dashboardAvailableToSpend(data.capacity, data.currentInvoice) : null;
   const invoiceAmount = data?.currentInvoice.amount ?? data?.currentInvoice.adjusted_total ?? 0;
-  const adjustedCard = (data?.currentInvoice.cards || []).find((card) => (card.adjustments || []).length > 0);
+  const adjustedCard = (data?.currentInvoice.cards || []).find(
+    (card) => (card.adjustments || []).length > 0,
+  );
+  const nextInvoice = data?.upcoming?.next_invoice || null;
+
+  const insights = useMemo(() => {
+    if (!data || !dashCap) return [];
+    const list: Array<{
+      key: string;
+      icon: React.ReactNode;
+      title: string;
+      body: string;
+      tone: "primary" | "positive" | "warning" | "danger" | "neutral";
+    }> = [];
+
+    const income = dashCap.expectedIncome;
+    const categories = [...data.categories].sort((a, b) => Number(b.total) - Number(a.total));
+    const topCategory = categories[0];
+    const categoriesTotal = categories.reduce((sum, item) => sum + Number(item.total || 0), 0);
+
+    if (topCategory && categoriesTotal > 0) {
+      const share = Math.round((Number(topCategory.total) / categoriesTotal) * 100);
+      list.push({
+        key: "top-category",
+        icon: <Tags className="size-4" aria-hidden="true" />,
+        title: `${topCategory.name} lidera a fatura`,
+        body: `${formatMoney(topCategory.total)} em ${pluralCompras(topCategory.count ?? 0)} — ${share}% das compras classificadas.`,
+        tone: "primary",
+      });
+    }
+
+    if (income > 0 && Number(invoiceAmount) > 0) {
+      const heavier = Number(invoiceAmount) >= dashCap.fixedCosts;
+      list.push({
+        key: "biggest-commitment",
+        icon: <Scale className="size-4" aria-hidden="true" />,
+        title: heavier ? "A fatura é o maior compromisso" : "Custos fixos são o maior compromisso",
+        body: heavier
+          ? `A fatura vigente (${formatMoney(invoiceAmount)}) pesa mais que os custos fixos (${formatMoney(dashCap.fixedCosts)}).`
+          : `Os custos fixos (${formatMoney(dashCap.fixedCosts)}) pesam mais que a fatura vigente (${formatMoney(invoiceAmount)}).`,
+        tone: heavier ? "warning" : "neutral",
+      });
+    }
+
+    if (dashCap.variableBudget > 0) {
+      const withinBudget = dashCap.variableRemaining >= 0;
+      list.push({
+        key: "variable-budget",
+        icon: withinBudget ? (
+          <ShieldCheck className="size-4" aria-hidden="true" />
+        ) : (
+          <TrendingUp className="size-4" aria-hidden="true" />
+        ),
+        title: withinBudget ? "Variáveis dentro do plano" : "Variáveis acima do plano",
+        body: withinBudget
+          ? `Ainda restam ${formatMoney(dashCap.variableRemaining)} da meta de ${formatMoney(dashCap.variableBudget)}.`
+          : `Você passou ${formatMoney(Math.abs(dashCap.variableRemaining))} da meta de ${formatMoney(dashCap.variableBudget)}.`,
+        tone: withinBudget ? "positive" : "warning",
+      });
+    }
+
+    if (data.bankBalance && Number(invoiceAmount) > 0) {
+      const covers = Number(data.bankBalance.total) >= Number(invoiceAmount);
+      list.push({
+        key: "bank-coverage",
+        icon: <Landmark className="size-4" aria-hidden="true" />,
+        title: covers ? "Saldo cobre a fatura" : "Saldo não cobre a fatura",
+        body: covers
+          ? `O saldo em conta (${formatMoney(data.bankBalance.total)}) é suficiente para a fatura vigente.`
+          : `Faltam ${formatMoney(Number(invoiceAmount) - Number(data.bankBalance.total))} em conta para cobrir a fatura vigente.`,
+        tone: covers ? "positive" : "danger",
+      });
+    }
+
+    return list.slice(0, 4);
+  }, [data, dashCap, invoiceAmount]);
+
+  const statusMeta = planStatusMeta(dashCap?.status);
+  const daysRemaining = data?.capacity.days_remaining_in_month ?? 0;
+  const perDay =
+    dashCap && dashCap.availableToSpend > 0 && daysRemaining > 0
+      ? dashCap.availableToSpend / daysRemaining
+      : null;
 
   return (
     <>
       <Topbar
-        subtitle={data ? `Planejamento de ${formatMonthLong(data.planningMonth)}` : "Resumo executivo"}
+        subtitle={data ? `Visão executiva de ${formatMonthLong(data.planningMonth)}` : "Visão executiva do mês"}
         actions={
           <>
             <Button type="button" onClick={() => void run()} loading={loading}>
@@ -175,211 +273,316 @@ export function DashboardPage() {
         }
       />
       <PageContainer>
-        {loading && !data ? <LoadingState label="Carregando dashboard..." /> : null}
+        {loading && !data ? <LoadingState label="Preparando seu cockpit..." /> : null}
         {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
         {data && dashCap ? (
           <div className="space-y-8">
-            <Card className="bg-slate-950 p-6 text-white">
-              <div className="flex min-h-[190px] flex-col justify-between gap-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium text-slate-300">Disponível para gastar</p>
-                  <Badge tone={statusTone(dashCap.status)}>{planStatusLabel(dashCap.status)}</Badge>
-                </div>
-                <div>
-                  <p className="text-4xl font-bold leading-tight tabular sm:text-5xl">
-                    {formatMoney(dashCap.availableToSpend)}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-400">
-                    <span>{formatMonthLong(data.planningMonth)}</span>
-                    <span>{data.capacity.days_remaining_in_month ?? 0} dias restantes</span>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-400">
-                    Fatura vigente no cálculo:{" "}
-                    <span className="font-medium text-slate-200">
-                      {formatMoney(dashCap.currentInvoiceAmount)}
-                    </span>
-                  </p>
-                </div>
-                <p className="text-sm text-slate-400">
-                  Plano detalhado em{" "}
-                  <Link to="/planejamento" className="font-medium text-white hover:underline">
-                    Planejamento
-                  </Link>
-                </p>
-              </div>
-            </Card>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <Card className="p-6">
-                <div className="flex min-h-[160px] flex-col justify-between gap-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-slate-500">Saldo bancário</p>
-                      <p className="mt-3 text-3xl font-semibold text-slate-950 tabular">
-                        {data.bankBalance ? formatMoney(data.bankBalance.total) : "-"}
-                      </p>
+            {/* Cockpit hero */}
+            <section
+              aria-label="Resumo do mês"
+              className="cockpit-surface rounded-card p-6 text-white shadow-cockpit sm:p-8"
+            >
+              <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)] lg:gap-12">
+                <div className="flex flex-col justify-between gap-6">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <p className="text-sm font-medium text-white/70">Disponível para gastar</p>
+                      <StatusPill inverse tone={statusMeta.tone} label={statusMeta.label} />
                     </div>
-                    <span className="inline-flex size-10 items-center justify-center rounded-md bg-blue-50 text-blue-700">
-                      <Wallet className="size-5" aria-hidden="true" />
-                    </span>
-                  </div>
-                  <p className="text-xs leading-relaxed text-slate-500">
-                    {data.bankBalance
-                      ? `${data.bankBalance.account_count} contas ativas · fonte ${data.bankBalance.source}`
-                      : "Saldo indisponível agora; o restante do Dashboard segue carregado."}
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="p-6">
-                <div className="flex min-h-[160px] flex-col justify-between gap-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-slate-500">Fatura do cartão</p>
-                      <p className="mt-3 text-3xl font-semibold text-slate-950 tabular">
-                        {formatMoney(invoiceAmount)}
-                      </p>
-                    </div>
-                    <span className="inline-flex size-10 items-center justify-center rounded-md bg-amber-50 text-amber-700">
-                      <CreditCard className="size-5" aria-hidden="true" />
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-xs leading-relaxed text-slate-500">
-                    <p className="text-sm text-slate-600">
-                      {data.currentInvoice.source_label || "Fatura vigente ajustada"}
+                    <p
+                      className={`mt-3 whitespace-nowrap text-4xl font-bold leading-none tracking-tight tabular sm:text-5xl lg:text-6xl ${
+                        dashCap.availableToSpend < 0 ? "text-danger-300" : "text-white"
+                      }`}
+                    >
+                      {formatMoney(dashCap.availableToSpend)}
                     </p>
-                    <p>
-                      {adjustedCard
-                        ? `Saldo Pluggy ajustado: ${formatMoney(adjustedCard.raw_balance)} - fatura anterior ${formatMoney(
-                            adjustedCard.latest_bill_amount,
-                          )}`
-                        : "Saldo Pluggy ajustado"}
+                    <p className="mt-4 max-w-md text-sm leading-relaxed text-white/60">
+                      O que sobra da receita de {formatMonthLong(data.planningMonth).toLowerCase()} depois
+                      dos custos fixos, da fatura vigente e da reserva para gastos variáveis.{" "}
+                      {statusMeta.description}
                     </p>
                   </div>
-                </div>
-                <InvoiceReconciliation reconciliation={data.currentInvoice.reconciliation} />
-              </Card>
-
-              <Card className="p-6">
-                <div className="flex min-h-[160px] flex-col justify-between gap-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-slate-500">Próxima fatura</p>
-                      <p className="mt-3 text-3xl font-semibold text-slate-950 tabular">
-                        {data.upcoming?.next_invoice
-                          ? formatMoney(data.upcoming.next_invoice.amount)
-                          : "-"}
-                      </p>
-                    </div>
-                    <span className="inline-flex size-10 items-center justify-center rounded-md bg-indigo-50 text-indigo-700">
-                      <CalendarDays className="size-5" aria-hidden="true" />
+                  <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                    <span className="inline-flex items-center gap-1.5 text-white/70">
+                      <CalendarClock className="size-4 text-white/40" aria-hidden="true" />
+                      {pluralize(daysRemaining, "dia restante", "dias restantes")}
                     </span>
-                  </div>
-                  <div className="space-y-2 text-xs leading-relaxed text-slate-500">
-                    <p className="text-sm text-slate-600">
-                      {data.upcoming?.next_invoice
-                        ? `${formatMonthLong(data.upcoming.next_invoice.year_month)} · ${
-                            data.upcoming.next_invoice.source_label || "Fatura vigente"
-                          }`
-                        : "Próximos indisponível agora."}
-                    </p>
-                    <Link to="/proximos" className="font-medium text-blue-700 hover:text-blue-800">
-                      Ver próximos gastos
+                    {perDay ? (
+                      <span className="inline-flex items-center gap-1.5 text-white/70">
+                        <Wallet className="size-4 text-white/40" aria-hidden="true" />
+                        <span>
+                          <span className="font-semibold tabular text-white/90">{formatMoney(perDay)}</span>{" "}
+                          por dia
+                        </span>
+                      </span>
+                    ) : null}
+                    <Link
+                      to="/planejamento"
+                      className="inline-flex items-center gap-1 font-medium text-primary-300 transition-colors hover:text-primary-200"
+                    >
+                      Ajustar plano do mês
+                      <ArrowUpRight className="size-3.5" aria-hidden="true" />
                     </Link>
                   </div>
                 </div>
-              </Card>
-            </div>
+                <div className="rounded-card border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">
+                    Composição do mês
+                  </p>
+                  <FinancialFlow
+                    className="mt-4"
+                    inverse
+                    total={dashCap.expectedIncome}
+                    segments={[
+                      { key: "fixed", label: "Custos fixos", value: dashCap.fixedCosts, color: "#64748b" },
+                      { key: "invoice", label: "Fatura vigente", value: Number(invoiceAmount), color: "#38bdf8" },
+                      { key: "variable", label: "Meta variável", value: dashCap.variableBudget, color: "#a78bfa" },
+                    ]}
+                    remainder={{ label: "Disponível", value: dashCap.availableToSpend }}
+                  />
+                  <p className="mt-4 border-t border-white/10 pt-3 text-xs text-white/50">
+                    Receita esperada de{" "}
+                    <span className="font-semibold tabular text-white/80">
+                      {formatMoney(dashCap.expectedIncome)}
+                    </span>{" "}
+                    em {formatMonthShort(data.planningMonth)}
+                  </p>
+                </div>
+              </div>
+            </section>
 
+            {/* Pressure indicators */}
+            {dashCap.expectedIncome > 0 ? (
+              <Card className="p-5 sm:p-6">
+                <div className="mb-5 flex items-baseline justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-ink-900">Pressão do mês</h2>
+                  <p className="text-xs text-ink-500">quanto da receita cada bloco consome</p>
+                </div>
+                <div className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-3">
+                  <PressureMeter
+                    label="Fatura no mês"
+                    value={(Number(invoiceAmount) / dashCap.expectedIncome) * 100}
+                    detail={formatMoney(invoiceAmount)}
+                  />
+                  <PressureMeter
+                    label="Custos fixos"
+                    value={(dashCap.fixedCosts / dashCap.expectedIncome) * 100}
+                    detail={formatMoney(dashCap.fixedCosts)}
+                  />
+                  <PressureMeter
+                    label="Meta variável usada"
+                    value={
+                      dashCap.variableBudget > 0
+                        ? (dashCap.variableUsed / dashCap.variableBudget) * 100
+                        : 0
+                    }
+                    detail={`${formatMoney(dashCap.variableUsed)} de ${formatMoney(dashCap.variableBudget)}`}
+                  />
+                </div>
+              </Card>
+            ) : null}
+
+            {/* Insights */}
+            {insights.length ? (
+              <section aria-label="Leituras do mês">
+                <SectionHeader title="Leituras do mês" subtitle="O que os números estão dizendo" />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {insights.map((insight) => (
+                    <InsightCard
+                      key={insight.key}
+                      icon={insight.icon}
+                      title={insight.title}
+                      body={insight.body}
+                      tone={insight.tone}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {/* Month summary */}
             <section>
-              <SectionHeader title="Resumo do mês" subtitle={formatMonthShort(data.planningMonth)} />
+              <SectionHeader
+                title="Movimento do mês"
+                subtitle={`Números de ${formatMonthShort(data.planningMonth)}`}
+              />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <MetricCard
-                  label="Entradas"
+                  label="Entradas recebidas"
                   value={formatMoney(data.capacity.received_income_total)}
-                  subtitle="Entradas bancárias reais"
-                  tone="emerald"
-                  icon={<Banknote className="size-4" aria-hidden="true" />}
+                  subtitle="Crédito que já caiu na conta"
+                  tone="positive"
+                  icon={<ArrowDownRight className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
-                  label="Saídas"
+                  label="Saídas da conta"
                   value={formatMoney(data.capacity.bank_outflows_total)}
-                  subtitle="Saídas bancárias reais"
-                  tone="rose"
+                  subtitle="Débitos bancários do mês"
+                  tone="danger"
                   icon={<ArrowUpRight className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
                   label="A receber"
                   value={formatMoney(data.capacity.income_to_receive)}
-                  subtitle="Receitas previstas para o mês"
-                  tone="amber"
+                  subtitle="Receita prevista que ainda não entrou"
+                  tone="warning"
                   icon={<Banknote className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
                   label="Custos fixos"
                   value={formatMoney(dashCap.fixedCosts)}
-                  subtitle={`${data.capacity.fixed_costs?.entries?.length ?? 0} itens no planejamento`}
+                  subtitle={`${pluralItens(data.capacity.fixed_costs?.entries?.length ?? 0)} no plano do mês`}
                   icon={<Wallet className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
                   label="Variável usado"
                   value={formatMoney(dashCap.variableUsed)}
-                  subtitle={`Meta ${formatMoney(dashCap.variableBudget)} · restante ${formatMoney(
-                    dashCap.variableRemaining,
-                  )}`}
+                  subtitle={`Meta ${formatMoney(dashCap.variableBudget)} · restam ${formatMoney(dashCap.variableRemaining)}`}
                   icon={<Tags className="size-4" aria-hidden="true" />}
                 />
                 <MetricCard
-                  label="Fatura vigente"
-                  value={formatMoney(invoiceAmount)}
-                  subtitle="Fonte operacional do Dashboard"
-                  tone="blue"
-                  icon={<CreditCard className="size-4" aria-hidden="true" />}
+                  label="Saldo em conta"
+                  value={data.bankBalance ? formatMoney(data.bankBalance.total) : "—"}
+                  subtitle={
+                    data.bankBalance
+                      ? pluralize(
+                          data.bankBalance.account_count,
+                          "conta ativa considerada",
+                          "contas ativas consideradas",
+                        )
+                      : "Saldo indisponível agora; o restante segue atualizado"
+                  }
+                  tone="primary"
+                  icon={<Landmark className="size-4" aria-hidden="true" />}
                 />
               </div>
             </section>
 
+            {/* Current invoice + categories */}
+            <section>
+              <SectionHeader
+                title="Fatura vigente"
+                subtitle="Para onde as compras do cartão estão indo"
+              />
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+                <Card className="h-fit p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-ink-500">
+                        {invoiceSourceLabel(
+                          data.currentInvoice.source,
+                          data.currentInvoice.source_label || "Fatura vigente",
+                        )}
+                      </p>
+                      <p className="mt-1.5 text-3xl font-bold tracking-tight tabular text-ink-900">
+                        {formatMoney(invoiceAmount)}
+                      </p>
+                    </div>
+                    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-control bg-primary-50 text-primary-600">
+                      <CreditCard className="size-4" aria-hidden="true" />
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs leading-relaxed text-ink-500">
+                    {adjustedCard
+                      ? `Saldo do cartão de ${formatMoney(adjustedCard.raw_balance)}, já descontada a fatura anterior de ${formatMoney(adjustedCard.latest_bill_amount)}.`
+                      : "Valor considerado no cálculo do disponível para gastar."}
+                  </p>
+                  <InvoiceReconciliation reconciliation={data.currentInvoice.reconciliation} />
+                  {nextInvoice ? (
+                    <div className="mt-4 flex items-start gap-2.5 rounded-control border border-ink-100 bg-surface-muted p-3.5">
+                      <CalendarDays className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
+                      <div className="min-w-0 text-xs leading-relaxed text-ink-500">
+                        <p>
+                          Próxima fatura ({formatMonthLong(nextInvoice.year_month)}):{" "}
+                          <span className="font-semibold tabular text-ink-800">
+                            {formatMoney(nextInvoice.amount)}
+                          </span>
+                        </p>
+                        <Link
+                          to="/proximos"
+                          className="mt-0.5 inline-block font-medium text-primary-700 hover:text-primary-800"
+                        >
+                          Ver compromissos futuros
+                        </Link>
+                      </div>
+                    </div>
+                  ) : null}
+                </Card>
+                <div>
+                  {data.categories.length === 0 ? (
+                    <EmptyState
+                      icon={<Tags className="size-5" aria-hidden="true" />}
+                      title="Nenhuma compra categorizada na fatura vigente."
+                      detail="Assim que houver compras ativas classificadas, a leitura por categoria aparece aqui."
+                    />
+                  ) : (
+                    <CategoryBreakdown
+                      items={data.categories.map((category) => ({
+                        id: category.id,
+                        name: category.name,
+                        total: Number(category.total),
+                        count: category.count ?? 0,
+                        color: category.color,
+                      }))}
+                      onSelect={(id) =>
+                        setSelectedCategory(
+                          data.categories.find((category) => String(category.id) === String(id)) || null,
+                        )
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {/* Recent card purchases */}
             <section>
               <SectionHeader
                 title="Últimas compras do cartão"
-                subtitle="Compras mais recentes da fatura vigente"
+                subtitle="As compras mais recentes da fatura vigente"
               />
               {data.recentCardPurchases.length === 0 ? (
                 <EmptyState
+                  icon={<CreditCard className="size-5" aria-hidden="true" />}
                   title="Nenhuma compra recente na fatura vigente."
                   detail="Quando houver compras ativas no cartão, elas aparecem aqui."
                 />
               ) : (
                 <Card className="overflow-hidden">
                   <Table>
-                    <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <thead className="bg-surface-muted text-left text-xs font-medium uppercase tracking-wide text-ink-500">
                       <tr>
-                        <th className="px-5 py-3">Data</th>
-                        <th className="px-5 py-3">Compra</th>
-                        <th className="px-5 py-3">Classificação</th>
-                        <th className="px-5 py-3 text-right">Valor</th>
+                        <th className="px-5 py-2.5">Data</th>
+                        <th className="px-5 py-2.5">Compra</th>
+                        <th className="px-5 py-2.5">Categoria</th>
+                        <th className="px-5 py-2.5 text-right">Valor</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
+                    <tbody className="divide-y divide-ink-100 bg-surface">
                       {data.recentCardPurchases.map((tx) => (
-                        <tr key={tx.id}>
-                          <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-500">
+                        <tr key={tx.id} className="transition-colors hover:bg-surface-muted">
+                          <td className="whitespace-nowrap px-5 py-3.5 text-sm text-ink-500">
                             {formatDayLabel(tx.date)}
                           </td>
-                          <td className="px-5 py-4">
-                            <p className="max-w-[34rem] truncate text-sm font-medium text-slate-950">
+                          <td className="px-5 py-3.5">
+                            <p className="max-w-[34rem] truncate text-sm font-medium text-ink-900">
                               {tx.description}
                             </p>
                             {tx.installment_number && tx.total_installments ? (
-                              <p className="mt-1 text-xs text-slate-500">
-                                Parcela {tx.installment_number}/{tx.total_installments}
+                              <p className="mt-0.5 text-xs text-ink-500">
+                                Parcela {tx.installment_number} de {tx.total_installments}
                               </p>
                             ) : null}
                           </td>
-                          <td className="px-5 py-4 text-sm text-slate-600">
-                            {tx.internal_category || tx.category || "Sem classificação"}
+                          <td className="px-5 py-3.5 text-sm text-ink-600">
+                            {tx.internal_category || tx.category || "Sem categoria"}
+                            {classificationSourceLabel(tx.classification_source) ? (
+                              <span className="block text-xs text-ink-400">
+                                {classificationSourceLabel(tx.classification_source)}
+                              </span>
+                            ) : null}
                           </td>
-                          <td className="whitespace-nowrap px-5 py-4 text-right text-sm font-semibold tabular text-slate-950">
+                          <td className="whitespace-nowrap px-5 py-3.5 text-right text-sm font-semibold tabular text-ink-900">
                             {formatMoney(tx.amount)}
                           </td>
                         </tr>
@@ -392,6 +595,42 @@ export function DashboardPage() {
           </div>
         ) : null}
       </PageContainer>
+
+      <Modal
+        open={!!selectedCategory}
+        title={selectedCategory?.name || ""}
+        subtitle={
+          selectedCategory
+            ? `${pluralCompras(selectedCategory.count ?? 0)} · ${formatMoney(selectedCategory.total)}`
+            : undefined
+        }
+        onClose={() => setSelectedCategory(null)}
+      >
+        <ul className="divide-y divide-ink-100">
+          {(selectedCategory?.transactions || []).map((tx) => (
+            <li key={tx.id} className="flex items-baseline justify-between gap-4 px-5 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-ink-900">{tx.description}</p>
+                <p className="mt-0.5 text-xs text-ink-500">
+                  {formatDayLabel(tx.date)}
+                  {tx.installment_number && tx.total_installments
+                    ? ` · parcela ${tx.installment_number} de ${tx.total_installments}`
+                    : ""}
+                  {classificationSourceLabel(tx.classification_source)
+                    ? ` · ${classificationSourceLabel(tx.classification_source)}`
+                    : ""}
+                </p>
+              </div>
+              <span className="shrink-0 text-sm font-semibold tabular text-ink-900">
+                {formatMoney(tx.amount)}
+              </span>
+            </li>
+          ))}
+          {selectedCategory?.transactions?.length ? null : (
+            <li className="px-5 py-8 text-center text-sm text-ink-500">Sem compras detalhadas.</li>
+          )}
+        </ul>
+      </Modal>
     </>
   );
 }

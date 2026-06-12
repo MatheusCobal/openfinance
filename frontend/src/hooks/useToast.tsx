@@ -32,12 +32,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <div
+        role="status"
+        aria-live="polite"
         className={classNames(
-          "fixed right-4 top-4 z-[80] max-w-sm rounded-md px-4 py-3 text-sm text-white shadow-lg transition",
+          "fixed right-4 top-4 z-[80] max-w-sm rounded-control px-4 py-3 text-sm text-white shadow-overlay transition",
           toast ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-2 opacity-0",
-          toast?.variant === "success" && "bg-emerald-600",
-          toast?.variant === "error" && "bg-rose-600",
-          (!toast || toast.variant === "info") && "bg-slate-900",
+          toast?.variant === "success" && "bg-positive-600",
+          toast?.variant === "error" && "bg-danger-600",
+          (!toast || toast.variant === "info") && "bg-cockpit-raised",
         )}
       >
         {toast?.message}

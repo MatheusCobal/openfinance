@@ -14,12 +14,12 @@ export function MoneyValue({ value, signed = false, tone = "neutral", className 
   const color =
     tone === "auto"
       ? number < 0
-        ? "text-rose-700"
-        : "text-emerald-700"
+        ? "text-danger-700"
+        : "text-positive-700"
       : tone === "positive"
-        ? "text-emerald-700"
+        ? "text-positive-700"
         : tone === "negative"
-          ? "text-rose-700"
+          ? "text-danger-700"
           : "";
   return (
     <span className={classNames("tabular", color, className)}>

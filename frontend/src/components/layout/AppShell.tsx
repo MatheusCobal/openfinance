@@ -6,7 +6,7 @@ import { Sidebar } from "./Sidebar";
 export function AppShell() {
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-slate-50 text-slate-950">
+      <div className="min-h-screen bg-surface-muted text-ink-900">
         <Sidebar />
         <div className="min-h-screen md:ml-60">
           <Outlet />

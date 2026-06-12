@@ -1,17 +1,21 @@
 import { useEffect, useRef } from "react";
 import Chart from "chart.js/auto";
 import type { Chart as ChartInstance, Plugin } from "chart.js";
+import { CHART_COLORS, CHART_FONT } from "../../lib/chartTheme";
 
 interface BarDataset {
   label: string;
   data: number[];
   backgroundColor: string;
+  /** Per-bar colors override (e.g. to highlight the selected month). */
+  backgroundColors?: string[];
 }
 
 interface BarChartProps {
   labels: string[];
   datasets: BarDataset[];
   stacked?: boolean;
+  ariaLabel?: string;
   onBarClick?: (index: number) => void;
   showValueLabels?: boolean;
 }
@@ -34,8 +38,8 @@ const valueLabelPlugin: Plugin<"bar"> = {
   afterDatasetsDraw(chart: ChartInstance<"bar">) {
     const { ctx } = chart;
     ctx.save();
-    ctx.font = "600 10px Inter, system-ui, sans-serif";
-    ctx.fillStyle = "#334155";
+    ctx.font = `600 10px ${CHART_FONT.family}`;
+    ctx.fillStyle = CHART_COLORS.valueLabel;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
 
@@ -56,6 +60,7 @@ export function BarChart({
   labels,
   datasets,
   stacked = false,
+  ariaLabel,
   onBarClick,
   showValueLabels = false,
 }: BarChartProps) {
@@ -68,29 +73,47 @@ export function BarChart({
       type: "bar",
       data: {
         labels,
-        datasets: datasets.map((dataset) => ({
+        datasets: datasets.map(({ backgroundColors, ...dataset }) => ({
           ...dataset,
-          borderRadius: 5,
-          maxBarThickness: 36,
+          backgroundColor: backgroundColors ?? dataset.backgroundColor,
+          borderRadius: 6,
+          borderSkipped: false,
+          maxBarThickness: 34,
         })),
       },
       plugins: showValueLabels ? [valueLabelPlugin] : [],
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: {
-          padding: { top: showValueLabels ? 18 : 0 },
-        },
+        layout: showValueLabels ? { padding: { top: 16 } } : undefined,
         onClick: (_event, elements) => {
           if (elements.length > 0) onBarClick?.(elements[0].index);
+        },
+        onHover: (event, elements) => {
+          const target = event.native?.target as HTMLElement | undefined;
+          if (target) target.style.cursor = elements.length && onBarClick ? "pointer" : "default";
         },
         plugins: {
           legend: {
             display: datasets.length > 1,
             position: "bottom",
-            labels: { boxWidth: 12, font: { size: 11 } },
+            labels: {
+              boxWidth: 10,
+              boxHeight: 10,
+              borderRadius: 3,
+              useBorderRadius: true,
+              padding: 14,
+              color: CHART_COLORS.tick,
+              font: { ...CHART_FONT },
+            },
           },
           tooltip: {
+            backgroundColor: "#0b1220",
+            titleFont: { ...CHART_FONT, weight: "bold" },
+            bodyFont: { ...CHART_FONT },
+            padding: 10,
+            cornerRadius: 8,
+            displayColors: datasets.length > 1,
             callbacks: {
               label: (ctx) =>
                 ` ${ctx.dataset.label ? `${ctx.dataset.label}: ` : ""}${Number(ctx.parsed.y).toLocaleString(
@@ -101,12 +124,20 @@ export function BarChart({
           },
         },
         scales: {
-          x: { stacked, grid: { display: false }, ticks: { font: { size: 10 } } },
+          x: {
+            stacked,
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: CHART_COLORS.tick, font: { ...CHART_FONT, size: 10 } },
+          },
           y: {
             stacked,
             beginAtZero: true,
+            border: { display: false },
             ticks: {
-              font: { size: 10 },
+              color: CHART_COLORS.tick,
+              font: { ...CHART_FONT, size: 10 },
+              maxTicksLimit: 6,
               callback: (value) =>
                 Number(value).toLocaleString("pt-BR", {
                   style: "currency",
@@ -114,7 +145,7 @@ export function BarChart({
                   maximumFractionDigits: 0,
                 }),
             },
-            grid: { color: "#f1f5f9" },
+            grid: { color: CHART_COLORS.grid },
           },
         },
       },
@@ -122,5 +153,5 @@ export function BarChart({
     return () => chart.destroy();
   }, [datasets, labels, onBarClick, showValueLabels, stacked]);
 
-  return <canvas ref={canvasRef} />;
+  return <canvas ref={canvasRef} role="img" aria-label={ariaLabel} />;
 }

@@ -13,7 +13,6 @@ from app.models import (
     MonthlyBalanceMonth,
     Transaction,
 )
-from app.services.classification import TransactionClassifier
 from app.services.invoice_month import (
     DEFAULT_CREDIT_CARD_DUE_DAY,
     invoice_month_from_payment,
