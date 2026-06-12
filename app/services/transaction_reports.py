@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from sqlmodel import Session, select
 
 from app.models import Account, Transaction
-from app.services.classification import TransactionClassifier
+from app.services.classification import TransactionClassifier, card_invoice_signed_amount
 from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
@@ -333,6 +333,10 @@ def monthly_stats_summary(
         classification = _classification_fields(tx, accounts, user_rules)
         if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
             continue
+        # Negative rows on CREDIT are refunds/cancellations, not spending —
+        # abs() must not turn them into positive expense.
+        if tx.amount <= 0:
+            continue
         amount = abs(tx.amount)
         category_name = resolve_credit_internal_category(
             tx,
@@ -451,14 +455,16 @@ def invoice_summary(
         paid_count = len(payments_in_period)
         paid_dates = sorted(tx.date.isoformat() for tx in payments_in_period)
 
-        open_txs = [
-            tx
-            for tx in all_up_to
-            if tx.account_id in credit_account_ids and tx.date > lower and tx.id not in skip
-            and classifier.is_card_purchase(tx)
-        ]
-        open_total = sum((abs(tx.amount) for tx in open_txs), Decimal("0"))
-        open_count = len(open_txs)
+        open_net = Decimal("0")
+        open_count = 0
+        for tx in all_up_to:
+            if tx.account_id not in credit_account_ids or tx.date <= lower or tx.id in skip:
+                continue
+            classification = classifier.classify(tx)
+            open_net += card_invoice_signed_amount(tx, classification)
+            if classification.is_card_purchase:
+                open_count += 1
+        open_total = max(open_net, Decimal("0"))
         open_since = last_payment_date.isoformat() if last_payment_date else None
 
         if payments_in_period:
@@ -576,6 +582,10 @@ def stats_summary(
     for tx in past_transactions:
         classification = _classification_fields(tx, accounts, user_rules)
         if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
+            continue
+        # Negative rows on CREDIT are refunds/cancellations, not spending —
+        # abs() must not turn them into positive expense.
+        if tx.amount <= 0:
             continue
         amount = abs(tx.amount)
         totals_by_month[tx.date.strftime("%Y-%m")] += amount

@@ -52,7 +52,7 @@ class ManualClassificationOverrideTest(unittest.TestCase):
                     id="tx-food",
                     account_id="credit-1",
                     date=self.today,
-                    amount=Decimal("-50.00"),
+                    amount=Decimal("50.00"),
                     description="Padaria do bairro",
                     category="Food",
                     pluggy_raw_category="Food",
@@ -73,7 +73,7 @@ class ManualClassificationOverrideTest(unittest.TestCase):
                     id="tx-unknown",
                     account_id="credit-1",
                     date=self.today,
-                    amount=Decimal("-30.00"),
+                    amount=Decimal("30.00"),
                     description="Compra sem categoria",
                 )
             )
@@ -120,7 +120,7 @@ class ManualClassificationOverrideTest(unittest.TestCase):
         self.assertEqual(tx.pluggy_raw_type, "DEBIT")
         self.assertEqual(tx.pluggy_merchant, "Padaria")
         self.assertEqual(tx.category, "Food")
-        self.assertEqual(tx.amount, Decimal("-50.00"))
+        self.assertEqual(tx.amount, Decimal("50.00"))
         self.assertEqual(tx.date, self.today)
         self.assertEqual(tx.description, "Padaria do bairro")
         self.assertEqual(tx.account_id, "credit-1")
@@ -233,7 +233,7 @@ class ManualClassificationOverrideTest(unittest.TestCase):
         raw_tx = {
             "id": "tx-food",
             "date": self.today.isoformat(),
-            "amount": "-50.00",
+            "amount": "50.00",
             "description": "Padaria do bairro",
             "category": "Food",
         }

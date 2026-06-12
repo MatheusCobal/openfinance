@@ -898,7 +898,8 @@ class TransferBankSlipClassificationLayerTest(unittest.TestCase):
         classifier = self._make_classifier({"credit-1": account})
         result = classifier.classify(tx)
         self.assertFalse(result.is_card_purchase)
-        self.assertEqual(result.kind, TransactionKind.OTHER)
+        self.assertTrue(result.is_card_refund)
+        self.assertEqual(result.kind, TransactionKind.CARD_REFUND)
 
 
 class CreditPurchaseScopeTest(unittest.TestCase):
@@ -928,7 +929,7 @@ class CreditPurchaseScopeTest(unittest.TestCase):
                     id="tx-card-food",
                     account_id="credit-1",
                     date=self.today,
-                    amount=Decimal("-80.00"),
+                    amount=Decimal("80.00"),
                     description="Restaurante",
                     pluggy_raw_category="Eating out",
                 )
@@ -963,7 +964,7 @@ class CreditPurchaseScopeTest(unittest.TestCase):
                     id="tx-card-shopping",
                     account_id="credit-1",
                     date=self.today,
-                    amount=Decimal("-120.00"),
+                    amount=Decimal("120.00"),
                     description="Manual pet mas raw shopping",
                     pluggy_raw_category="Shopping",
                     internal_category="Pet",

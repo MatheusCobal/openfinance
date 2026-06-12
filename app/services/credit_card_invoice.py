@@ -422,6 +422,33 @@ def _none_result(
     }
 
 
+def _net_open_invoice(
+    transactions: list[Transaction],
+    classifier,
+) -> tuple[Decimal, int, int]:
+    """Net open-invoice value for a set of cycle transactions.
+
+    Purchases add, refunds/cancellations subtract and invoice payments are
+    ignored — see classification.card_invoice_signed_amount, the single
+    source of truth for the sign convention. Returns (net_total, purchase
+    count, refund count); the caller applies the zero floor on the final
+    total only.
+    """
+    from app.services.classification import card_invoice_signed_amount
+
+    net = Decimal("0")
+    purchase_count = 0
+    refund_count = 0
+    for tx in transactions:
+        classification = classifier.classify(tx)
+        net += card_invoice_signed_amount(tx, classification)
+        if classification.is_card_purchase:
+            purchase_count += 1
+        elif classification.is_card_refund:
+            refund_count += 1
+    return net, purchase_count, refund_count
+
+
 # ---------------------------------------------------------------------------
 # Scheduled installments (public — used by upcoming_months in fixed_costs.py)
 # ---------------------------------------------------------------------------
@@ -559,20 +586,19 @@ def _current_month_invoice(
                 _non_duplicate_clause(),
             )
         ).all()
-        open_cycle_txs = [tx for tx in open_cycle_txs if classifier.is_card_purchase(tx)]
+        net_total, purchase_count, refund_count = _net_open_invoice(open_cycle_txs, classifier)
 
-        if open_cycle_txs:
-            total = sum((abs(tx.amount) for tx in open_cycle_txs), Decimal("0"))
+        if purchase_count:
             return {
                 "year_month": year_month,
                 "planning_mode": "current_month",
-                "amount": float(total),
+                "amount": float(max(net_total, Decimal("0"))),
                 "source": "open_invoice",
                 "source_label": "Fatura aberta estimada",
                 "is_estimated": True,
                 "due_dates": [],
                 "cards": [],
-                "transaction_count": len(open_cycle_txs),
+                "transaction_count": purchase_count + refund_count,
                 "bill_count": 0,
                 "account_count": len(accounts_with_close),
                 "cycle_start": cycle_start.isoformat(),
@@ -591,20 +617,19 @@ def _current_month_invoice(
             _non_duplicate_clause(),
         )
     ).all()
-    open_month_txs = [tx for tx in open_month_txs if classifier.is_card_purchase(tx)]
+    net_total, purchase_count, refund_count = _net_open_invoice(open_month_txs, classifier)
 
-    if open_month_txs:
-        total = sum((abs(tx.amount) for tx in open_month_txs), Decimal("0"))
+    if purchase_count:
         return {
             "year_month": year_month,
             "planning_mode": "current_month",
-            "amount": float(total),
+            "amount": float(max(net_total, Decimal("0"))),
             "source": "open_invoice",
             "source_label": "Fatura aberta estimada",
             "is_estimated": True,
             "due_dates": [],
             "cards": [],
-            "transaction_count": len(open_month_txs),
+            "transaction_count": purchase_count + refund_count,
             "bill_count": 0,
             "account_count": len(credit_accounts),
             "cycle_start": month_start.isoformat(),
@@ -732,8 +757,9 @@ def _vigente_forming_invoice(
       * no account exposes credit_balance_close_date, or
       * the forming cycle has no qualifying transactions yet.
 
-    Sign conventions vary across synced rows, so purchases are summed by
-    absolute value after non-purchase flows are excluded by the classifier.
+    Purchases (positive) add and refunds/cancellations (negative) subtract,
+    with invoice payments excluded — the same convention used by
+    _current_month_invoice (see _net_open_invoice).
     """
     if year_month != _next_calendar_month(today):
         return None
@@ -763,23 +789,20 @@ def _vigente_forming_invoice(
     from app.services.classification import TransactionClassifier
 
     classifier = TransactionClassifier.from_session(session)
-    qualifying_txs = [tx for tx in cycle_txs if classifier.is_card_purchase(tx)]
-    if not qualifying_txs:
+    net_total, purchase_count, refund_count = _net_open_invoice(cycle_txs, classifier)
+    if not purchase_count:
         return None
-
-    raw_total = sum((abs(tx.amount) for tx in qualifying_txs), Decimal("0"))
-    total = max(raw_total, Decimal("0"))
 
     return {
         "year_month": year_month,
         "planning_mode": "future_month",
-        "amount": float(total),
+        "amount": float(max(net_total, Decimal("0"))),
         "source": "active_open_invoice_transactions",
         "source_label": "Fatura vigente em formação",
         "is_estimated": True,
         "due_dates": [],
         "cards": [],
-        "transaction_count": len(qualifying_txs),
+        "transaction_count": purchase_count + refund_count,
         "bill_count": 0,
         "account_count": len(accounts_with_close),
         "cycle_start": cycle_start.isoformat(),

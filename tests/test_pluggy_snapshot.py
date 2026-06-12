@@ -100,7 +100,7 @@ class FakePluggy:
                 {
                     "id": "credit-buy",
                     "date": self.today.isoformat(),
-                    "amount": -1500.0,
+                    "amount": 1500.0,
                     "description": "Compra cartao",
                     "category": "Shopping",
                     "currencyCode": "BRL",
@@ -569,7 +569,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
                     id="t-past",
                     account_id="cc1",
                     date=date(2026, 4, 10),
-                    amount=Decimal("-220"),
+                    amount=Decimal("220"),
                     description="compra",
                     category="Shopping",
                 )
@@ -720,7 +720,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
         today=2026-05-28, close_date=2026-05-10 → today is past close, so the
         forming cycle is 2026-05-11 – 2026-06-10 (due in June, the vigente
-        month). The synced credit-buy (2026-05-28, -1500) is inside that cycle
+        month). The synced credit-buy (2026-05-28, +1500) is inside that cycle
         and is counted; source = "active_open_invoice_transactions"."""
         from app.services.spending_capacity import spending_capacity_summary
 
@@ -734,7 +734,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         self.assertEqual(capacity["card_invoice_source"], "active_open_invoice_transactions")
-        # The -1500 purchase in the forming cycle → +1500 invoice.
+        # The +1500 purchase in the forming cycle → +1500 invoice.
         self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
         self.assertEqual(capacity["future_card_obligation_total"], 1500.0)
 
@@ -754,7 +754,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
                     id="fresh-buy",
                     account_id="credit-1",
                     date=date(2026, 5, 29),
-                    amount=Decimal("-200"),
+                    amount=Decimal("200"),
                     description="Compra recente",
                     category="Shopping",
                 )

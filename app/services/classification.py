@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
@@ -56,6 +57,7 @@ NON_INCOME_CASHFLOW_TYPES = {
 
 class TransactionKind(str, Enum):
     CARD_PURCHASE = "card_purchase"
+    CARD_REFUND = "card_refund"
     INVOICE_PAYMENT = "invoice_payment"
     BANK_INCOME = "bank_income"
     BANK_OUTFLOW = "bank_outflow"
@@ -76,6 +78,10 @@ class TransactionClassification:
     @property
     def is_card_purchase(self) -> bool:
         return self.kind == TransactionKind.CARD_PURCHASE and not self.ignored
+
+    @property
+    def is_card_refund(self) -> bool:
+        return self.kind == TransactionKind.CARD_REFUND and not self.ignored
 
     @property
     def is_invoice_payment(self) -> bool:
@@ -159,22 +165,31 @@ class TransactionClassifier:
                     account_type=account_type,
                     ignored=True,
                 )
+            if classified_cashflow_type == "refund":
+                return TransactionClassification(
+                    kind=TransactionKind.CARD_REFUND,
+                    account_type=account_type,
+                )
             if classified_cashflow_type != "expense":
                 return TransactionClassification(
                     kind=TransactionKind.OTHER,
                     account_type=account_type,
                 )
-            if tx.amount != 0:
+            # Pluggy sign convention on CREDIT accounts (validated against the
+            # synced data): purchases are positive; payments, refunds and
+            # cancellations ("CANC PARCELA", "Estorno ...") are negative.
+            # A negative "expense" row is therefore a refund/cancellation and
+            # must never be counted as gross spending.
+            if tx.amount > 0:
                 return TransactionClassification(
                     kind=TransactionKind.CARD_PURCHASE,
                     account_type=account_type,
                     ignored=ignored,
                 )
-            if ignored:
+            if tx.amount < 0:
                 return TransactionClassification(
-                    kind=TransactionKind.IGNORED,
+                    kind=TransactionKind.CARD_REFUND,
                     account_type=account_type,
-                    ignored=True,
                 )
             return TransactionClassification(
                 kind=TransactionKind.OTHER,
@@ -195,6 +210,9 @@ class TransactionClassifier:
 
     def is_card_purchase(self, tx: Transaction) -> bool:
         return self.classify(tx).is_card_purchase
+
+    def is_card_refund(self, tx: Transaction) -> bool:
+        return self.classify(tx).is_card_refund
 
     def is_invoice_payment(self, tx: Transaction) -> bool:
         return self.classify(tx).is_invoice_payment
@@ -352,6 +370,33 @@ class TransactionClassifier:
         if _cashflow_type(tx, account_type, self.user_rules) == "transfer":
             return True
         return _pluggy_category(tx) in INTERNAL_TRANSFER_CATEGORIES
+
+
+def card_invoice_signed_amount(
+    tx: Transaction,
+    classification: TransactionClassification,
+) -> Decimal:
+    """Signed contribution of a credit-card transaction to spend/invoice totals.
+
+    Single place that encodes the sign convention (validated against the
+    synced Pluggy data): purchases are positive, refunds/cancellations are
+    negative, invoice payments are negative but must never touch spend totals.
+
+      - card purchase  -> its (positive) amount is added;
+      - card refund    -> its (negative) amount is added, i.e. it reduces the
+                          total; a refund-classified row with a positive
+                          amount is unexpected and treated as neutral (zero)
+                          instead of guessing a direction;
+      - invoice payment, transfers and any other flow -> zero.
+
+    Callers summing these contributions must apply the zero floor only on the
+    final total, never per transaction.
+    """
+    if classification.is_card_purchase:
+        return tx.amount
+    if classification.is_card_refund:
+        return min(tx.amount, Decimal("0"))
+    return Decimal("0")
 
 
 def _pluggy_category(tx: Transaction) -> Optional[str]:
