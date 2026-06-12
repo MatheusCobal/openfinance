@@ -242,6 +242,77 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
   );
 }
 
+function VariableBudgetsPanel({ capacity }: { capacity: PlanningOverview }) {
+  const target = asMoneyNumber(capacity.variable_budget_total);
+  const consumed = asMoneyNumber(capacity.variable_budget_consumed);
+  const overage = asMoneyNumber(capacity.variable_budget_overage);
+  const remaining = Math.max(target - consumed, 0);
+  const hasTarget = target > 0;
+  const items = capacity.variable_budgets?.items || [];
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          label="Meta variável do mês"
+          value={formatMoney(target)}
+          subtitle={hasTarget ? "Valor reservado no plano mensal" : "Nenhuma meta geral definida"}
+          icon={<Wallet className="size-5" aria-hidden="true" />}
+          tone="primary"
+        />
+        <MetricCard
+          label="Consumido"
+          value={formatMoney(consumed)}
+          subtitle="Gastos variáveis considerados no planejamento"
+          tone={consumed > target && hasTarget ? "danger" : "warning"}
+        />
+        <MetricCard
+          label={overage > 0 ? "Excedente" : "Restante"}
+          value={formatMoney(overage > 0 ? overage : remaining)}
+          subtitle={overage > 0 ? "Acima da meta variável" : "Ainda disponível na meta"}
+          tone={overage > 0 ? "danger" : "positive"}
+        />
+        <MetricCard
+          label="Metas por categoria"
+          value={items.length}
+          subtitle="Categorias conectadas ao orçamento variável"
+          icon={<CalendarClock className="size-5" aria-hidden="true" />}
+        />
+      </div>
+
+      <Card className="p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-ink-900">Metas de gastos variáveis</h2>
+            <p className="mt-0.5 text-xs text-ink-500">
+              Resumo de {formatMonthShort(capacity.year_month || getDefaultPlanningMonth())} com base no planejamento atual.
+            </p>
+          </div>
+          <Badge tone={hasTarget ? "primary" : "neutral"}>
+            {hasTarget ? "Meta geral ativa" : "Sem meta definida"}
+          </Badge>
+        </div>
+
+        <div className="mt-5">
+          <EmptyState
+            icon={<CalendarClock className="size-5" aria-hidden="true" />}
+            title={
+              items.length > 0
+                ? "As metas por categoria ainda não têm detalhe nesta tela."
+                : "As metas por categoria estão em reformulação."
+            }
+            detail={
+              items.length > 0
+                ? "O backend já retornou categorias, mas a interface detalhada ainda precisa ser reconectada ao novo contrato."
+                : "Elas voltam integradas à nova classificação automática de compras. Por enquanto, acompanhe a meta variável geral pelos cartões acima."
+            }
+          />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function FixedMonthBreakdown({
   fixed,
   selectedMonth,
@@ -1277,18 +1348,7 @@ export function PlanejamentoPage() {
                 </div>
               ) : null}
 
-              {activeTab === "variaveis" ? (
-                <Card className="p-5 sm:p-6">
-                  <h2 className="text-sm font-semibold text-ink-900">Metas de gastos variáveis</h2>
-                  <div className="mt-5">
-                    <EmptyState
-                      icon={<CalendarClock className="size-5" aria-hidden="true" />}
-                      title="As metas por categoria estão em reformulação."
-                      detail="Elas voltam integradas à nova classificação automática de compras. Por enquanto, a meta variável geral continua valendo no plano do mês."
-                    />
-                  </div>
-                </Card>
-              ) : null}
+              {activeTab === "variaveis" ? <VariableBudgetsPanel capacity={data.capacity} /> : null}
 
               {activeTab === "receita" ? (
                 <IncomePlanning
