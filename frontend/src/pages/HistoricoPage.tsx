@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BarChart3, Minus, RefreshCw, Tags } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, RefreshCw, Tags } from "lucide-react";
 import {
   getCashflow,
   getClassificationOptions,
@@ -13,7 +13,6 @@ import { Topbar } from "../components/layout/Topbar";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
-import { CategoryBreakdown } from "../components/ui/CategoryBreakdown";
 import { ChartCard } from "../components/ui/ChartCard";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
@@ -27,6 +26,7 @@ import { Tabs } from "../components/ui/Tabs";
 import { useAsync } from "../hooks/useAsync";
 import { useToast } from "../hooks/useToast";
 import { CHART_COLORS } from "../lib/chartTheme";
+import { categoryColor } from "../lib/categories";
 import { formatDayLabel, formatMonthCompact, formatMonthLong } from "../lib/dates";
 import {
   cashflowTypeLabel,
@@ -113,7 +113,9 @@ function summarizeCashflow(data: CashflowSummary | null) {
 function transactionMeta(tx: Transaction): string {
   const parts = [formatDayLabel(tx.date)];
   if (tx.account_name) parts.push(tx.account_name);
-  if (tx.internal_category) parts.push(tx.internal_category);
+  const displayCategory =
+    tx.effective_category || tx.resolved_category || tx.credit_category || tx.internal_category;
+  if (displayCategory) parts.push(displayCategory);
   const flow = cashflowTypeLabel(tx.cashflow_type);
   if (flow) parts.push(flow);
   const source = classificationSourceLabel(tx.classification_source);
@@ -373,6 +375,80 @@ function InvoiceTab({ data }: { data: InvoiceHistorySummary }) {
   );
 }
 
+type CategoryMonthPoint = {
+  month: string;
+  total: number;
+  count: number;
+  transactions: Transaction[];
+};
+
+type CategoryPeriodSummary = {
+  id: string;
+  name: string;
+  total: number;
+  count: number;
+  average_monthly: number;
+  months: CategoryMonthPoint[];
+  transactions: Transaction[];
+};
+
+function categoryName(category: { name?: string | null; resolved_category?: string | null }) {
+  return category.resolved_category || category.name || "Outros / Taxas";
+}
+
+function summarizeCreditCategories(data: InvoiceHistorySummary): CategoryPeriodSummary[] {
+  const months = data.months.slice(-12);
+  const byCategory = new Map<string, CategoryPeriodSummary>();
+
+  for (const month of months) {
+    for (const category of month.categories || []) {
+      const name = categoryName(category);
+      const bucket =
+        byCategory.get(name) ||
+        {
+          id: name,
+          name,
+          total: 0,
+          count: 0,
+          average_monthly: 0,
+          months: months.map((item) => ({
+            month: item.month,
+            total: 0,
+            count: 0,
+            transactions: [],
+          })),
+          transactions: [],
+        };
+      const monthPoint = bucket.months.find((item) => item.month === month.month);
+      const total = Number(category.total || 0);
+      const count = Number(category.count || 0);
+      const transactions = category.transactions || [];
+
+      if (monthPoint) {
+        monthPoint.total += total;
+        monthPoint.count += count;
+        monthPoint.transactions.push(...transactions);
+      }
+      bucket.total += total;
+      bucket.count += count;
+      bucket.transactions.push(...transactions);
+      byCategory.set(name, bucket);
+    }
+  }
+
+  return [...byCategory.values()]
+    .map((category) => ({
+      ...category,
+      average_monthly: months.length ? category.total / months.length : 0,
+      transactions: [...category.transactions].sort((a, b) => {
+        const dateOrder = new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (dateOrder !== 0) return dateOrder;
+        return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
+      }),
+    }))
+    .sort((a, b) => b.total - a.total || b.count - a.count || a.name.localeCompare(b.name, "pt-BR"));
+}
+
 function CategorySpendingTab({
   data,
   onOpenTransactions,
@@ -380,27 +456,16 @@ function CategorySpendingTab({
   data: InvoiceHistorySummary;
   onOpenTransactions: (title: string, subtitle: string, transactions: Transaction[]) => void;
 }) {
-  const monthsWithCategories = data.months.filter((month) => (month.categories || []).length > 0);
-  const [selectedMonth, setSelectedMonth] = useState(() => {
-    const latest = [...monthsWithCategories].pop() || data.months[data.months.length - 1];
-    return latest?.month || "";
-  });
-
-  useEffect(() => {
-    if (selectedMonth && data.months.some((item) => item.month === selectedMonth)) return;
-    const latest = [...monthsWithCategories].pop() || data.months[data.months.length - 1];
-    setSelectedMonth(latest?.month || "");
-  }, [data.months, monthsWithCategories, selectedMonth]);
-
-  const active =
-    data.months.find((item) => item.month === selectedMonth) || data.months[data.months.length - 1];
-  const monthsWithData = data.months.filter(hasInvoiceMonthData);
+  const categories = useMemo(() => summarizeCreditCategories(data), [data]);
+  const periodMonths = data.months.slice(-12);
   const periodClassifiedTotal = data.months.reduce(
     (sum, item) => sum + classifiedPurchaseTotal(item),
     0,
   );
+  const periodCount = categories.reduce((sum, category) => sum + category.count, 0);
+  const allTransactions = categories.flatMap((category) => category.transactions);
 
-  if (!monthsWithCategories.length) {
+  if (!categories.length) {
     return (
       <EmptyState
         icon={<Tags className="size-5" aria-hidden="true" />}
@@ -416,135 +481,118 @@ function CategorySpendingTab({
         <MetricCard
           label="Gastos classificados"
           value={formatMoney(periodClassifiedTotal)}
-          subtitle={pluralize(monthsWithData.length, "mês analisado", "meses analisados")}
+          subtitle={pluralize(periodMonths.length, "mês analisado", "meses analisados")}
         />
         <MetricCard
-          label="Mês selecionado"
-          value={formatMoney(classifiedPurchaseTotal(active))}
-          subtitle={`${formatMonthLong(active.month)} · ${pluralCompras(active.count)}`}
+          label="Média mensal"
+          value={formatMoney(periodMonths.length ? periodClassifiedTotal / periodMonths.length : 0)}
+          subtitle={`${pluralCompras(periodCount)} nos últimos 12 meses`}
           tone="primary"
         />
         <MetricCard
-          label="Categorias no mês"
-          value={(active.categories?.length || 0).toLocaleString("pt-BR")}
-          subtitle="Categorias com compras no período"
+          label="Categorias"
+          value={categories.length.toLocaleString("pt-BR")}
+          subtitle="Agrupadas pela regra central do cartão"
           tone="warning"
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[340px_1fr]">
-        <Card className="h-fit overflow-hidden">
-          <div className="border-b border-ink-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-ink-900">Meses com gastos</h2>
+      <section>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-ink-900">Para onde o dinheiro foi</h2>
             <p className="mt-0.5 text-xs text-ink-500">
-              Total das compras classificadas, separado do valor oficial da fatura.
+              Últimos 12 meses · {pluralCompras(periodCount)} · {formatMoney(periodClassifiedTotal)}
             </p>
           </div>
-          <ul className="divide-y divide-ink-100">
-            {[...data.months].reverse().map((item) => {
-              const activeRow = item.month === active.month;
-              return (
-                <li key={item.month} className={activeRow ? "bg-primary-50/60" : undefined}>
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-4 px-5 py-3 text-left transition-colors hover:bg-surface-muted"
-                    onClick={() => setSelectedMonth(item.month)}
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-ink-900">{formatMonthLong(item.month)}</p>
-                      <p className="mt-0.5 text-xs text-ink-500">{pluralCompras(item.count)}</p>
-                    </div>
-                    <span className="text-sm font-semibold tabular text-ink-900">
-                      {classifiedPurchaseTotal(item) > 0
-                        ? formatMoney(classifiedPurchaseTotal(item))
-                        : "Sem compras"}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+          <Button
+            type="button"
+            onClick={() =>
+              onOpenTransactions(
+                "Compras classificadas · últimos 12 meses",
+                `${pluralCompras(periodCount)} · ${formatMoney(periodClassifiedTotal)}`,
+                allTransactions,
+              )
+            }
+          >
+            Ver todas as compras
+          </Button>
+        </div>
 
-        <section>
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-ink-900">Para onde o dinheiro foi</h2>
-              <p className="mt-0.5 text-xs text-ink-500">
-                {formatMonthLong(active.month)} · {pluralCompras(active.count)} ·{" "}
-                {formatMoney(classifiedPurchaseTotal(active))}
-              </p>
-            </div>
-            <Button
-              type="button"
-              onClick={() =>
-                onOpenTransactions(
-                  `Compras classificadas · ${formatMonthLong(active.month)}`,
-                  `${pluralCompras(active.count)} · ${formatMoney(classifiedPurchaseTotal(active))}`,
-                  active.transactions || [],
-                )
-              }
-            >
-              Ver todas as compras
-            </Button>
-          </div>
-          {active.categories?.length ? (
-            <CategoryBreakdown
-              items={active.categories.map((category) => {
-                const diff = Number(category.difference_from_average || 0);
-                const hasAverage = Boolean(category.average_months_used);
-                const detail = hasAverage ? (
-                  <p className="flex items-center gap-1.5 text-xs text-ink-500">
-                    {Math.abs(diff) < 0.005 ? (
-                      <Minus className="size-3 text-ink-400" aria-hidden="true" />
-                    ) : diff > 0 ? (
-                      <ArrowUpRight className="size-3 text-danger-600" aria-hidden="true" />
-                    ) : (
-                      <ArrowDownRight className="size-3 text-positive-600" aria-hidden="true" />
-                    )}
-                    <span>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {categories.map((category) => {
+            const color = categoryColor(category.name);
+            const largestMonth = Math.max(...category.months.map((month) => month.total), 0);
+            return (
+              <Card key={category.id} className="p-5">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
                       <span
-                        className={
-                          Math.abs(diff) < 0.005
-                            ? "font-semibold text-ink-600"
-                            : diff > 0
-                              ? "font-semibold text-danger-700"
-                              : "font-semibold text-positive-700"
-                        }
+                        className="size-2.5 shrink-0 rounded-[4px]"
+                        style={{ background: color }}
+                        aria-hidden="true"
+                      />
+                      <h3 className="truncate text-sm font-semibold text-ink-900">{category.name}</h3>
+                    </div>
+                    <p className="mt-1 text-xs text-ink-500">
+                      {pluralCompras(category.count)} · média {formatMoney(category.average_monthly)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <p className="text-right text-lg font-bold tabular text-ink-900">
+                      {formatMoney(category.total)}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        onOpenTransactions(
+                          category.name,
+                          `Últimos 12 meses · ${pluralCompras(category.count)}`,
+                          category.transactions,
+                        )
+                      }
+                    >
+                      Ver compras
+                    </Button>
+                  </div>
+                </div>
+                <div
+                  className="mt-5 grid h-20 grid-cols-12 items-end gap-1"
+                  aria-label={`Gastos mensais em ${category.name}`}
+                >
+                  {category.months.map((month) => {
+                    const height = largestMonth > 0 ? Math.max(8, (month.total / largestMonth) * 100) : 0;
+                    return (
+                      <div
+                        key={month.month}
+                        className="flex h-full items-end"
+                        title={`${formatMonthLong(month.month)} · ${formatMoney(month.total)}`}
                       >
-                        {diff > 0 ? "+" : diff < 0 ? "−" : ""}
-                        {formatMoney(Math.abs(diff))}
-                      </span>{" "}
-                      vs. média de {formatMoney(category.average_12m)} (
-                      {pluralize(Number(category.average_months_used), "mês", "meses")})
-                    </span>
-                  </p>
-                ) : (
-                  <p className="text-xs text-ink-400">Sem histórico anterior para comparar</p>
-                );
-                return {
-                  id: category.id,
-                  name: category.name,
-                  total: Number(category.total),
-                  count: category.count,
-                  detail,
-                };
-              })}
-              onSelect={(id) => {
-                const category = active.categories?.find((item) => String(item.id) === String(id));
-                if (!category) return;
-                onOpenTransactions(
-                  category.name,
-                  `${formatMonthLong(active.month)} · ${pluralCompras(category.count)}`,
-                  category.transactions || [],
-                );
-              }}
-            />
-          ) : (
-            <EmptyState title="Sem categorias para este mês." />
-          )}
-        </section>
-      </div>
+                        <span
+                          className="block w-full rounded-t-[4px] bg-ink-100"
+                          style={{
+                            height: month.total > 0 ? `${height}%` : "4px",
+                            backgroundColor: month.total > 0 ? color : undefined,
+                            opacity: month.total > 0 ? 0.92 : 1,
+                          }}
+                          aria-hidden="true"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex justify-between text-[11px] text-ink-400">
+                  <span>{formatMonthCompact(category.months[0]?.month || "")}</span>
+                  <span>{formatMonthCompact(category.months[category.months.length - 1]?.month || "")}</span>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

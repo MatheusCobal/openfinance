@@ -304,6 +304,38 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["possible_refund_transactions"][0]["id"], "refund-1")
         self.assertTrue(summary["source_detail"]["refunds_are_diagnostic_only"])
 
+    def test_current_invoice_categories_use_credit_category_resolver(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("1000"))
+            session.add(
+                Transaction(
+                    id="shopping-as-pet",
+                    account_id="credit-1",
+                    date=date(2026, 6, 8),
+                    amount=Decimal("199.90"),
+                    description="Compra ajustada manualmente",
+                    category="Shopping",
+                    pluggy_raw_category="Shopping",
+                    internal_category="Pet",
+                    cashflow_type="expense",
+                    classification_source="manual_override",
+                    classification_confidence="high",
+                    classification_rule_key="manual_override",
+                    is_user_overridden=True,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
+
+        category = summary["categories"][0]
+        self.assertEqual(category["name"], "Compras pessoais")
+        self.assertEqual(category["effective_category"], "Compras pessoais")
+        self.assertEqual(category["transactions"][0]["internal_category"], "Pet")
+        self.assertEqual(category["transactions"][0]["effective_category"], "Compras pessoais")
+
     def test_future_planning_month_can_still_use_scheduled_installments(self):
         with Session(self.engine) as session:
             self._add_item(session)
@@ -491,6 +523,7 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["months"][0]["scheduled_total"], 7993.58)
         self.assertEqual(summary["months"][0]["invoice_source"], "dashboard_current_invoice")
         self.assertTrue(summary["months"][0]["is_current_invoice"])
+        self.assertEqual(summary["months"][0]["categories"][0]["name"], "Lazer / Viagem")
 
     def test_vigente_spending_capacity_uses_dashboard_invoice(self):
         """Spending capacity for the vigente month subtracts the Dashboard

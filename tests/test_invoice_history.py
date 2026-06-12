@@ -670,7 +670,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertNotIn("bank-pix-jun", tx_ids)
 
         by_category = {category["name"]: category for category in june["categories"]}
-        self.assertEqual(set(by_category), {"Alimentação", "Transporte", "Pet"})
+        self.assertEqual(set(by_category), {"Alimentação", "Transporte", "Compras pessoais"})
         self.assertAlmostEqual(by_category["Alimentação"]["total"], 100.0, places=2)
         self.assertAlmostEqual(by_category["Alimentação"]["average_12m"], 90.0, places=2)
         self.assertEqual(by_category["Alimentação"]["average_months_used"], 2)
@@ -685,7 +685,18 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
             places=5,
         )
         self.assertEqual(by_category["Transporte"]["transactions"][0]["classification_source"], "manual_override")
-        self.assertEqual(by_category["Pet"]["transactions"][0]["classification_source"], "user_rule")
+        self.assertEqual(
+            by_category["Compras pessoais"]["transactions"][0]["classification_source"],
+            "user_rule",
+        )
+        self.assertEqual(
+            by_category["Compras pessoais"]["transactions"][0]["internal_category"],
+            "Pet",
+        )
+        self.assertEqual(
+            by_category["Compras pessoais"]["transactions"][0]["effective_category"],
+            "Compras pessoais",
+        )
 
     def test_historical_month_uses_official_bill_as_display_total(self):
         with Session(self.engine) as session:
@@ -1119,7 +1130,10 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertIn("Meses fechados respeitam o valor oficial do banco", source)
         self.assertIn('key: "categories", label: "Gastos por categoria"', source)
         self.assertIn("function CategorySpendingTab", source)
-        self.assertIn("formatMoney(classifiedPurchaseTotal(active))", source)
+        self.assertIn("summarizeCreditCategories", source)
+        self.assertIn("Últimos 12 meses", source)
+        self.assertIn("grid h-20 grid-cols-12", source)
+        self.assertNotIn("Meses com gastos", source)
         self.assertIn("showValueLabels", source)
         self.assertIn("PIX, boleto, transferências e pagamentos", source)
         self.assertNotIn("listCashflowRules", source)

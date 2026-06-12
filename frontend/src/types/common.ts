@@ -33,6 +33,9 @@ export interface Transaction {
   pluggy_subcategory?: string;
   pluggy_type?: string;
   internal_category?: string | null;
+  effective_category?: string | null;
+  resolved_category?: string | null;
+  credit_category?: string | null;
   custom_category_name?: string | null;
   cashflow_type?: CashflowType | null;
   ignored_from_totals?: boolean | null;

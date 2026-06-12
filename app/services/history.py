@@ -17,6 +17,10 @@ from app.services.invoice_month import (
     DEFAULT_CREDIT_CARD_DUE_DAY,
     invoice_month_from_payment,
 )
+from app.services.credit_categories import (
+    credit_category_payload,
+    resolve_credit_internal_category,
+)
 from app.services.transaction_classifier import (
     CompiledUserRule,
     serialize_transaction_classification,
@@ -216,6 +220,11 @@ def _history_card_purchase_transaction(
 ) -> dict[str, Any]:
     classification = _history_transaction_classification(tx, accounts_by_id, user_rules)
     account = accounts_by_id.get(tx.account_id)
+    effective_category = resolve_credit_internal_category(
+        tx,
+        account_type=account.type if account is not None else "CREDIT",
+        current_internal_category=classification.get("internal_category"),
+    )
     return {
         "id": tx.id,
         "account_id": tx.account_id,
@@ -225,8 +234,8 @@ def _history_card_purchase_transaction(
         "amount_abs": float(abs(tx.amount)),
         "signed_amount": float(tx.amount),
         "description": tx.description,
-        "category": classification["internal_category"] or "Outros",
         **classification,
+        **credit_category_payload(effective_category),
         "status": tx.status,
         "bill_id": tx.bill_id,
         "installment_number": tx.installment_number,
@@ -356,7 +365,7 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
         if serialized.get("ignored_from_totals") or serialized.get("cashflow_type") != "expense":
             continue
 
-        category_name = serialized.get("internal_category") or "Outros"
+        category_name = serialized.get("effective_category") or "Outros / Taxas"
         amount = Decimal(str(serialized["amount_abs"]))
         tx_month = month_key(tx.date)
         totals_by_month_category[tx_month][category_name] += amount
@@ -420,12 +429,15 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
 
         categories_by_name: Dict[str, dict[str, Any]] = {}
         for tx in txs:
-            category_name = tx.get("internal_category") or "Outros"
+            category_name = tx.get("effective_category") or "Outros / Taxas"
             bucket = categories_by_name.setdefault(
                 category_name,
                 {
                     "id": category_name,
                     "name": category_name,
+                    "effective_category": category_name,
+                    "resolved_category": category_name,
+                    "credit_category": category_name,
                     "total": Decimal("0"),
                     "count": 0,
                     "cashflow_type": "expense",

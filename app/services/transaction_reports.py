@@ -7,6 +7,10 @@ from sqlmodel import Session, select
 
 from app.models import Account, Transaction
 from app.services.classification import TransactionClassifier
+from app.services.credit_categories import (
+    credit_category_payload,
+    resolve_credit_internal_category,
+)
 from app.services.transaction_classifier import (
     CompiledUserRule,
     serialize_transaction_classification,
@@ -187,29 +191,38 @@ def upcoming_summary(
     for month in sorted(by_month.keys()):
         txs = by_month[month]
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
-        serialized_transactions = [
-            {
-                "id": tx.id,
-                "date": tx.date.isoformat(),
-                "amount": float(abs(tx.amount)),
-                "description": tx.description,
-                "pluggy_category": _classification_fields(tx, accounts, user_rules)[
-                    "pluggy_raw_category"
-                ],
-                **_classification_fields(tx, accounts, user_rules),
-            }
-            for tx in txs
-        ]
+        serialized_transactions = []
+        for tx in txs:
+            classification = _classification_fields(tx, accounts, user_rules)
+            effective_category = resolve_credit_internal_category(
+                tx,
+                account_type="CREDIT",
+                current_internal_category=classification.get("internal_category"),
+            )
+            serialized_transactions.append(
+                {
+                    "id": tx.id,
+                    "date": tx.date.isoformat(),
+                    "amount": float(abs(tx.amount)),
+                    "description": tx.description,
+                    "pluggy_category": classification["pluggy_raw_category"],
+                    **classification,
+                    **credit_category_payload(effective_category),
+                }
+            )
         categories_by_name: Dict[str, dict[str, Any]] = {}
         for tx in serialized_transactions:
             if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
                 continue
-            name = tx.get("internal_category") or "Outros"
+            name = tx.get("effective_category") or "Outros / Taxas"
             bucket = categories_by_name.setdefault(
                 name,
                 {
                     "id": name,
                     "name": name,
+                    "effective_category": name,
+                    "resolved_category": name,
+                    "credit_category": name,
                     "total": Decimal("0"),
                     "count": 0,
                     "transactions": [],
@@ -321,7 +334,11 @@ def monthly_stats_summary(
         if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
             continue
         amount = abs(tx.amount)
-        category_name = classification["internal_category"] or "Outros"
+        category_name = resolve_credit_internal_category(
+            tx,
+            account_type="CREDIT",
+            current_internal_category=classification.get("internal_category"),
+        )
         month = tx.date.strftime("%Y-%m")
         totals_by_month[month] += amount
         bucket = totals_by_category.setdefault(
@@ -329,6 +346,9 @@ def monthly_stats_summary(
             {
                 "id": category_name,
                 "name": category_name,
+                "effective_category": category_name,
+                "resolved_category": category_name,
+                "credit_category": category_name,
                 "total": Decimal("0"),
                 "count": 0,
                 "cashflow_type": "expense",

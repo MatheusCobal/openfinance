@@ -956,6 +956,32 @@ class CreditPurchaseScopeTest(unittest.TestCase):
         total = sum(month["total"] for month in body["months"])
         self.assertAlmostEqual(total, 80.0)
 
+    def test_monthly_stats_uses_resolved_credit_category(self):
+        with Session(self.engine) as session:
+            session.add(
+                Transaction(
+                    id="tx-card-shopping",
+                    account_id="credit-1",
+                    date=self.today,
+                    amount=Decimal("-120.00"),
+                    description="Manual pet mas raw shopping",
+                    pluggy_raw_category="Shopping",
+                    internal_category="Pet",
+                    cashflow_type="expense",
+                    classification_source="manual_override",
+                    classification_confidence="high",
+                    classification_rule_key="manual_override",
+                    is_user_overridden=True,
+                )
+            )
+            session.commit()
+
+        body = self.client.get("/stats/monthly").json()
+        by_name = {item["name"]: item for item in body["categories"]}
+        self.assertIn("Compras pessoais", by_name)
+        self.assertNotIn("Pet", by_name)
+        self.assertAlmostEqual(by_name["Compras pessoais"]["total"], 120.0)
+
     def test_stats_summary_excludes_bank_pix(self):
         body = self.client.get("/stats").json()
         self.assertAlmostEqual(body["total_spent"], 80.0)

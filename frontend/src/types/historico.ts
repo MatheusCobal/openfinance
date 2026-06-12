@@ -6,6 +6,8 @@ export interface InvoiceHistoryCategory {
   total: number;
   count: number;
   transactions?: Transaction[];
+  months?: Array<{ month: string; total: number; count: number; transactions?: Transaction[] }>;
+  average_monthly?: number;
   average_12m?: number;
   average_months_used?: number;
   difference_from_average?: number;

@@ -73,6 +73,10 @@ function latestCardPurchases(transactions: Transaction[] = []) {
     .slice(0, RECENT_CARD_PURCHASE_LIMIT);
 }
 
+function transactionDisplayCategory(tx: Transaction) {
+  return tx.effective_category || tx.resolved_category || tx.credit_category || tx.internal_category || tx.category;
+}
+
 async function loadDashboardData() {
   const planningMonth = getDefaultPlanningMonth();
   const [planning, currentInvoice] = await Promise.all([
@@ -575,7 +579,7 @@ export function DashboardPage() {
                             ) : null}
                           </td>
                           <td className="px-5 py-3.5 text-sm text-ink-600">
-                            {tx.internal_category || tx.category || "Sem categoria"}
+                            {transactionDisplayCategory(tx) || "Sem categoria"}
                             {classificationSourceLabel(tx.classification_source) ? (
                               <span className="block text-xs text-ink-400">
                                 {classificationSourceLabel(tx.classification_source)}

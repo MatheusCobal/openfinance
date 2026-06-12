@@ -8,6 +8,10 @@ from sqlmodel import Session, select
 
 from app.categorization import normalize_description
 from app.models import Account, CreditCardBill, Item, Transaction
+from app.services.credit_categories import (
+    credit_category_payload,
+    resolve_credit_internal_category,
+)
 from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.transactions import (
     _non_duplicate_clause,
@@ -230,6 +234,11 @@ def _serialize_current_invoice_transaction(
         account_type="CREDIT",
         user_rules=user_rules,
     )
+    effective_category = resolve_credit_internal_category(
+        tx,
+        account_type="CREDIT",
+        current_internal_category=classification.get("internal_category"),
+    )
     return {
         "id": tx.id,
         "date": tx.date.isoformat(),
@@ -237,8 +246,8 @@ def _serialize_current_invoice_transaction(
         "amount": float(abs(tx.amount)),
         "signed_amount": float(tx.amount),
         "pluggy_category": classification["pluggy_raw_category"],
-        "category": classification["internal_category"],
         **classification,
+        **credit_category_payload(effective_category),
         "status": tx.status,
         "bill_id": tx.bill_id,
         "installment_number": tx.installment_number,
@@ -396,13 +405,16 @@ def current_card_invoice_summary(
     for tx in raw_purchase_transactions:
         if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
             continue
-        name = tx.get("internal_category") or "Outros"
+        name = tx.get("effective_category") or "Outros / Taxas"
         amount = Decimal(str(tx.get("amount") or 0))
         bucket = categories_by_name.setdefault(
             name,
             {
                 "id": name,
                 "name": name,
+                "effective_category": name,
+                "resolved_category": name,
+                "credit_category": name,
                 "color": "#64748b",
                 "total": Decimal("0"),
                 "count": 0,
