@@ -1762,7 +1762,7 @@ export function PlanejamentoPage() {
   const [activeTab, setActiveTab] = useState<PlanningTab>(() => selectedTabFromLocation());
   const [showInactiveCosts, setShowInactiveCosts] = useState(false);
   const [showInactiveIncome, setShowInactiveIncome] = useState(false);
-  const months = useMemo(() => monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE), []);
+  const months = useMemo(() => monthWindow(currentYearMonth(), PLANNING_MONTH_WINDOW_SIZE + 1), []);
   const { data, loading, error, run } = useAsync(
     () => loadPlanningData(selectedMonth, showInactiveCosts, showInactiveIncome),
     [selectedMonth, showInactiveCosts, showInactiveIncome],
