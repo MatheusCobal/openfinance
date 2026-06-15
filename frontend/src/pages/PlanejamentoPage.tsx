@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, ChevronDown, Link2, Plus, RefreshCw, Trash2, Wallet } from "lucide-react";
+import { CalendarClock, ChevronDown, CreditCard, Link2, Plus, RefreshCw, Trash2, Wallet } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
@@ -355,6 +355,15 @@ function VariableBudgetsPanel({
   const remaining = Math.max(target - consumed, 0);
   const hasTarget = target > 0 || budgeted.length > 0;
 
+  const invoiceTotal = asMoneyNumber(
+    capacity.card_invoice_current_open_total ?? capacity.planning_invoice?.amount,
+  );
+  const invoiceLabel =
+    capacity.card_invoice_current_open_label ??
+    capacity.planning_invoice?.source_label ??
+    invoiceSourceLabel(capacity.card_invoice_current_open_source ?? capacity.planning_invoice?.source);
+  const isFuture = capacity.planning_mode === "future_month";
+
   const budgetedCategories = new Set(budgeted.map((item) => item.category));
   const availableToAdd = eligible.filter((category) => !budgetedCategories.has(category));
 
@@ -399,7 +408,14 @@ function VariableBudgetsPanel({
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <MetricCard
+          label="Fatura do mês"
+          value={isFuture ? "—" : formatMoney(invoiceTotal)}
+          subtitle={isFuture ? "Mês futuro" : invoiceLabel}
+          icon={<CreditCard className="size-5" aria-hidden="true" />}
+          tone="neutral"
+        />
         <MetricCard
           label="Meta variável do mês"
           value={hasTarget ? formatMoney(target) : "—"}
@@ -410,7 +426,7 @@ function VariableBudgetsPanel({
         <MetricCard
           label="Consumido"
           value={formatMoney(consumed)}
-          subtitle="Compras de cartão nas categorias com meta"
+          subtitle="Compras na fatura vigente com meta"
           tone={consumed > target && hasTarget ? "danger" : "warning"}
         />
         <MetricCard

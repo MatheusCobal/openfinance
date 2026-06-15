@@ -112,6 +112,11 @@ export interface PlanningOverview {
   card_invoice_official_total?: number;
   card_invoice_gross_total?: number;
   card_invoice_source?: string;
+  card_invoice_current_open_total?: number;
+  card_invoice_current_open_source?: string;
+  card_invoice_current_open_label?: string;
+  card_invoice_cycle_start?: string | null;
+  card_invoice_cycle_end?: string | null;
   bank_outflows_total?: number;
   available_to_spend?: number;
   budget_available_to_spend?: number;
