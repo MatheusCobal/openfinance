@@ -3,11 +3,13 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
+import app.routes.pluggy_webhooks as webhook_routes
 from app.database import get_session
 from app.main import app
-from app.models import Item
+from app.models import Item, PluggyWebhookEvent
+from app.services.sync import SyncAlreadyRunning
 
 
 class PluggyWebhooksTest(unittest.TestCase):
@@ -53,7 +55,18 @@ class PluggyWebhooksTest(unittest.TestCase):
         self.assertTrue(data["ok"])
         self.assertEqual(data["action"], "sync_scheduled")
         self.assertEqual(data["item_id"], "item-1")
-        mock_sync.assert_called_once_with("item-1")
+        mock_sync.assert_called_once()
+        self.assertEqual(mock_sync.call_args.args[0], "item-1")
+
+        with Session(self.engine) as session:
+            events = session.exec(select(PluggyWebhookEvent)).all()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event, "item/updated")
+        self.assertEqual(events[0].event_id, "evt-1")
+        self.assertEqual(events[0].item_id, "item-1")
+        self.assertEqual(events[0].action, "sync_scheduled")
+        self.assertEqual(events[0].sync_status, "scheduled")
+        self.assertIn('"triggeredBy": "USER"', events[0].payload_json)
 
     # --- 2. item/updated with unknown itemId → item_not_found ---
 
@@ -78,7 +91,8 @@ class PluggyWebhooksTest(unittest.TestCase):
             )
         self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.json()["action"], "sync_scheduled")
-        mock_sync.assert_called_once_with("item-2")
+        mock_sync.assert_called_once()
+        self.assertEqual(mock_sync.call_args.args[0], "item-2")
 
     # --- 4. item/error with existing Item → status_recorded ---
 
@@ -113,16 +127,34 @@ class PluggyWebhooksTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.json()["action"], "ignored")
 
-    # --- 6. sync event without itemId → missing_item_id, no sync call ---
+    # --- 6. sync event without itemId → sync all active items ---
 
-    def test_sync_event_without_item_id(self):
-        with patch("app.routes.pluggy_webhooks._do_sync_item") as mock_sync:
+    def test_sync_event_without_item_id_schedules_all_active_items(self):
+        self._seed_item("item-active-1")
+        self._seed_item("item-active-2")
+        with patch("app.routes.pluggy_webhooks._do_sync_items") as mock_sync:
             resp = self.client.post(
                 "/webhooks/pluggy",
                 json={"event": "item/updated"},
             )
         self.assertEqual(resp.status_code, 202)
-        self.assertEqual(resp.json()["action"], "missing_item_id")
+        self.assertEqual(resp.json()["action"], "sync_scheduled_all_active")
+        mock_sync.assert_called_once()
+        self.assertEqual(mock_sync.call_args.args[0], ["item-active-1", "item-active-2"])
+
+        with Session(self.engine) as session:
+            event = session.exec(select(PluggyWebhookEvent)).one()
+        self.assertEqual(event.action, "sync_scheduled_all_active")
+        self.assertEqual(event.sync_status, "scheduled")
+
+    def test_sync_event_without_item_id_and_no_active_items_does_not_schedule_sync(self):
+        with patch("app.routes.pluggy_webhooks._do_sync_items") as mock_sync:
+            resp = self.client.post(
+                "/webhooks/pluggy",
+                json={"event": "transactions/created"},
+            )
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.json()["action"], "no_active_items")
         mock_sync.assert_not_called()
 
     # --- extra: item/error for non-existent item → item_not_found ---
@@ -155,4 +187,153 @@ class PluggyWebhooksTest(unittest.TestCase):
                     )
                 self.assertEqual(resp.status_code, 202)
                 self.assertEqual(resp.json()["action"], "sync_scheduled", msg=event)
-                mock_sync.assert_called_once_with("item-x")
+                mock_sync.assert_called_once()
+                self.assertEqual(mock_sync.call_args.args[0], "item-x")
+
+    def test_recent_webhook_events_endpoint_lists_latest_events(self):
+        self.client.post(
+            "/webhooks/pluggy",
+            json={"event": "some/unknown_event", "eventId": "evt-old", "itemId": "item-x"},
+        )
+        self.client.post(
+            "/webhooks/pluggy",
+            json={"event": "item/error", "eventId": "evt-new", "itemId": "missing"},
+        )
+
+        resp = self.client.get("/sync/webhook-events?limit=1")
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["event_id"], "evt-new")
+        self.assertEqual(payload[0]["action"], "item_not_found")
+        self.assertNotIn("payload_json", payload[0])
+
+    def test_background_sync_marks_webhook_event_completed(self):
+        with Session(self.engine) as session:
+            event = PluggyWebhookEvent(
+                event="item/updated",
+                event_id="evt-sync",
+                item_id="item-sync",
+                action="sync_scheduled",
+                sync_status="scheduled",
+            )
+            session.add(event)
+            session.commit()
+            session.refresh(event)
+            event_id = event.id
+
+        with (
+            patch.object(webhook_routes, "engine", self.engine),
+            patch.object(webhook_routes, "run_sync_item", return_value={"ok": True}),
+        ):
+            webhook_routes._do_sync_item("item-sync", event_id)
+
+        with Session(self.engine) as session:
+            event = session.get(PluggyWebhookEvent, event_id)
+        self.assertEqual(event.sync_status, "completed")
+        self.assertIsNotNone(event.sync_started_at)
+        self.assertIsNotNone(event.sync_finished_at)
+        self.assertIsNone(event.sync_error)
+
+    def test_background_sync_marks_webhook_event_skipped_when_running(self):
+        with Session(self.engine) as session:
+            event = PluggyWebhookEvent(
+                event="item/updated",
+                item_id="item-sync",
+                action="sync_scheduled",
+                sync_status="scheduled",
+            )
+            session.add(event)
+            session.commit()
+            session.refresh(event)
+            event_id = event.id
+
+        with (
+            patch.object(webhook_routes, "engine", self.engine),
+            patch.object(webhook_routes, "run_sync_item", side_effect=SyncAlreadyRunning()),
+        ):
+            webhook_routes._do_sync_item("item-sync", event_id)
+
+        with Session(self.engine) as session:
+            event = session.get(PluggyWebhookEvent, event_id)
+        self.assertEqual(event.sync_status, "skipped_already_running")
+        self.assertIsNotNone(event.sync_started_at)
+        self.assertIsNotNone(event.sync_finished_at)
+
+    def test_background_sync_marks_webhook_event_failed(self):
+        with Session(self.engine) as session:
+            event = PluggyWebhookEvent(
+                event="item/updated",
+                item_id="item-sync",
+                action="sync_scheduled",
+                sync_status="scheduled",
+            )
+            session.add(event)
+            session.commit()
+            session.refresh(event)
+            event_id = event.id
+
+        with (
+            patch.object(webhook_routes, "engine", self.engine),
+            patch.object(webhook_routes, "run_sync_item", side_effect=RuntimeError("boom")),
+        ):
+            webhook_routes._do_sync_item("item-sync", event_id)
+
+        with Session(self.engine) as session:
+            event = session.get(PluggyWebhookEvent, event_id)
+        self.assertEqual(event.sync_status, "failed")
+        self.assertEqual(event.sync_error, "boom")
+
+    def test_background_sync_all_active_marks_webhook_event_completed(self):
+        with Session(self.engine) as session:
+            event = PluggyWebhookEvent(
+                event="transactions/created",
+                action="sync_scheduled_all_active",
+                sync_status="scheduled",
+            )
+            session.add(event)
+            session.commit()
+            session.refresh(event)
+            event_id = event.id
+
+        with (
+            patch.object(webhook_routes, "engine", self.engine),
+            patch.object(webhook_routes, "run_sync_item", return_value={"ok": True}) as mock_sync,
+        ):
+            webhook_routes._do_sync_items(["item-a", "item-b"], event_id)
+
+        self.assertEqual([call.args[0] for call in mock_sync.call_args_list], ["item-a", "item-b"])
+        with Session(self.engine) as session:
+            event = session.get(PluggyWebhookEvent, event_id)
+        self.assertEqual(event.sync_status, "completed")
+        self.assertIsNotNone(event.sync_started_at)
+        self.assertIsNotNone(event.sync_finished_at)
+
+    def test_background_sync_all_active_marks_webhook_event_failed_if_any_item_fails(self):
+        with Session(self.engine) as session:
+            event = PluggyWebhookEvent(
+                event="transactions/created",
+                action="sync_scheduled_all_active",
+                sync_status="scheduled",
+            )
+            session.add(event)
+            session.commit()
+            session.refresh(event)
+            event_id = event.id
+
+        def fake_sync(item_id, session):
+            if item_id == "item-b":
+                raise RuntimeError("boom")
+            return {"ok": True}
+
+        with (
+            patch.object(webhook_routes, "engine", self.engine),
+            patch.object(webhook_routes, "run_sync_item", side_effect=fake_sync),
+        ):
+            webhook_routes._do_sync_items(["item-a", "item-b"], event_id)
+
+        with Session(self.engine) as session:
+            event = session.get(PluggyWebhookEvent, event_id)
+        self.assertEqual(event.sync_status, "failed")
+        self.assertIn("item-b: boom", event.sync_error)

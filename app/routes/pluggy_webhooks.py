@@ -1,12 +1,13 @@
 import logging
+import json
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
-from sqlmodel import Session, select
+from sqlmodel import Session, desc, select
 
 from app.database import engine, get_session
-from app.models import Account, Item
+from app.models import Account, Item, PluggyWebhookEvent
 from app.services.sync import SyncAlreadyRunning, sync_item as run_sync_item
 
 logger = logging.getLogger("openfinance")
@@ -36,6 +37,8 @@ REMOVAL_EVENTS = {
 }
 
 _ERROR_MSG_MAX_LEN = 300
+_PAYLOAD_JSON_MAX_LEN = 5000
+_SYNC_ERROR_MAX_LEN = 500
 
 
 @router.post("/webhooks/pluggy", status_code=202)
@@ -58,14 +61,15 @@ async def pluggy_webhook(
         item_id,
     )
 
+    active_item_ids: list[str] = []
     if event in SYNC_EVENTS:
         if not item_id:
-            action = "missing_item_id"
+            active_item_ids = _active_item_ids(session)
+            action = "sync_scheduled_all_active" if active_item_ids else "no_active_items"
         elif session.get(Item, item_id) is None:
             action = "item_not_found"
             logger.info("pluggy webhook item_not_found event=%s item_id=%s", event, item_id)
         else:
-            background_tasks.add_task(_do_sync_item, item_id)
             action = "sync_scheduled"
     elif event in REMOVAL_EVENTS:
         action = _deactivate_item(item_id, session)
@@ -76,18 +80,152 @@ async def pluggy_webhook(
 
     logger.info("pluggy webhook action=%s event=%s item_id=%s", action, event, item_id)
 
+    webhook_event = _record_webhook_event(
+        session,
+        event=event,
+        event_id=event_id,
+        item_id=item_id,
+        action=action,
+        payload=payload,
+    )
+    if action == "sync_scheduled" and item_id:
+        background_tasks.add_task(_do_sync_item, item_id, webhook_event.id)
+    elif action == "sync_scheduled_all_active":
+        background_tasks.add_task(_do_sync_items, active_item_ids, webhook_event.id)
+
     return {"ok": True, "event": event, "item_id": item_id, "action": action}
 
 
-def _do_sync_item(item_id: str) -> None:
+@router.get("/sync/webhook-events")
+def recent_webhook_events(limit: int = 25, session: Session = Depends(get_session)):
+    limit = max(1, min(limit, 100))
+    events = session.exec(
+        select(PluggyWebhookEvent)
+        .order_by(desc(PluggyWebhookEvent.received_at))
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": event.id,
+            "event": event.event,
+            "event_id": event.event_id,
+            "item_id": event.item_id,
+            "action": event.action,
+            "received_at": event.received_at,
+            "sync_started_at": event.sync_started_at,
+            "sync_finished_at": event.sync_finished_at,
+            "sync_status": event.sync_status,
+            "sync_error": event.sync_error,
+        }
+        for event in events
+    ]
+
+
+def _record_webhook_event(
+    session: Session,
+    event: str,
+    event_id: Optional[Any],
+    item_id: Optional[str],
+    action: str,
+    payload: Dict[str, Any],
+) -> PluggyWebhookEvent:
+    payload_json = json.dumps(payload, ensure_ascii=False, default=str)
+    row = PluggyWebhookEvent(
+        event=event,
+        event_id=str(event_id) if event_id is not None else None,
+        item_id=item_id,
+        action=action,
+        payload_json=payload_json[:_PAYLOAD_JSON_MAX_LEN],
+        sync_status="scheduled" if action.startswith("sync_scheduled") else None,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def _mark_webhook_sync_started(session: Session, event_id: Optional[int]) -> None:
+    if event_id is None:
+        return
+    event = session.get(PluggyWebhookEvent, event_id)
+    if event is None:
+        return
+    event.sync_started_at = datetime.utcnow()
+    event.sync_status = "running"
+    session.add(event)
+    session.commit()
+
+
+def _mark_webhook_sync_finished(
+    session: Session,
+    event_id: Optional[int],
+    sync_status: str,
+    sync_error: Optional[str] = None,
+) -> None:
+    if event_id is None:
+        return
+    event = session.get(PluggyWebhookEvent, event_id)
+    if event is None:
+        return
+    event.sync_finished_at = datetime.utcnow()
+    event.sync_status = sync_status
+    event.sync_error = sync_error[:_SYNC_ERROR_MAX_LEN] if sync_error else None
+    session.add(event)
+    session.commit()
+
+
+def _do_sync_item(item_id: str, webhook_event_id: Optional[int] = None) -> None:
     try:
         with Session(engine) as session:
+            _mark_webhook_sync_started(session, webhook_event_id)
             result = run_sync_item(item_id, session)
+            _mark_webhook_sync_finished(session, webhook_event_id, "completed")
         logger.info("webhook sync completed item_id=%s result=%s", item_id, result)
     except SyncAlreadyRunning:
+        with Session(engine) as session:
+            _mark_webhook_sync_finished(
+                session,
+                webhook_event_id,
+                "skipped_already_running",
+            )
         logger.info("webhook sync skipped, already running item_id=%s", item_id)
-    except Exception:
+    except Exception as exc:
+        with Session(engine) as session:
+            _mark_webhook_sync_finished(session, webhook_event_id, "failed", str(exc))
         logger.exception("webhook sync failed item_id=%s", item_id)
+
+
+def _do_sync_items(item_ids: list[str], webhook_event_id: Optional[int] = None) -> None:
+    sync_errors = []
+    with Session(engine) as session:
+        _mark_webhook_sync_started(session, webhook_event_id)
+
+    for item_id in item_ids:
+        try:
+            with Session(engine) as session:
+                result = run_sync_item(item_id, session)
+            logger.info("webhook sync completed item_id=%s result=%s", item_id, result)
+        except SyncAlreadyRunning:
+            logger.info("webhook sync skipped, already running item_id=%s", item_id)
+        except Exception as exc:
+            sync_errors.append(f"{item_id}: {exc}")
+            logger.exception("webhook sync failed item_id=%s", item_id)
+
+    with Session(engine) as session:
+        if sync_errors:
+            _mark_webhook_sync_finished(
+                session,
+                webhook_event_id,
+                "failed",
+                "; ".join(sync_errors),
+            )
+        else:
+            _mark_webhook_sync_finished(session, webhook_event_id, "completed")
+
+
+def _active_item_ids(session: Session) -> list[str]:
+    items = session.exec(select(Item).where(Item.is_active)).all()
+    return [item.id for item in items]
 
 
 def _deactivate_item(item_id: Optional[str], session: Session) -> str:

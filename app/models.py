@@ -124,6 +124,22 @@ class AccountSync(SQLModel, table=True):
     last_error_at: Optional[datetime.datetime] = None
 
 
+class PluggyWebhookEvent(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "pluggy_webhook_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    event: str = Field(index=True)
+    event_id: Optional[str] = Field(default=None, index=True)
+    item_id: Optional[str] = Field(default=None, index=True)
+    action: str = Field(index=True)
+    payload_json: Optional[str] = None
+    received_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow, index=True)
+    sync_started_at: Optional[datetime.datetime] = None
+    sync_finished_at: Optional[datetime.datetime] = None
+    sync_status: Optional[str] = Field(default=None, index=True)
+    sync_error: Optional[str] = None
+
+
 class Transaction(SQLModel, table=True):
     id: str = Field(primary_key=True)
     account_id: str = Field(foreign_key="account.id", index=True)
