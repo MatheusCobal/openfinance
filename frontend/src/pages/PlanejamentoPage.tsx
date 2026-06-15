@@ -617,6 +617,7 @@ function FixedCostsAgenda({
   const [expandedFor, setExpandedFor] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingPicker, setLoadingPicker] = useState(false);
+  const [pickerAttempted, setPickerAttempted] = useState(false);
 
   useEffect(() => {
     setLocalPaid(
@@ -698,7 +699,10 @@ function FixedCostsAgenda({
       const costTokens = tokenSet(item.description);
       const tolerance = Math.max(Number(item.amount) * 0.15, 10);
       const scored = data
-        .filter((tx) => Number(tx.amount) < 0)
+        .filter((tx) => {
+          const ct = (tx.cashflow_type ?? "").toLowerCase();
+          return ct !== "income" && ct !== "refund" && Number(tx.amount) !== 0;
+        })
         .map((tx) => {
           const txAbs = Math.abs(Number(tx.amount));
           const amountDelta = Math.abs(txAbs - Number(item.amount));
@@ -714,8 +718,10 @@ function FixedCostsAgenda({
         .slice(0, 20)
         .map((scoredItem) => scoredItem.tx);
       setTransactions(scored);
+      setPickerAttempted(true);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Erro ao carregar transações.", "error");
+      setPickerAttempted(true);
     } finally {
       setLoadingPicker(false);
     }
@@ -736,6 +742,7 @@ function FixedCostsAgenda({
   const toggleExpand = (item: FixedCostMonthEntry) => {
     setExpandedFor((current) => (current === item.fixed_cost_id ? null : item.fixed_cost_id));
     setTransactions([]);
+    setPickerAttempted(false);
   };
 
   if (!entries.length) {
@@ -1038,6 +1045,10 @@ function FixedCostsAgenda({
                             </div>
                           ))}
                         </div>
+                      ) : pickerAttempted ? (
+                        <p className="py-3 text-center text-xs text-ink-400">
+                          Nenhuma transação encontrada para este mês.
+                        </p>
                       ) : null}
                     </div>
                   ) : null}
