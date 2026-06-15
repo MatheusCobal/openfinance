@@ -48,11 +48,30 @@ def spending_capacity_summary(
         to_date=last_day,
         exclude_transaction_ids=fixed_cost_accounted_ids,
     )
+
+    # Resolve the planning invoice first so we can use the billing-cycle window
+    # for variable budgets (fatura vigente), instead of the calendar month.
+    planning_inv = planning_invoice_for_month(session, year_month, today=today)
+
+    current_ym = today.strftime("%Y-%m")
+    if year_month == current_ym:
+        cycle_start_str = planning_inv.get("cycle_start")
+        cycle_end_str = planning_inv.get("cycle_end")
+        if cycle_start_str and cycle_end_str:
+            vb_first_day = date.fromisoformat(cycle_start_str)
+            vb_last_day = date.fromisoformat(cycle_end_str)
+        else:
+            vb_first_day = first_day
+            vb_last_day = last_day
+    else:
+        vb_first_day = first_day
+        vb_last_day = last_day
+
     variable_budgets = budget_progress_summary(
         session,
         year_month=year_month,
-        first_day=first_day,
-        last_day=last_day,
+        first_day=vb_first_day,
+        last_day=vb_last_day,
         today=today,
         fixed_cost_accounted_transaction_ids=fixed_cost_accounted_ids,
     )
@@ -80,7 +99,6 @@ def spending_capacity_summary(
         Decimal("0"),
     )
 
-    planning_inv = planning_invoice_for_month(session, year_month, today=today)
     card_invoice_source = planning_inv["source"]
     card_open_balance_total = Decimal(str(planning_inv["account_balance_total"]))
     credit_card_due_dates = planning_inv["due_dates"]
@@ -134,7 +152,6 @@ def spending_capacity_summary(
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
     remaining_after_plan = expected_income_total - planned_expense_total
 
-    current_ym = today.strftime("%Y-%m")
     if year_month == current_ym:
         planning_mode = "current_month"
     elif year_month > current_ym:
