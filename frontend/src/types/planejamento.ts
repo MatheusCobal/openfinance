@@ -76,6 +76,17 @@ export interface ExpectedIncomeMonth {
   entries: ExpectedIncomeMonthEntry[];
 }
 
+export interface VariableBudgetItem {
+  category: string;
+  target: number;
+  spent: number;
+  remaining: number;
+  progress_percent: number | null;
+  status: "ok" | "warning" | "over" | "no_target";
+  transaction_count: number;
+  has_target: boolean;
+}
+
 export interface PlanningOverview {
   year_month?: string;
   planning_mode?: string;
@@ -114,7 +125,8 @@ export interface PlanningOverview {
   expected_income?: { total?: number; entries?: unknown[] };
   variable_budgets?: {
     summary?: Record<string, number>;
-    items?: unknown[];
+    items?: VariableBudgetItem[];
+    eligible_categories?: string[];
   };
   planning_invoice?: CreditCardInvoice;
   credit_card_invoice?: CreditCardInvoice;

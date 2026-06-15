@@ -325,3 +325,31 @@ class FixedCostTransactionMatch(SQLModel, table=True):
     transaction_id: str = Field(foreign_key="transaction.id", index=True)
     year_month: str = Field(index=True)
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class VariableBudget(SQLModel, table=True):
+    """Monthly spending goal for a single variable (discretionary) category.
+
+    One row = the target a user set for a given ``category`` in a given
+    ``year_month`` (``"YYYY-MM"``). Goals are independent per month: a new
+    month starts without any goals until the user configures them. The
+    ``category`` is one of the Pluggy-based credit-card category labels
+    (``app.services.credit_categories.CREDIT_CATEGORY_LABELS``) so it groups
+    exactly like the dashboard "gastos por categoria" view.
+    """
+
+    __tablename__: ClassVar[str] = "variable_budgets"
+    __table_args__ = (
+        UniqueConstraint(
+            "year_month",
+            "category",
+            name="uq_variablebudget_month_category",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    year_month: str = Field(index=True)
+    category: str = Field(index=True)
+    target_amount: Decimal
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)

@@ -1,5 +1,10 @@
 import { asMoneyNumber } from "./money";
-import type { CreditCardInvoice, PlanningMonth, PlanningOverview } from "../types/planejamento";
+import type {
+  CreditCardInvoice,
+  PlanningMonth,
+  PlanningOverview,
+  VariableBudgetItem,
+} from "../types/planejamento";
 
 export type PlanStatusTone = "positive" | "warning" | "danger" | "neutral";
 
@@ -70,7 +75,8 @@ export function normalizePlanningOverview(planning?: PlanningMonth | null): Plan
       target_remaining: planning?.variable_budgets?.remaining || 0,
       target_overage: planning?.variable_budgets?.overage || 0,
     },
-    items: planning?.variable_budgets?.items || [],
+    items: (planning?.variable_budgets?.items || []) as VariableBudgetItem[],
+    eligible_categories: [] as string[],
   };
 
   return {

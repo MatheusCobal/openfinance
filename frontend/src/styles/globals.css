@@ -64,6 +64,37 @@
       linear-gradient(140deg, #0b1220 0%, #101a2e 55%, #0b1220 100%);
   }
 
+  /* Subtle grid overlay for the dark hero. Pair with `cockpit-surface`. */
+  .cockpit-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  /* Animated fill for progress bars: start at width 0, transition to value. */
+  .bar-fill {
+    transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Section entrance: opacity + small rise. Honors reduced-motion. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ofx-rise {
+      animation: ofx-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+  }
+
+  @keyframes ofx-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
   .chip-strip {
     scrollbar-width: thin;
     scrollbar-color: theme("colors.ink.300") transparent;

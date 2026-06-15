@@ -49,12 +49,15 @@ class LegacyCategoryRemovalTest(unittest.TestCase):
         self.assertNotIn("budgetoverride", SQLModel.metadata.tables)
 
     def test_variable_budget_progress_is_empty(self):
+        # 10D-C: variable budgets are rebuilt on the Pluggy-based classification.
+        # A month with no goals and no spending must stay an honest empty state.
         response = self.client.get("/budgets/progress", params={"year_month": "2026-06"})
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertTrue(payload["legacy_category_budget_removed"])
         self.assertEqual(payload["items"], [])
         self.assertEqual(payload["summary"]["target"], 0.0)
+        self.assertEqual(payload["summary"]["actual_spent"], 0.0)
+        self.assertNotIn("legacy_category_budget_removed", payload)
 
     def test_sync_preserves_raw_pluggy_category(self):
         with Session(self.engine) as session:

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, Link2, Plus, RefreshCw, Trash2, Wallet } from "lucide-react";
+import { CalendarClock, ChevronDown, Link2, Plus, RefreshCw, Trash2, Wallet } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
@@ -11,6 +11,7 @@ import {
   deleteFixedCostCategory,
   deleteFixedCostMatch,
   deleteFixedCostOverride,
+  deleteVariableBudget,
   getExpectedIncomeByMonth,
   getFixedCostsByMonth,
   getPlanningMonth,
@@ -21,6 +22,7 @@ import {
   listTransactionsForMonth,
   setExpectedIncomeOverride,
   setFixedCostOverride,
+  setVariableBudget,
   updateExpectedIncome,
   updateFixedCost,
 } from "../api/planejamento";
@@ -29,6 +31,9 @@ import { Topbar } from "../components/layout/Topbar";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { CatAvatar } from "../components/ui/CatAvatar";
+import { CheckToggle } from "../components/ui/CheckToggle";
+import { DayBadge } from "../components/ui/DayBadge";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
@@ -43,6 +48,7 @@ import { useAsync } from "../hooks/useAsync";
 import { useToast } from "../hooks/useToast";
 import { MAX_CUSTOM_CATEGORIES } from "../lib/constants";
 import {
+  currentYearMonth,
   formatDayLabel,
   formatMonthLong,
   formatMonthShort,
@@ -56,9 +62,10 @@ import {
   normalizePlanningOverview,
   tokenSet,
 } from "../lib/planning";
-import { invoiceSourceLabel, pluralItens, pluralize } from "../lib/labels";
+import { categoryColor } from "../lib/categories";
+import { invoiceSourceLabel, pluralize } from "../lib/labels";
 import { classNames } from "../lib/classNames";
-import { asMoneyNumber, formatMoney } from "../lib/money";
+import { asMoneyNumber, formatMoney, percent } from "../lib/money";
 import type { Transaction } from "../types/common";
 import type {
   ExpectedIncomeEntry,
@@ -70,6 +77,7 @@ import type {
   FixedCostsMonth,
   FixedCostTemplate,
   PlanningOverview,
+  VariableBudgetItem,
 } from "../types/planejamento";
 
 type PlanningTab = "overview" | "custos" | "variaveis" | "receita";
@@ -242,40 +250,179 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
   );
 }
 
-function VariableBudgetsPanel({ capacity }: { capacity: PlanningOverview }) {
+function variableStatusTone(status: VariableBudgetItem["status"]): "positive" | "warning" | "danger" | "neutral" {
+  if (status === "over") return "danger";
+  if (status === "warning") return "warning";
+  if (status === "no_target") return "neutral";
+  return "positive";
+}
+
+function VariableBudgetGoalRow({
+  item,
+  selectedMonth,
+  onSave,
+  onRemove,
+}: {
+  item: VariableBudgetItem;
+  selectedMonth: string;
+  onSave: (category: string, amount: number) => Promise<void>;
+  onRemove: (category: string) => Promise<void>;
+}) {
+  const overage = Math.max(item.spent - item.target, 0);
+  const remaining = Math.max(item.target - item.spent, 0);
+  const progress = Math.min(item.progress_percent ?? 0, 100);
+  const tone = variableStatusTone(item.status);
+  const barColor =
+    tone === "danger" ? "bg-danger-500" : tone === "warning" ? "bg-amber-500" : "bg-primary-500";
+
+  return (
+    <li className="px-2 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: categoryColor(item.category) }}
+              aria-hidden="true"
+            />
+            <p className="text-sm font-medium text-ink-900">{item.category}</p>
+            {overage > 0 ? (
+              <Badge tone="danger">Excedeu {formatMoney(overage)}</Badge>
+            ) : item.target > 0 ? (
+              <Badge tone="neutral">Restam {formatMoney(remaining)}</Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-ink-500">
+            {formatMoney(item.spent)} de {formatMoney(item.target)}
+            {item.transaction_count > 0
+              ? ` · ${pluralize(item.transaction_count, "compra", "compras")}`
+              : " · sem gastos no mês"}
+          </p>
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
+            <div
+              className={classNames("h-full rounded-full transition-all", barColor)}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            aria-label={`Meta de ${item.category} em ${formatMonthShort(selectedMonth)}`}
+            defaultValue={item.target.toFixed(2)}
+            className="w-full text-right font-semibold tabular sm:w-28"
+            onBlur={(event) => {
+              const amount = Number(event.target.value);
+              if (!Number.isNaN(amount) && amount >= 0 && Math.abs(amount - item.target) >= 0.005) {
+                void onSave(item.category, amount);
+              }
+            }}
+          />
+          <button
+            type="button"
+            aria-label={`Remover meta de ${item.category}`}
+            className="rounded-control p-2 text-ink-400 hover:bg-danger-50 hover:text-danger-600"
+            onClick={() => void onRemove(item.category)}
+          >
+            <Trash2 className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function VariableBudgetsPanel({
+  capacity,
+  selectedMonth,
+  onReload,
+}: {
+  capacity: PlanningOverview;
+  selectedMonth: string;
+  onReload: () => Promise<unknown>;
+}) {
+  const { showToast } = useToast();
+  const items = (capacity.variable_budgets?.items || []) as VariableBudgetItem[];
+  const eligible = capacity.variable_budgets?.eligible_categories || [];
+  const budgeted = items.filter((item) => item.has_target);
+  const suggestions = items.filter((item) => !item.has_target && item.spent > 0);
+
   const target = asMoneyNumber(capacity.variable_budget_total);
   const consumed = asMoneyNumber(capacity.variable_budget_consumed);
   const overage = asMoneyNumber(capacity.variable_budget_overage);
   const remaining = Math.max(target - consumed, 0);
-  const hasTarget = target > 0;
-  const items = capacity.variable_budgets?.items || [];
+  const hasTarget = target > 0 || budgeted.length > 0;
+
+  const budgetedCategories = new Set(budgeted.map((item) => item.category));
+  const availableToAdd = eligible.filter((category) => !budgetedCategories.has(category));
+
+  const [newCategory, setNewCategory] = useState("");
+  const [newAmount, setNewAmount] = useState("");
+
+  const saveGoal = async (category: string, amount: number) => {
+    try {
+      await setVariableBudget(selectedMonth, category, amount);
+      await onReload();
+      showToast("Meta atualizada.", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Erro ao salvar meta.", "error");
+    }
+  };
+
+  const removeGoal = async (category: string) => {
+    try {
+      await deleteVariableBudget(selectedMonth, category);
+      await onReload();
+      showToast("Meta removida.", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Erro ao remover meta.", "error");
+    }
+  };
+
+  const addGoal = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!newCategory) {
+      showToast("Selecione uma categoria.", "error");
+      return;
+    }
+    const amount = Number(newAmount);
+    if (Number.isNaN(amount) || amount < 0) {
+      showToast("Informe um valor maior ou igual a zero.", "error");
+      return;
+    }
+    await saveGoal(newCategory, amount);
+    setNewCategory("");
+    setNewAmount("");
+  };
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label="Meta variável do mês"
-          value={formatMoney(target)}
-          subtitle={hasTarget ? "Valor reservado no plano mensal" : "Nenhuma meta geral definida"}
+          value={hasTarget ? formatMoney(target) : "—"}
+          subtitle={hasTarget ? "Soma das metas por categoria" : "Nenhuma meta definida"}
           icon={<Wallet className="size-5" aria-hidden="true" />}
           tone="primary"
         />
         <MetricCard
           label="Consumido"
           value={formatMoney(consumed)}
-          subtitle="Gastos variáveis considerados no planejamento"
+          subtitle="Compras de cartão nas categorias com meta"
           tone={consumed > target && hasTarget ? "danger" : "warning"}
         />
         <MetricCard
           label={overage > 0 ? "Excedente" : "Restante"}
-          value={formatMoney(overage > 0 ? overage : remaining)}
+          value={hasTarget ? formatMoney(overage > 0 ? overage : remaining) : "—"}
           subtitle={overage > 0 ? "Acima da meta variável" : "Ainda disponível na meta"}
           tone={overage > 0 ? "danger" : "positive"}
         />
         <MetricCard
           label="Metas por categoria"
-          value={items.length}
-          subtitle="Categorias conectadas ao orçamento variável"
+          value={budgeted.length}
+          subtitle="Categorias com meta configurada"
           icon={<CalendarClock className="size-5" aria-hidden="true" />}
         />
       </div>
@@ -285,66 +432,233 @@ function VariableBudgetsPanel({ capacity }: { capacity: PlanningOverview }) {
           <div>
             <h2 className="text-sm font-semibold text-ink-900">Metas de gastos variáveis</h2>
             <p className="mt-0.5 text-xs text-ink-500">
-              Resumo de {formatMonthShort(capacity.year_month || getDefaultPlanningMonth())} com base no planejamento atual.
+              Metas de {formatMonthShort(capacity.year_month || selectedMonth)} sobre as compras de
+              cartão classificadas. Valem apenas para este mês.
             </p>
           </div>
           <Badge tone={hasTarget ? "primary" : "neutral"}>
-            {hasTarget ? "Meta geral ativa" : "Sem meta definida"}
+            {hasTarget ? `${budgeted.length} ativa(s)` : "Sem meta definida"}
           </Badge>
         </div>
 
-        <div className="mt-5">
-          <EmptyState
-            icon={<CalendarClock className="size-5" aria-hidden="true" />}
-            title={
-              items.length > 0
-                ? "As metas por categoria ainda não têm detalhe nesta tela."
-                : "As metas por categoria estão em reformulação."
-            }
-            detail={
-              items.length > 0
-                ? "O backend já retornou categorias, mas a interface detalhada ainda precisa ser reconectada ao novo contrato."
-                : "Elas voltam integradas à nova classificação automática de compras. Por enquanto, acompanhe a meta variável geral pelos cartões acima."
-            }
-          />
-        </div>
+        {budgeted.length > 0 ? (
+          <ul className="mt-4 divide-y divide-ink-100">
+            {budgeted.map((item) => (
+              <VariableBudgetGoalRow
+                key={item.category}
+                item={item}
+                selectedMonth={selectedMonth}
+                onSave={saveGoal}
+                onRemove={removeGoal}
+              />
+            ))}
+          </ul>
+        ) : (
+          <div className="mt-4">
+            <EmptyState
+              icon={<CalendarClock className="size-5" aria-hidden="true" />}
+              title="Nenhuma meta configurada para este mês."
+              detail="Defina uma meta por categoria abaixo para acompanhar os gastos variáveis do cartão."
+            />
+          </div>
+        )}
+
+        <form
+          onSubmit={addGoal}
+          className="mt-5 flex flex-col gap-2 border-t border-ink-100 pt-5 sm:flex-row sm:items-end"
+        >
+          <label className="flex-1">
+            <span className="mb-1 block text-xs font-medium text-ink-600">Categoria</span>
+            <Select
+              value={newCategory}
+              onChange={(event) => setNewCategory(event.target.value)}
+              disabled={availableToAdd.length === 0}
+            >
+              <option value="">Selecione uma categoria</option>
+              {availableToAdd.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="sm:w-40">
+            <span className="mb-1 block text-xs font-medium text-ink-600">Meta (R$)</span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0,00"
+              value={newAmount}
+              onChange={(event) => setNewAmount(event.target.value)}
+            />
+          </label>
+          <Button type="submit" variant="primary" disabled={availableToAdd.length === 0}>
+            <Plus className="size-4" aria-hidden="true" />
+            Adicionar meta
+          </Button>
+        </form>
+        {availableToAdd.length === 0 && budgeted.length > 0 ? (
+          <p className="mt-2 text-xs text-ink-400">
+            Todas as categorias variáveis já têm meta neste mês.
+          </p>
+        ) : null}
       </Card>
+
+      {suggestions.length > 0 ? (
+        <Card className="p-5 sm:p-6">
+          <div>
+            <h2 className="text-sm font-semibold text-ink-900">Gastos sem meta</h2>
+            <p className="mt-0.5 text-xs text-ink-500">
+              Categorias com compras no mês que ainda não têm meta definida.
+            </p>
+          </div>
+          <ul className="mt-4 divide-y divide-ink-100">
+            {suggestions.map((item) => (
+              <li
+                key={item.category}
+                className="flex items-center justify-between gap-3 px-2 py-3"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: categoryColor(item.category) }}
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink-900">{item.category}</p>
+                    <p className="text-xs text-ink-500">
+                      {formatMoney(item.spent)} ·{" "}
+                      {pluralize(item.transaction_count, "compra", "compras")}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setNewCategory(item.category);
+                    setNewAmount(item.spent.toFixed(2));
+                  }}
+                >
+                  Definir meta
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
     </div>
   );
 }
 
-function FixedMonthBreakdown({
+const FIXED_STATUS_RANK: Record<string, number> = {
+  overdue: 4,
+  due_soon: 3,
+  scheduled: 2,
+  unconfirmed: 2,
+  paid: 1,
+};
+
+const CALENDAR_DOT_COLOR: Record<number, string> = {
+  4: "#fb7185",
+  3: "#fbbf24",
+  2: "#94a3b8",
+  1: "#34d399",
+};
+
+const WEEK_LABELS = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+function dayBadgeTone(status: string): "positive" | "danger" | "warning" | "neutral" {
+  if (status === "paid") return "positive";
+  if (status === "overdue") return "danger";
+  if (status === "due_soon") return "warning";
+  return "neutral";
+}
+
+/**
+ * Concept A — "Agenda do mês". Dark cockpit hero (total + live paid bar +
+ * month calendar) over a payment timeline with a "hoje" divider, live paid
+ * toggles, and the month's payment-linking / override editing preserved.
+ */
+function FixedCostsAgenda({
   fixed,
+  expectedIncome,
   selectedMonth,
   onReload,
 }: {
   fixed: FixedCostsMonth;
+  expectedIncome: number;
   selectedMonth: string;
   onReload: () => Promise<unknown>;
 }) {
   const { showToast } = useToast();
-  const [pickerFor, setPickerFor] = useState<FixedCostMonthEntry | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [localPaid, setLocalPaid] = useState<Set<number>>(
+    () => new Set((fixed.entries || []).filter((e) => e.status === "paid").map((e) => e.fixed_cost_id)),
+  );
+  const [expandedFor, setExpandedFor] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingPicker, setLoadingPicker] = useState(false);
 
-  const groups = useMemo(() => {
-    const grouped = new Map<
-      number,
-      { name: string; color: string; total: number; items: FixedCostMonthEntry[] }
-    >();
-    for (const item of fixed.entries || []) {
-      const group = grouped.get(item.category_id) || {
-        name: item.category_name,
-        color: item.category_color,
-        total: 0,
-        items: [],
-      };
-      group.total += Number(item.amount || 0);
-      group.items.push(item);
-      grouped.set(item.category_id, group);
-    }
-    return [...grouped.entries()];
+  useEffect(() => {
+    setLocalPaid(
+      new Set((fixed.entries || []).filter((e) => e.status === "paid").map((e) => e.fixed_cost_id)),
+    );
   }, [fixed.entries]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 120);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const togglePaid = (id: number) =>
+    setLocalPaid((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Effective status: the local paid toggle overrides the API status.
+  const effStatus = (entry: FixedCostMonthEntry): string => {
+    if (localPaid.has(entry.fixed_cost_id)) return "paid";
+    if (entry.status === "paid") return "scheduled";
+    return entry.status || "scheduled";
+  };
+
+  const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
+  const total = Number(fixed.total || 0);
+  const paidSum = entries
+    .filter((e) => localPaid.has(e.fixed_cost_id))
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const pendingSum = Math.max(total - paidSum, 0);
+  const incomeShare = expectedIncome > 0 ? (total / expectedIncome) * 100 : 0;
+
+  const ordered = useMemo(
+    () => [...entries].sort((a, b) => a.due_day - b.due_day),
+    [entries],
+  );
+
+  // Calendar geometry for the selected month.
+  const [year, month] = selectedMonth.split("-").map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const isCurrentMonth = selectedMonth === currentYearMonth();
+  const today = new Date().getDate();
+
+  const byDay = useMemo(() => {
+    const map = new Map<number, FixedCostMonthEntry[]>();
+    for (const entry of entries) {
+      const list = map.get(entry.due_day) || [];
+      list.push(entry);
+      map.set(entry.due_day, list);
+    }
+    return map;
+  }, [entries]);
+
+  const dividerIndex = isCurrentMonth ? ordered.findIndex((e) => e.due_day >= today) : -1;
 
   const updateOverride = async (item: FixedCostMonthEntry, amount: number) => {
     try {
@@ -361,7 +675,6 @@ function FixedMonthBreakdown({
   };
 
   const openPicker = async (item: FixedCostMonthEntry) => {
-    setPickerFor(item);
     setLoadingPicker(true);
     try {
       const { fromDate, toDate } = monthDateRange(selectedMonth);
@@ -383,7 +696,7 @@ function FixedMonthBreakdown({
           return a.amountDelta - b.amountDelta;
         })
         .slice(0, 20)
-        .map((item) => item.tx);
+        .map((scoredItem) => scoredItem.tx);
       setTransactions(scored);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Erro ao carregar transações.", "error");
@@ -395,7 +708,8 @@ function FixedMonthBreakdown({
   const linkTransaction = async (item: FixedCostMonthEntry, tx: Transaction) => {
     try {
       await createFixedCostMatch(item.fixed_cost_id, tx.id, selectedMonth);
-      setPickerFor(null);
+      setExpandedFor(null);
+      setTransactions([]);
       await onReload();
       showToast(`"${item.description}" vinculado ao pagamento.`, "success");
     } catch (err) {
@@ -403,7 +717,12 @@ function FixedMonthBreakdown({
     }
   };
 
-  if (!fixed.entries?.length) {
+  const toggleExpand = (item: FixedCostMonthEntry) => {
+    setExpandedFor((current) => (current === item.fixed_cost_id ? null : item.fixed_cost_id));
+    setTransactions([]);
+  };
+
+  if (!entries.length) {
     return (
       <EmptyState
         icon={<Wallet className="size-5" aria-hidden="true" />}
@@ -414,153 +733,304 @@ function FixedMonthBreakdown({
   }
 
   return (
-    <div className="space-y-3">
-      {groups.map(([categoryId, group]) => (
-        <Card key={categoryId} elevation="flat" className="overflow-hidden">
-          <div
-            className="flex items-center justify-between gap-3 border-b border-ink-100 px-4 py-3"
-            style={{ borderLeft: `3px solid ${group.color}` }}
-          >
+    <div className="space-y-6">
+      {/* Hero — total, live paid bar and month calendar */}
+      <section className="cockpit-surface ofx-rise relative overflow-hidden rounded-card p-6 text-white shadow-cockpit">
+        <div className="cockpit-grid pointer-events-none absolute inset-0 opacity-40" aria-hidden="true" />
+        <div className="relative grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex flex-col justify-between">
             <div>
-              <p className="text-sm font-semibold text-ink-900">{group.name}</p>
-              <p className="text-xs text-ink-500">{pluralItens(group.items.length)}</p>
+              <div className="flex items-center gap-2.5">
+                <span className="inline-flex size-8 items-center justify-center rounded-control bg-white/10 ring-1 ring-inset ring-white/15">
+                  <CalendarClock className="size-4 text-white/80" aria-hidden="true" />
+                </span>
+                <p className="text-sm font-medium text-white/70">
+                  Custos fixos · {formatMonthLong(selectedMonth)}
+                </p>
+              </div>
+              <p className="mt-4 text-4xl font-bold leading-none tracking-tight tabular sm:text-5xl">
+                {formatMoney(total)}
+              </p>
+              {expectedIncome > 0 ? (
+                <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/55">
+                  Compromissos que se repetem todo mês. Ocupam{" "}
+                  <span className="font-semibold text-white/80">{percent(incomeShare)}</span> da sua
+                  receita esperada de {formatMoney(expectedIncome)}.
+                </p>
+              ) : (
+                <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/55">
+                  Compromissos que se repetem todo mês.
+                </p>
+              )}
             </div>
-            <p className="text-sm font-bold tabular text-ink-900">{formatMoney(group.total)}</p>
+            <div className="mt-6">
+              <div className="flex items-center justify-between text-xs">
+                <span className="inline-flex items-center gap-1.5 font-medium text-white/70">
+                  <span className="size-2 rounded-[3px] bg-positive-400" /> Pago {formatMoney(paidSum)}
+                </span>
+                <span className="inline-flex items-center gap-1.5 font-medium text-white/70">
+                  <span className="size-2 rounded-[3px] bg-white/30" /> A pagar {formatMoney(pendingSum)}
+                </span>
+              </div>
+              <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="bar-fill h-full rounded-l-full"
+                  style={{
+                    width: mounted && total > 0 ? `${(paidSum / total) * 100}%` : 0,
+                    background: "rgba(52,211,153,0.95)",
+                  }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-white/45">
+                {localPaid.size} de {entries.length} contas quitadas · marque conforme paga
+              </p>
+            </div>
           </div>
-          <ul className="divide-y divide-ink-100">
-            {group.items.map((item) => (
-              <li key={`${item.fixed_cost_id}-${item.due_date}`} className="px-4 py-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+
+          {/* Mini calendar */}
+          <div className="rounded-card border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm">
+            <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase text-white/40">
+              {WEEK_LABELS.map((label, i) => (
+                <div key={i}>{label}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {Array.from({ length: firstWeekday }).map((_, i) => (
+                <div key={`blank-${i}`} />
+              ))}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day = i + 1;
+                const items = byDay.get(day) || [];
+                const isToday = isCurrentMonth && day === today;
+                const worst = items.reduce(
+                  (rank, entry) => Math.max(rank, FIXED_STATUS_RANK[effStatus(entry)] || 0),
+                  0,
+                );
+                const dotColor = CALENDAR_DOT_COLOR[worst];
+                return (
                   <div
-                    className="flex size-9 shrink-0 flex-col items-center justify-center rounded-control bg-surface-muted text-ink-700"
-                    title={`Vence dia ${item.due_day}`}
+                    key={day}
+                    className={classNames(
+                      "relative flex aspect-square flex-col items-center justify-center rounded-md text-[11px] tabular",
+                      isToday
+                        ? "bg-primary-500 font-bold text-white"
+                        : items.length
+                          ? "bg-white/[0.06] text-white/80"
+                          : "text-white/30",
+                    )}
                   >
-                    <span className="text-sm font-bold tabular leading-none">{item.due_day}</span>
-                    <span className="text-[9px] font-medium uppercase text-ink-400">dia</span>
+                    {day}
+                    {dotColor && !isToday ? (
+                      <span
+                        className="absolute bottom-1 size-1 rounded-full"
+                        style={{ background: dotColor }}
+                      />
+                    ) : null}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium text-ink-900">{item.description}</p>
-                      {item.is_override ? <Badge tone="primary">Ajustado no mês</Badge> : null}
-                      {entryStatusPill(item.status)}
+                );
+              })}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-white/10 pt-2.5 text-[10px] text-white/50">
+              <span className="inline-flex items-center gap-1">
+                <span className="size-1.5 rounded-full bg-positive-400" />pago
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="size-1.5 rounded-full bg-warning-400" />em breve
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="size-1.5 rounded-full bg-danger-400" />vencido
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Timeline */}
+      <div className="ofx-rise" style={{ animationDelay: "120ms" }}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-ink-900">Linha do tempo de pagamentos</h3>
+          <span className="text-xs text-ink-500">ordenado por vencimento</span>
+        </div>
+        <div className="rounded-card border border-ink-200/70 bg-surface p-2 shadow-card">
+          <ul>
+            {ordered.map((item, idx) => {
+              const status = effStatus(item);
+              const isPaid = status === "paid";
+              const color = categoryColor(item.category_name, item.category_color);
+              const expanded = expandedFor === item.fixed_cost_id;
+              return (
+                <li key={`${item.fixed_cost_id}-${item.due_date}`}>
+                  {idx === dividerIndex ? (
+                    <div className="flex items-center gap-3 px-3 py-2">
+                      <span className="rounded-full bg-primary-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                        Hoje · {today} {formatMonthShort(selectedMonth).split("/")[0]}
+                      </span>
+                      <span className="h-px flex-1 bg-primary-200" />
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
-                      <span>vence {formatDayLabel(item.due_date)}</span>
-                      {item.matched_transaction ? (
-                        <>
+                  ) : null}
+                  <div className="group flex items-center gap-3 rounded-control px-3 py-2.5 transition-colors hover:bg-surface-muted">
+                    <DayBadge day={item.due_day} tone={dayBadgeTone(status)} />
+                    <CatAvatar category={item.category_name} color={color} size={38} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p
+                          className={classNames(
+                            "truncate text-sm font-semibold",
+                            isPaid ? "text-ink-500" : "text-ink-900",
+                          )}
+                        >
+                          {item.description}
+                        </p>
+                        <span className="text-xs text-ink-400">·</span>
+                        <span className="shrink-0 text-xs font-medium" style={{ color }}>
+                          {item.category_name}
+                        </span>
+                        {item.is_override ? <Badge tone="primary">Ajustado</Badge> : null}
+                      </div>
+                      <p className="mt-0.5 truncate text-xs text-ink-500">
+                        {item.matched_transaction ? (
                           <span className="inline-flex items-center gap-1 text-positive-700">
                             <Link2 className="size-3" aria-hidden="true" />
-                            {item.matched_transaction.description?.slice(0, 44)} ·{" "}
+                            {item.matched_transaction.description?.slice(0, 40)} ·{" "}
                             {formatMoney(
                               item.matched_transaction.amount_abs ??
                                 Math.abs(Number(item.matched_transaction.amount)),
                             )}
                           </span>
-                          {item.match_source === "manual" && item.fixed_cost_transaction_match_id ? (
+                        ) : (
+                          <span className="text-ink-400">sem pagamento vinculado</span>
+                        )}
+                      </p>
+                    </div>
+                    <p
+                      className={classNames(
+                        "shrink-0 text-sm font-bold tabular",
+                        isPaid ? "text-ink-400" : "text-ink-900",
+                      )}
+                    >
+                      {formatMoney(item.amount)}
+                    </p>
+                    <div className="hidden w-28 shrink-0 justify-end sm:flex">{entryStatusPill(status)}</div>
+                    <CheckToggle paid={isPaid} onToggle={() => togglePaid(item.fixed_cost_id)} />
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(item)}
+                      aria-label={`Ajustes de ${item.description}`}
+                      aria-expanded={expanded}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-400 transition-colors hover:bg-surface-muted hover:text-ink-700"
+                    >
+                      <ChevronDown
+                        className={classNames("size-4 transition-transform", expanded && "rotate-180")}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  </div>
+
+                  {expanded ? (
+                    <div className="mb-1 ml-3 mr-1 rounded-control border border-ink-100 bg-surface-muted/60 p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                        <label className="text-xs font-medium text-ink-600">
+                          Valor neste mês
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            aria-label={`Valor de ${item.description} neste mês`}
+                            defaultValue={Number(item.amount).toFixed(2)}
+                            className="mt-1 w-full text-right font-semibold tabular sm:w-40"
+                            onBlur={(event) => {
+                              const amount = Number(event.target.value);
+                              if (
+                                !Number.isNaN(amount) &&
+                                Math.abs(amount - Number(item.amount)) >= 0.005
+                              ) {
+                                void updateOverride(item, amount);
+                              }
+                            }}
+                          />
+                        </label>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                          <span className="text-ink-500">vence {formatDayLabel(item.due_date)}</span>
+                          {item.is_override ? (
                             <button
                               type="button"
-                              className="font-medium text-danger-600 hover:text-danger-700"
+                              className="font-medium text-ink-600 hover:text-ink-800"
                               onClick={async () => {
-                                await deleteFixedCostMatch(item.fixed_cost_transaction_match_id as number);
+                                await deleteFixedCostOverride(item.fixed_cost_id, selectedMonth);
                                 await onReload();
                               }}
                             >
-                              Desvincular
+                              Voltar ao valor base ({formatMoney(item.base_amount)})
                             </button>
                           ) : null}
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="font-medium text-primary-700 hover:text-primary-800"
-                          onClick={() => void openPicker(item)}
-                        >
-                          Vincular pagamento
-                        </button>
-                      )}
-                      {item.is_override ? (
-                        <button
-                          type="button"
-                          className="font-medium text-ink-600 hover:text-ink-800"
-                          onClick={async () => {
-                            await deleteFixedCostOverride(item.fixed_cost_id, selectedMonth);
-                            await onReload();
-                          }}
-                        >
-                          Voltar ao valor base ({formatMoney(item.base_amount)})
-                        </button>
+                          {item.matched_transaction ? (
+                            item.match_source === "manual" && item.fixed_cost_transaction_match_id ? (
+                              <button
+                                type="button"
+                                className="font-medium text-danger-600 hover:text-danger-700"
+                                onClick={async () => {
+                                  await deleteFixedCostMatch(
+                                    item.fixed_cost_transaction_match_id as number,
+                                  );
+                                  await onReload();
+                                }}
+                              >
+                                Desvincular pagamento
+                              </button>
+                            ) : null
+                          ) : (
+                            <button
+                              type="button"
+                              className="font-medium text-primary-700 hover:text-primary-800"
+                              onClick={() => void openPicker(item)}
+                            >
+                              Vincular pagamento
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {loadingPicker ? (
+                        <p className="py-3 text-center text-xs text-ink-500">Buscando saídas do mês...</p>
+                      ) : transactions.length ? (
+                        <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
+                          {transactions.map((tx) => (
+                            <div
+                              key={tx.id}
+                              className="flex items-center gap-2 rounded-control bg-surface px-2 py-1.5"
+                            >
+                              <span className="w-14 shrink-0 text-xs text-ink-500">
+                                {formatDayLabel(tx.date)}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs text-ink-800">{tx.description}</p>
+                                <p className="text-[11px] text-ink-400">
+                                  {tx.pluggy_category || tx.category || ""}
+                                </p>
+                              </div>
+                              <span className="shrink-0 text-xs font-semibold tabular text-ink-800">
+                                {formatMoney(Math.abs(Number(tx.amount)))}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="primary"
+                                size="sm"
+                                onClick={() => void linkTransaction(item, tx)}
+                              >
+                                Vincular
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       ) : null}
                     </div>
-                  </div>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    aria-label={`Valor de ${item.description} neste mês`}
-                    defaultValue={Number(item.amount).toFixed(2)}
-                    className="w-full text-right font-semibold tabular sm:w-32"
-                    onBlur={(event) => {
-                      const amount = Number(event.target.value);
-                      if (!Number.isNaN(amount) && Math.abs(amount - Number(item.amount)) >= 0.005) {
-                        void updateOverride(item, amount);
-                      }
-                    }}
-                  />
-                </div>
-                {pickerFor?.fixed_cost_id === item.fixed_cost_id ? (
-                  <div className="mt-3 rounded-control border border-primary-100 bg-primary-50/40 p-3 sm:ml-12">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <p className="text-xs font-semibold text-ink-700">
-                        Qual transação paga “{item.description}”?
-                      </p>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setPickerFor(null)}>
-                        Fechar
-                      </Button>
-                    </div>
-                    {loadingPicker ? (
-                      <p className="py-3 text-center text-xs text-ink-500">Buscando saídas do mês...</p>
-                    ) : transactions.length ? (
-                      <div className="max-h-64 space-y-1 overflow-y-auto">
-                        {transactions.map((tx) => (
-                          <div
-                            key={tx.id}
-                            className="flex items-center gap-2 rounded-control bg-surface px-2 py-1.5"
-                          >
-                            <span className="w-14 shrink-0 text-xs text-ink-500">
-                              {formatDayLabel(tx.date)}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs text-ink-800">{tx.description}</p>
-                              <p className="text-[11px] text-ink-400">
-                                {tx.pluggy_category || tx.category || ""}
-                              </p>
-                            </div>
-                            <span className="shrink-0 text-xs font-semibold tabular text-ink-800">
-                              {formatMoney(Math.abs(Number(tx.amount)))}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="primary"
-                              size="sm"
-                              onClick={() => void linkTransaction(item, tx)}
-                            >
-                              Vincular
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="py-3 text-center text-xs text-ink-500">
-                        Nenhuma saída encontrada neste mês.
-                      </p>
-                    )}
-                  </div>
-                ) : null}
-              </li>
-            ))}
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
-        </Card>
-      ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1321,24 +1791,12 @@ export function PlanejamentoPage() {
 
               {activeTab === "custos" ? (
                 <div className="space-y-6">
-                  <Card className="p-5 sm:p-6">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <h2 className="text-sm font-semibold text-ink-900">Custos do mês</h2>
-                        <p className="mt-0.5 text-xs text-ink-500">
-                          Ajustes valem apenas para {formatMonthShort(selectedMonth)}.
-                        </p>
-                      </div>
-                      <span className="text-sm font-bold tabular text-ink-900">
-                        {formatMoney(data.fixedMonth.total)}
-                      </span>
-                    </div>
-                    <FixedMonthBreakdown
-                      fixed={data.fixedMonth}
-                      selectedMonth={selectedMonth}
-                      onReload={run}
-                    />
-                  </Card>
+                  <FixedCostsAgenda
+                    fixed={data.fixedMonth}
+                    expectedIncome={data.capacity.expected_income_total || 0}
+                    selectedMonth={selectedMonth}
+                    onReload={run}
+                  />
                   <CostsBase
                     data={data}
                     showInactive={showInactiveCosts}
@@ -1348,7 +1806,13 @@ export function PlanejamentoPage() {
                 </div>
               ) : null}
 
-              {activeTab === "variaveis" ? <VariableBudgetsPanel capacity={data.capacity} /> : null}
+              {activeTab === "variaveis" ? (
+                <VariableBudgetsPanel
+                  capacity={data.capacity}
+                  selectedMonth={selectedMonth}
+                  onReload={run}
+                />
+              ) : null}
 
               {activeTab === "receita" ? (
                 <IncomePlanning

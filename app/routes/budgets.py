@@ -1,27 +1,39 @@
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.database import get_session
 from app.routes.common import month_range
 from app.services.budgets import budget_progress_summary
+from app.services.variable_budgets import (
+    VariableBudgetValidationError,
+    delete_goal,
+    eligible_categories,
+    upsert_goal,
+)
 
 router = APIRouter()
-LEGACY_BUDGET_REMOVED_MESSAGE = (
-    "legacy category budgets were removed in 10D-A; "
-    "TODO 10D-C: recreate variable targets on top of Pluggy-based classification"
-)
+
+
+class VariableBudgetUpsert(BaseModel):
+    year_month: str
+    category: str
+    target_amount: float
 
 
 @router.get("/budgets")
-def list_budgets(session: Session = Depends(get_session)):
-    return {
-        "items": [],
-        "legacy_category_budget_removed": True,
-        "todo": LEGACY_BUDGET_REMOVED_MESSAGE,
-    }
+def list_budgets():
+    # Legacy per-category budget storage was removed in 10D-A. The variable
+    # goals live under /budgets/variable + /budgets/progress now.
+    return {"items": []}
+
+
+@router.get("/budgets/variable/categories")
+def variable_budget_categories():
+    return {"categories": eligible_categories()}
 
 
 @router.get("/budgets/progress")
@@ -40,3 +52,40 @@ def budgets_progress(
         today=today,
         include_ignored=include_ignored,
     )
+
+
+@router.put("/budgets/variable")
+def upsert_variable_budget(
+    body: VariableBudgetUpsert,
+    session: Session = Depends(get_session),
+):
+    try:
+        goal = upsert_goal(
+            session,
+            year_month=body.year_month,
+            category=body.category,
+            target_amount=body.target_amount,
+        )
+    except VariableBudgetValidationError as exc:
+        raise HTTPException(400, str(exc))
+    return {
+        "id": goal.id,
+        "year_month": goal.year_month,
+        "category": goal.category,
+        "target_amount": float(goal.target_amount),
+    }
+
+
+@router.delete("/budgets/variable")
+def remove_variable_budget(
+    year_month: str,
+    category: str,
+    session: Session = Depends(get_session),
+):
+    try:
+        removed = delete_goal(session, year_month=year_month, category=category)
+    except VariableBudgetValidationError as exc:
+        raise HTTPException(400, str(exc))
+    if not removed:
+        raise HTTPException(404, "variable budget goal not found")
+    return {"deleted": True, "year_month": year_month, "category": category}

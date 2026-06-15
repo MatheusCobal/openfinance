@@ -22,6 +22,19 @@ export function getSpendingCapacity(yearMonth: string) {
   return apiGet(`/spending-capacity?year_month=${yearMonth}`);
 }
 
+export function setVariableBudget(yearMonth: string, category: string, targetAmount: number) {
+  return apiPut<{ id: number; year_month: string; category: string; target_amount: number }>(
+    "/budgets/variable",
+    { year_month: yearMonth, category, target_amount: targetAmount },
+  );
+}
+
+export function deleteVariableBudget(yearMonth: string, category: string) {
+  return apiDelete(
+    `/budgets/variable?year_month=${encodeURIComponent(yearMonth)}&category=${encodeURIComponent(category)}`,
+  );
+}
+
 export function listFixedCostCategories() {
   return apiGet<FixedCostCategory[]>("/fixed-cost-categories");
 }

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  ArrowDownRight,
   ArrowUpRight,
   Banknote,
   CalendarClock,
@@ -355,112 +354,97 @@ export function DashboardPage() {
               </div>
             </section>
 
-            {/* Pressure indicators */}
-            {dashCap.expectedIncome > 0 ? (
-              <Card className="p-5 sm:p-6">
-                <div className="mb-5 flex items-baseline justify-between gap-3">
-                  <h2 className="text-sm font-semibold text-ink-900">Pressão do mês</h2>
-                  <p className="text-xs text-ink-500">quanto da receita cada bloco consome</p>
-                </div>
-                <div className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-3">
-                  <PressureMeter
-                    label="Fatura no mês"
-                    value={(Number(invoiceAmount) / dashCap.expectedIncome) * 100}
-                    detail={formatMoney(invoiceAmount)}
-                  />
-                  <PressureMeter
-                    label="Custos fixos"
-                    value={(dashCap.fixedCosts / dashCap.expectedIncome) * 100}
-                    detail={formatMoney(dashCap.fixedCosts)}
-                  />
-                  <PressureMeter
-                    label="Meta variável usada"
-                    value={
-                      dashCap.variableBudget > 0
-                        ? (dashCap.variableUsed / dashCap.variableBudget) * 100
-                        : 0
-                    }
-                    detail={`${formatMoney(dashCap.variableUsed)} de ${formatMoney(dashCap.variableBudget)}`}
-                  />
-                </div>
-              </Card>
-            ) : null}
+            {/* KPI row — the four headline numbers of the month */}
+            <section
+              aria-label={`Indicadores de ${formatMonthShort(data.planningMonth)}`}
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+            >
+              <MetricCard
+                label="Entradas recebidas"
+                value={formatMoney(data.capacity.received_income_total)}
+                subtitle="Crédito que já caiu na conta"
+                tone="positive"
+                icon={<Banknote className="size-4" aria-hidden="true" />}
+              />
+              <MetricCard
+                label="Custos fixos"
+                value={formatMoney(dashCap.fixedCosts)}
+                subtitle={`${pluralItens(data.capacity.fixed_costs?.entries?.length ?? 0)} reservados ou pagos`}
+                icon={<Wallet className="size-4" aria-hidden="true" />}
+              />
+              <MetricCard
+                label="Variável usado"
+                value={formatMoney(dashCap.variableUsed)}
+                subtitle={`Meta ${formatMoney(dashCap.variableBudget)} · restam ${formatMoney(dashCap.variableRemaining)}`}
+                icon={<Tags className="size-4" aria-hidden="true" />}
+              />
+              <MetricCard
+                label="Saldo em conta"
+                value={data.bankBalance ? formatMoney(data.bankBalance.total) : "—"}
+                subtitle={
+                  data.bankBalance
+                    ? pluralize(
+                        data.bankBalance.account_count,
+                        "conta ativa considerada",
+                        "contas ativas consideradas",
+                      )
+                    : "Saldo indisponível agora; o restante segue atualizado"
+                }
+                tone="primary"
+                icon={<Landmark className="size-4" aria-hidden="true" />}
+              />
+            </section>
 
-            {/* Insights */}
-            {insights.length ? (
-              <section aria-label="Leituras do mês">
-                <SectionHeader title="Leituras do mês" subtitle="O que os números estão dizendo" />
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {insights.map((insight) => (
-                    <InsightCard
-                      key={insight.key}
-                      icon={insight.icon}
-                      title={insight.title}
-                      body={insight.body}
-                      tone={insight.tone}
-                    />
-                  ))}
-                </div>
+            {/* Pressure + quick readings, side by side */}
+            {dashCap.expectedIncome > 0 || insights.length ? (
+              <section
+                aria-label="Pressão e leituras do mês"
+                className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+              >
+                {dashCap.expectedIncome > 0 ? (
+                  <Card className="p-5 sm:p-6">
+                    <div className="mb-5 flex items-baseline justify-between gap-3">
+                      <h2 className="text-sm font-semibold text-ink-900">Pressão do mês</h2>
+                      <p className="text-xs text-ink-500">quanto da receita cada bloco consome</p>
+                    </div>
+                    <div className="space-y-5">
+                      <PressureMeter
+                        label="Fatura no mês"
+                        value={(Number(invoiceAmount) / dashCap.expectedIncome) * 100}
+                        detail={formatMoney(invoiceAmount)}
+                      />
+                      <PressureMeter
+                        label="Custos fixos"
+                        value={(dashCap.fixedCosts / dashCap.expectedIncome) * 100}
+                        detail={formatMoney(dashCap.fixedCosts)}
+                      />
+                      <PressureMeter
+                        label="Meta variável usada"
+                        value={
+                          dashCap.variableBudget > 0
+                            ? (dashCap.variableUsed / dashCap.variableBudget) * 100
+                            : 0
+                        }
+                        detail={`${formatMoney(dashCap.variableUsed)} de ${formatMoney(dashCap.variableBudget)}`}
+                      />
+                    </div>
+                  </Card>
+                ) : null}
+                {insights.length ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    {insights.map((insight) => (
+                      <InsightCard
+                        key={insight.key}
+                        icon={insight.icon}
+                        title={insight.title}
+                        body={insight.body}
+                        tone={insight.tone}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </section>
             ) : null}
-
-            {/* Month summary */}
-            <section>
-              <SectionHeader
-                title="Movimento do mês"
-                subtitle={`Números de ${formatMonthShort(data.planningMonth)}`}
-              />
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <MetricCard
-                  label="Entradas recebidas"
-                  value={formatMoney(data.capacity.received_income_total)}
-                  subtitle="Crédito que já caiu na conta"
-                  tone="positive"
-                  icon={<ArrowDownRight className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="Saídas da conta"
-                  value={formatMoney(data.capacity.bank_outflows_total)}
-                  subtitle="Débitos bancários do mês"
-                  tone="danger"
-                  icon={<ArrowUpRight className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="A receber"
-                  value={formatMoney(data.capacity.income_to_receive)}
-                  subtitle="Receita prevista que ainda não entrou"
-                  tone="warning"
-                  icon={<Banknote className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="Custos fixos"
-                  value={formatMoney(dashCap.fixedCosts)}
-                  subtitle={`${pluralItens(data.capacity.fixed_costs?.entries?.length ?? 0)} no plano do mês`}
-                  icon={<Wallet className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="Variável usado"
-                  value={formatMoney(dashCap.variableUsed)}
-                  subtitle={`Meta ${formatMoney(dashCap.variableBudget)} · restam ${formatMoney(dashCap.variableRemaining)}`}
-                  icon={<Tags className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="Saldo em conta"
-                  value={data.bankBalance ? formatMoney(data.bankBalance.total) : "—"}
-                  subtitle={
-                    data.bankBalance
-                      ? pluralize(
-                          data.bankBalance.account_count,
-                          "conta ativa considerada",
-                          "contas ativas consideradas",
-                        )
-                      : "Saldo indisponível agora; o restante segue atualizado"
-                  }
-                  tone="primary"
-                  icon={<Landmark className="size-4" aria-hidden="true" />}
-                />
-              </div>
-            </section>
 
             {/* Current invoice + categories */}
             <section>
