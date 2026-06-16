@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, ChevronDown, CreditCard, Link2, Plus, RefreshCw, Trash2, Wallet } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, ChevronDown, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Wallet, X } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
@@ -168,57 +168,77 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
           : { label: "Saudável", tone: "positive" as const };
 
   return (
-    <Card className="p-5 sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <p className="text-sm font-medium text-ink-500">
-              {isFuture ? "Sobra planejada" : "Disponível para gastar"}
-            </p>
-            <StatusPill label={status.label} tone={status.tone} />
-            {isFuture ? <Badge tone="primary">Projeção</Badge> : null}
+    <div className="space-y-5">
+      <section className="cockpit-surface relative overflow-hidden rounded-card p-6 text-white shadow-cockpit">
+        <div className="cockpit-grid pointer-events-none absolute inset-0 opacity-40" aria-hidden="true" />
+        <div className="relative">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <p className="text-sm font-medium text-white/70">
+                  {isFuture ? "Sobra planejada" : "Disponível para gastar"}
+                </p>
+                <StatusPill label={status.label} tone={status.tone} inverse />
+                {isFuture ? <Badge tone="primary">Projeção</Badge> : null}
+              </div>
+              <p
+                className={classNames(
+                  "mt-3 text-5xl font-bold leading-none tracking-tight tabular",
+                  free < 0 ? "text-danger-300" : "text-white",
+                )}
+              >
+                {formatMoney(free)}
+              </p>
+              <p className="mt-3 text-sm leading-relaxed text-white/55">
+                {isFuture
+                  ? "Projeção do que sobra depois dos fixos, fatura e meta variável."
+                  : "O que sobra da receita depois dos fixos, fatura e meta variável."}
+              </p>
+            </div>
+            {capacity.days_remaining_in_month && capacity.daily_discretionary_remaining ? (
+              <div className="rounded-card border border-white/10 bg-white/[0.06] px-5 py-4 text-right backdrop-blur-sm">
+                <p className="text-2xl font-bold tabular text-white">
+                  {formatMoney(capacity.daily_discretionary_remaining)}
+                  <span className="text-sm font-normal text-white/55"> /dia</span>
+                </p>
+                <p className="mt-1 text-xs text-white/50">
+                  {pluralize(capacity.days_remaining_in_month, "dia restante", "dias restantes")}
+                </p>
+              </div>
+            ) : null}
           </div>
-          <p
-            className={classNames(
-              "mt-2 text-4xl font-bold tracking-tight tabular",
-              free < 0 ? "text-danger-600" : "text-ink-900",
-            )}
-          >
-            {formatMoney(free)}
-          </p>
+
+          {income > 0 ? (
+            <>
+              <FinancialFlow
+                inverse
+                className="mt-6"
+                total={income}
+                segments={[
+                  { key: "fixed", label: "Custos fixos", value: fixed, color: "#64748b" },
+                  { key: "invoice", label: "Fatura no cálculo", value: card, color: "#0ea5e9" },
+                  {
+                    key: "variable",
+                    label: isFuture ? "Meta variável" : "Variáveis usados",
+                    value: variable,
+                    color: "#a78bfa",
+                  },
+                ]}
+                remainder={{ label: isFuture ? "Sobra planejada" : "Disponível", value: free }}
+              />
+              <p className="mt-4 border-t border-white/10 pt-3 text-xs text-white/40">
+                Receita esperada{" "}
+                <span className="font-semibold tabular text-white/75">{formatMoney(income)}</span>
+                {capacity.received_income_total
+                  ? ` · ${formatMoney(capacity.received_income_total)} já recebido`
+                  : ""}
+              </p>
+            </>
+          ) : null}
         </div>
-        {capacity.days_remaining_in_month && capacity.daily_discretionary_remaining ? (
-          <div className="rounded-control bg-surface-muted px-4 py-3 text-right">
-            <p className="text-lg font-bold tabular text-ink-900">
-              {formatMoney(capacity.daily_discretionary_remaining)}
-              <span className="text-xs font-medium text-ink-500"> /dia</span>
-            </p>
-            <p className="mt-0.5 text-xs text-ink-500">
-              {pluralize(capacity.days_remaining_in_month, "dia restante", "dias restantes")}
-            </p>
-          </div>
-        ) : null}
-      </div>
+      </section>
 
-      {income > 0 ? (
-        <FinancialFlow
-          className="mt-6"
-          total={income}
-          segments={[
-            { key: "fixed", label: "Custos fixos", value: fixed, color: "#64748b" },
-            { key: "invoice", label: "Fatura no cálculo", value: card, color: "#0ea5e9" },
-            {
-              key: "variable",
-              label: isFuture ? "Meta variável" : "Variáveis usados",
-              value: variable,
-              color: "#a78bfa",
-            },
-          ]}
-          remainder={{ label: isFuture ? "Sobra planejada" : "Disponível", value: free }}
-        />
-      ) : null}
-
-      <div className="mt-6 grid grid-cols-1 gap-4 border-t border-ink-100 pt-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label="Receita esperada"
           value={formatMoney(income)}
@@ -246,7 +266,7 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
           tone="primary"
         />
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -257,80 +277,99 @@ function variableStatusTone(status: VariableBudgetItem["status"]): "positive" | 
   return "positive";
 }
 
-function VariableBudgetGoalRow({
+function VariableBudgetRow({
   item,
-  selectedMonth,
+  isEditing,
+  onStartEdit,
+  onEndEdit,
   onSave,
   onRemove,
 }: {
   item: VariableBudgetItem;
-  selectedMonth: string;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onEndEdit: () => void;
   onSave: (category: string, amount: number) => Promise<void>;
   onRemove: (category: string) => Promise<void>;
 }) {
-  const overage = Math.max(item.spent - item.target, 0);
-  const remaining = Math.max(item.target - item.spent, 0);
   const progress = Math.min(item.progress_percent ?? 0, 100);
   const tone = variableStatusTone(item.status);
-  const barColor =
-    tone === "danger" ? "bg-danger-500" : tone === "warning" ? "bg-amber-500" : "bg-primary-500";
+  const color = categoryColor(item.category);
+  const barColor = tone === "danger" ? "#e11d48" : tone === "warning" ? "#f59e0b" : color;
+  const over = item.spent > item.target && item.has_target;
 
   return (
-    <li className="px-2 py-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: categoryColor(item.category) }}
-              aria-hidden="true"
-            />
-            <p className="text-sm font-medium text-ink-900">{item.category}</p>
-            {overage > 0 ? (
-              <Badge tone="danger">Excedeu {formatMoney(overage)}</Badge>
-            ) : item.target > 0 ? (
-              <Badge tone="neutral">Restam {formatMoney(remaining)}</Badge>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-ink-500">
-            {formatMoney(item.spent)} de {formatMoney(item.target)}
+    <div className="group flex items-center gap-4 border-b border-ink-100 px-5 py-3.5 transition-colors last:border-0 hover:bg-surface-muted/40">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span className="size-2.5 shrink-0 rounded-[4px]" style={{ backgroundColor: color }} aria-hidden="true" />
+        <div>
+          <p className="text-sm font-semibold text-ink-900">{item.category}</p>
+          <p className="text-xs text-ink-400">
             {item.transaction_count > 0
-              ? ` · ${pluralize(item.transaction_count, "compra", "compras")}`
-              : " · sem gastos no mês"}
+              ? pluralize(item.transaction_count, "compra", "compras") + " no mês"
+              : "sem gastos no mês"}
           </p>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
-            <div
-              className={classNames("h-full rounded-full transition-all", barColor)}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
         </div>
-        <div className="flex items-center gap-2">
+      </div>
+      <div className="w-48 shrink-0">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${progress}%`, backgroundColor: barColor }}
+          />
+        </div>
+        {over && (
+          <p className="mt-0.5 text-[10px] font-medium text-danger-600">
+            +{formatMoney(item.spent - item.target)} acima
+          </p>
+        )}
+      </div>
+      <p className={classNames("w-28 shrink-0 text-right text-sm font-bold tabular", over ? "text-danger-700" : "text-ink-900")}>
+        {formatMoney(item.spent)}
+      </p>
+      <div className="w-24 shrink-0 text-right">
+        {isEditing ? (
           <Input
             type="number"
             step="0.01"
             min="0"
-            aria-label={`Meta de ${item.category} em ${formatMonthShort(selectedMonth)}`}
             defaultValue={item.target.toFixed(2)}
-            className="w-full text-right font-semibold tabular sm:w-28"
-            onBlur={(event) => {
-              const amount = Number(event.target.value);
-              if (!Number.isNaN(amount) && amount >= 0 && Math.abs(amount - item.target) >= 0.005) {
-                void onSave(item.category, amount);
-              }
+            className="w-full text-right text-sm font-semibold tabular"
+            autoFocus
+            onBlur={async (e) => {
+              const v = Number(e.currentTarget.value);
+              if (!Number.isNaN(v) && v >= 0) await onSave(item.category, v);
+              onEndEdit();
             }}
           />
+        ) : (
           <button
             type="button"
-            aria-label={`Remover meta de ${item.category}`}
-            className="rounded-control p-2 text-ink-400 hover:bg-danger-50 hover:text-danger-600"
-            onClick={() => void onRemove(item.category)}
+            className="text-sm tabular text-ink-500 hover:text-ink-800 hover:underline"
+            onClick={onStartEdit}
           >
-            <Trash2 className="size-4" aria-hidden="true" />
+            {formatMoney(item.target)}
           </button>
-        </div>
+        )}
       </div>
-    </li>
+      <div className="flex w-24 shrink-0 items-center justify-end gap-1">
+        {over ? (
+          <span className="rounded-full bg-danger-50 px-2 py-0.5 text-[10px] font-semibold text-danger-700">Excedeu</span>
+        ) : tone === "warning" ? (
+          <span className="rounded-full bg-warning-50 px-2 py-0.5 text-[10px] font-semibold text-warning-800">Atenção</span>
+        ) : (
+          <span className="rounded-full bg-positive-50 px-2 py-0.5 text-[10px] font-semibold text-positive-700">OK</span>
+        )}
+        <button
+          type="button"
+          aria-label={`Remover meta de ${item.category}`}
+          className="ml-0.5 flex size-6 items-center justify-center rounded-control text-ink-300 opacity-0 transition-all hover:bg-danger-50 hover:text-danger-600 group-hover:opacity-100"
+          onClick={() => void onRemove(item.category)}
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -369,6 +408,8 @@ function VariableBudgetsPanel({
 
   const [newCategory, setNewCategory] = useState("");
   const [newAmount, setNewAmount] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"Todas" | "OK" | "Atenção" | "Excedido">("Todas");
+  const [editingGoal, setEditingGoal] = useState<string | null>(null);
 
   const saveGoal = async (category: string, amount: number) => {
     try {
@@ -406,82 +447,133 @@ function VariableBudgetsPanel({
     setNewAmount("");
   };
 
+  const statusMap: Record<string, VariableBudgetItem["status"]> = {
+    "OK": "ok",
+    "Atenção": "warning",
+    "Excedido": "over",
+  };
+  const shownBudgets = statusFilter === "Todas"
+    ? budgeted
+    : budgeted.filter((item) => item.status === statusMap[statusFilter]);
+
+  const summaryCards = [
+    {
+      label: "Fatura vigente",
+      value: isFuture ? "—" : formatMoney(invoiceTotal),
+      icon: <CreditCard className="size-4" aria-hidden="true" />,
+      toneClass: "bg-primary-50 text-primary-600",
+      sub: isFuture ? "Mês futuro" : invoiceLabel,
+    },
+    {
+      label: "Meta total do mês",
+      value: hasTarget ? formatMoney(target) : "—",
+      icon: <Wallet className="size-4" aria-hidden="true" />,
+      toneClass: "bg-ink-100 text-ink-500",
+      sub: hasTarget ? `${budgeted.length} categorias configuradas` : "Nenhuma meta definida",
+    },
+    {
+      label: overage > 0 ? "Excedente" : "Restante",
+      value: hasTarget ? formatMoney(overage > 0 ? overage : remaining) : "—",
+      icon: overage > 0
+        ? <AlertCircle className="size-4" aria-hidden="true" />
+        : <CalendarClock className="size-4" aria-hidden="true" />,
+      toneClass: overage > 0 ? "bg-danger-50 text-danger-600" : "bg-positive-50 text-positive-600",
+      sub: overage > 0 ? "Acima da meta combinada" : "Ainda dentro da meta",
+    },
+  ];
+
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <MetricCard
-          label="Fatura do mês"
-          value={isFuture ? "—" : formatMoney(invoiceTotal)}
-          subtitle={isFuture ? "Mês futuro" : invoiceLabel}
-          icon={<CreditCard className="size-5" aria-hidden="true" />}
-          tone="neutral"
-        />
-        <MetricCard
-          label="Meta variável do mês"
-          value={hasTarget ? formatMoney(target) : "—"}
-          subtitle={hasTarget ? "Soma das metas por categoria" : "Nenhuma meta definida"}
-          icon={<Wallet className="size-5" aria-hidden="true" />}
-          tone="primary"
-        />
-        <MetricCard
-          label="Consumido"
-          value={formatMoney(consumed)}
-          subtitle="Compras na fatura vigente com meta"
-          tone={consumed > target && hasTarget ? "danger" : "warning"}
-        />
-        <MetricCard
-          label={overage > 0 ? "Excedente" : "Restante"}
-          value={hasTarget ? formatMoney(overage > 0 ? overage : remaining) : "—"}
-          subtitle={overage > 0 ? "Acima da meta variável" : "Ainda disponível na meta"}
-          tone={overage > 0 ? "danger" : "positive"}
-        />
-        <MetricCard
-          label="Metas por categoria"
-          value={budgeted.length}
-          subtitle="Categorias com meta configurada"
-          icon={<CalendarClock className="size-5" aria-hidden="true" />}
-        />
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-ink-900">Metas de gastos variáveis</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            {budgeted.length} categorias com limite ·{" "}
+            <span className="tabular font-semibold text-ink-700">{formatMoney(target)}</span> / mês
+          </p>
+        </div>
       </div>
 
-      <Card className="p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-900">Metas de gastos variáveis</h2>
-            <p className="mt-0.5 text-xs text-ink-500">
-              Metas de {formatMonthShort(capacity.year_month || selectedMonth)} sobre as compras de
-              cartão classificadas. Valem apenas para este mês.
-            </p>
+      {/* 3 summary cards */}
+      <div className="grid grid-cols-3 gap-3">
+        {summaryCards.map((s) => (
+          <div key={s.label} className="flex items-start gap-3 rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
+            <span className={classNames("mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-control", s.toneClass)}>
+              {s.icon}
+            </span>
+            <div>
+              <p className="text-xs font-medium text-ink-500">{s.label}</p>
+              <p className="mt-0.5 text-base font-bold tabular leading-tight text-ink-900">{s.value}</p>
+              <p className="mt-0.5 text-[11px] text-ink-400">{s.sub}</p>
+            </div>
           </div>
-          <Badge tone={hasTarget ? "primary" : "neutral"}>
-            {hasTarget ? `${budgeted.length} ativa(s)` : "Sem meta definida"}
-          </Badge>
-        </div>
+        ))}
+      </div>
 
-        {budgeted.length > 0 ? (
-          <ul className="mt-4 divide-y divide-ink-100">
-            {budgeted.map((item) => (
-              <VariableBudgetGoalRow
-                key={item.category}
-                item={item}
-                selectedMonth={selectedMonth}
-                onSave={saveGoal}
-                onRemove={removeGoal}
-              />
-            ))}
-          </ul>
-        ) : (
-          <div className="mt-4">
-            <EmptyState
-              icon={<CalendarClock className="size-5" aria-hidden="true" />}
-              title="Nenhuma meta configurada para este mês."
-              detail="Defina uma meta por categoria abaixo para acompanhar os gastos variáveis do cartão."
+      {/* Status filter chips */}
+      <div className="flex gap-2">
+        {(["Todas", "OK", "Atenção", "Excedido"] as const).map((f) => {
+          const active = statusFilter === f;
+          const dotCls = f === "OK" ? "bg-positive-500" : f === "Atenção" ? "bg-warning-500" : f === "Excedido" ? "bg-danger-500" : "bg-ink-400";
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setStatusFilter(f)}
+              className={classNames(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                active ? "border-ink-900 bg-ink-900 text-white" : "border-ink-200 bg-surface text-ink-600 hover:border-ink-300",
+              )}
+            >
+              {f !== "Todas" && <span className={classNames("size-1.5 rounded-full", active ? "bg-white" : dotCls)} />}
+              {f}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Budget list */}
+      {shownBudgets.length > 0 ? (
+        <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+          <div className="flex items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5">
+            <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Categoria</span>
+            <span className="w-48 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Progresso</span>
+            <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Consumido</span>
+            <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Meta</span>
+            <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Status</span>
+          </div>
+          {shownBudgets.map((item) => (
+            <VariableBudgetRow
+              key={item.category}
+              item={item}
+              isEditing={editingGoal === item.category}
+              onStartEdit={() => setEditingGoal(item.category)}
+              onEndEdit={() => setEditingGoal(null)}
+              onSave={saveGoal}
+              onRemove={removeGoal}
             />
-          </div>
-        )}
+          ))}
+        </div>
+      ) : budgeted.length === 0 ? (
+        <Card className="p-5 sm:p-6">
+          <EmptyState
+            icon={<CalendarClock className="size-5" aria-hidden="true" />}
+            title="Nenhuma meta configurada para este mês."
+            detail="Defina uma meta por categoria abaixo para acompanhar os gastos variáveis do cartão."
+          />
+        </Card>
+      ) : (
+        <Card className="p-5 sm:p-6">
+          <EmptyState title="Nenhuma categoria neste filtro." />
+        </Card>
+      )}
 
+      {/* Add goal form */}
+      <Card className="p-5 sm:p-6">
         <form
           onSubmit={addGoal}
-          className="mt-5 flex flex-col gap-2 border-t border-ink-100 pt-5 sm:flex-row sm:items-end"
+          className="flex flex-col gap-2 sm:flex-row sm:items-end"
         >
           <label className="flex-1">
             <span className="mb-1 block text-xs font-medium text-ink-600">Categoria</span>
@@ -492,9 +584,7 @@ function VariableBudgetsPanel({
             >
               <option value="">Selecione uma categoria</option>
               {availableToAdd.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
+                <option key={category} value={category}>{category}</option>
               ))}
             </Select>
           </label>
@@ -521,49 +611,44 @@ function VariableBudgetsPanel({
         ) : null}
       </Card>
 
+      {/* Suggestions */}
       {suggestions.length > 0 ? (
-        <Card className="p-5 sm:p-6">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-900">Gastos sem meta</h2>
-            <p className="mt-0.5 text-xs text-ink-500">
-              Categorias com compras no mês que ainda não têm meta definida.
-            </p>
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">Gastos sem meta</p>
+            <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[11px] font-semibold text-ink-500">
+              {suggestions.length}
+            </span>
           </div>
-          <ul className="mt-4 divide-y divide-ink-100">
-            {suggestions.map((item) => (
-              <li
+          <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+            {suggestions.map((item, idx) => (
+              <div
                 key={item.category}
-                className="flex items-center justify-between gap-3 px-2 py-3"
+                className={classNames(
+                  "flex items-center gap-4 px-5 py-3.5",
+                  idx < suggestions.length - 1 ? "border-b border-ink-100" : "",
+                )}
               >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: categoryColor(item.category) }}
-                    aria-hidden="true"
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink-900">{item.category}</p>
-                    <p className="text-xs text-ink-500">
-                      {formatMoney(item.spent)} ·{" "}
-                      {pluralize(item.transaction_count, "compra", "compras")}
-                    </p>
-                  </div>
+                <span className="size-2.5 shrink-0 rounded-[4px]" style={{ backgroundColor: categoryColor(item.category) }} aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-ink-900">{item.category}</p>
+                  <p className="text-xs text-ink-400">
+                    {formatMoney(item.spent)} · {pluralize(item.transaction_count, "compra", "compras")} · sem limite definido
+                  </p>
                 </div>
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  onClick={() => {
-                    setNewCategory(item.category);
-                    setNewAmount(item.spent.toFixed(2));
-                  }}
+                  onClick={() => { setNewCategory(item.category); setNewAmount(item.spent.toFixed(2)); }}
                 >
+                  <Plus className="size-3" aria-hidden="true" />
                   Definir meta
                 </Button>
-              </li>
+              </div>
             ))}
-          </ul>
-        </Card>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -1078,10 +1163,28 @@ function CostsBase({
   const [quickCost, setQuickCost] = useState({ category_id: 0, description: "", amount: "", due_day: "" });
   const [editingCost, setEditingCost] = useState<number | null>(null);
   const [costDraft, setCostDraft] = useState<Partial<FixedCost>>({});
+  const [menuOpen, setMenuOpen] = useState<number | null>(null);
+  const [catFilter, setCatFilter] = useState<string>("Todas");
   const customCount = data.categories.filter((cat) => !cat.is_default).length;
-  const activeTotal = data.costs
-    .filter((cost) => cost.active)
-    .reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
+  const catMap = useMemo(
+    () => new Map(data.categories.map((c) => [c.id, c])),
+    [data.categories],
+  );
+  const getCostCategory = (cost: FixedCost) => catMap.get(Number(cost.category_id));
+  const activeCosts = data.costs.filter((cost) => cost.active);
+  const inactiveCosts = data.costs.filter((cost) => !cost.active);
+  const activeTotal = activeCosts.reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
+  const inactiveTotal = inactiveCosts.reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
+  const catNames = ["Todas", ...Array.from(new Set(
+    activeCosts.map((c) => catMap.get(Number(c.category_id))?.name).filter((n): n is string => Boolean(n)),
+  ))];
+  const filteredCosts = catFilter === "Todas"
+    ? activeCosts
+    : activeCosts.filter((c) => catMap.get(Number(c.category_id))?.name === catFilter);
+  const today = new Date().getDate();
+  const next7Days = Array.from({ length: 7 }, (_, i) => ((today + i - 1) % 31) + 1);
+  const upcomingCosts = activeCosts.filter((c) => c.due_day && next7Days.includes(Number(c.due_day)));
+  const upcomingTotal = upcomingCosts.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
   useEffect(() => {
     if (!quickCost.category_id && data.categories[0]) {
@@ -1122,222 +1225,337 @@ function CostsBase({
     }
   };
 
-  const grouped = data.categories
-    .map((category) => ({
-      category,
-      costs: data.costs.filter((cost) => Number(cost.category_id) === Number(category.id)),
-    }))
-    .filter((entry) => entry.costs.length > 0);
+  const costEditForm = (cost: FixedCost) => (
+    <form
+      className="grid grid-cols-1 gap-2 px-5 py-3 lg:grid-cols-[160px_1fr_130px_90px_auto_auto]"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        await updateFixedCost(cost.id, {
+          category_id: Number(costDraft.category_id ?? cost.category_id),
+          description: String(costDraft.description ?? cost.description).trim(),
+          amount: Number(costDraft.amount ?? cost.amount),
+          due_day: Number(costDraft.due_day ?? cost.due_day),
+        });
+        setEditingCost(null);
+        await onReload();
+        showToast("Custo atualizado.", "success");
+      }}
+    >
+      <Select
+        aria-label="Categoria"
+        value={Number(costDraft.category_id ?? cost.category_id)}
+        onChange={(event) => setCostDraft((c) => ({ ...c, category_id: Number(event.target.value) }))}
+      >
+        {data.categories.map((cat) => (
+          <option key={cat.id} value={cat.id}>{cat.name}</option>
+        ))}
+      </Select>
+      <Input
+        aria-label="Descrição"
+        value={String(costDraft.description ?? cost.description)}
+        onChange={(event) => setCostDraft((c) => ({ ...c, description: event.target.value }))}
+      />
+      <Input
+        aria-label="Valor"
+        type="number"
+        step="0.01"
+        min="0.01"
+        value={Number(costDraft.amount ?? cost.amount)}
+        onChange={(event) => setCostDraft((c) => ({ ...c, amount: Number(event.target.value) }))}
+      />
+      <Input
+        aria-label="Dia de vencimento"
+        type="number"
+        min="1"
+        max="31"
+        value={Number(costDraft.due_day ?? cost.due_day)}
+        onChange={(event) => setCostDraft((c) => ({ ...c, due_day: Number(event.target.value) }))}
+      />
+      <Button type="submit" variant="primary">Salvar</Button>
+      <Button type="button" onClick={() => setEditingCost(null)}>Cancelar</Button>
+    </form>
+  );
 
   return (
-    <div className="space-y-6">
-      <Card className="p-5 sm:p-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-900">Compromissos recorrentes</h2>
-            <p className="mt-0.5 text-xs text-ink-500">
-              {pluralize(data.costs.length, "custo cadastrado", "custos cadastrados")} ·{" "}
-              {formatMoney(activeTotal)} ativos por mês
-            </p>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-ink-600">
-            <input
-              type="checkbox"
-              className="rounded border-ink-300 text-primary-600 focus:ring-primary-200"
-              checked={showInactive}
-              onChange={(event) => setShowInactive(event.target.checked)}
-            />
-            Mostrar inativos
-          </label>
+    <div className="space-y-5" onClick={() => setMenuOpen(null)}>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-ink-900">Compromissos recorrentes</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            {activeCosts.length} custos ativos ·{" "}
+            <span className="tabular font-semibold text-ink-700">{formatMoney(activeTotal)}</span> / mês
+          </p>
         </div>
+        <Button
+          type="button"
+          variant="primary"
+          onClick={(e) => {
+            e.stopPropagation();
+            document.getElementById("add-cost-form")?.scrollIntoView({ behavior: "smooth" });
+          }}
+        >
+          <Plus className="size-4" aria-hidden="true" />
+          Novo custo
+        </Button>
+      </div>
 
-        {grouped.length ? (
-          <div className="space-y-3">
-            {grouped.map(({ category, costs }) => (
-              <Card key={category.id} elevation="flat" className="overflow-hidden">
-                <div className="flex items-center justify-between gap-3 bg-surface-muted px-4 py-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ background: category.color }}
-                      aria-hidden="true"
-                    />
-                    <h3 className="truncate text-sm font-semibold text-ink-900">{category.name}</h3>
-                    {!category.is_default ? <Badge tone="primary">Personalizada</Badge> : null}
-                  </div>
+      {/* 3 summary cards */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          {
+            label: "Total mensal",
+            value: formatMoney(activeTotal),
+            icon: <Wallet className="size-4" aria-hidden="true" />,
+            toneClass: "bg-primary-50 text-primary-600",
+            sub: `${activeCosts.length} compromissos ativos`,
+          },
+          {
+            label: "Próximos 7 dias",
+            value: formatMoney(upcomingTotal),
+            icon: <Calendar className="size-4" aria-hidden="true" />,
+            toneClass: "bg-warning-50 text-warning-600",
+            sub: `${upcomingCosts.length} vencimentos próximos`,
+          },
+          {
+            label: "Inativos",
+            value: `${inactiveCosts.length} itens`,
+            icon: <X className="size-4" aria-hidden="true" />,
+            toneClass: "bg-ink-100 text-ink-500",
+            sub: `${formatMoney(inactiveTotal)} suspensos / mês`,
+          },
+        ].map((s) => (
+          <div key={s.label} className="flex items-start gap-3 rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
+            <span className={classNames("mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-control", s.toneClass)}>
+              {s.icon}
+            </span>
+            <div>
+              <p className="text-xs font-medium text-ink-500">{s.label}</p>
+              <p className="mt-0.5 text-base font-bold tabular leading-tight text-ink-900">{s.value}</p>
+              <p className="mt-0.5 text-[11px] text-ink-400">{s.sub}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter row */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          {catNames.map((cat) => {
+            const isActive = catFilter === cat;
+            const catObj = cat === "Todas" ? undefined : data.categories.find((c) => c.name === cat);
+            const color = catObj?.color || "#475569";
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setCatFilter(cat); }}
+                className={classNames(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                  isActive ? "border-ink-900 bg-ink-900 text-white" : "border-ink-200 bg-surface text-ink-600 hover:border-ink-300",
+                )}
+              >
+                {cat !== "Todas" && (
+                  <span className="size-1.5 rounded-full" style={{ background: isActive ? "#fff" : color }} />
+                )}
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setShowInactive(!showInactive); }}
+          className={classNames(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            showInactive ? "border-ink-400 bg-ink-100 text-ink-700" : "border-ink-200 bg-surface text-ink-500 hover:border-ink-300",
+          )}
+        >
+          <span className={classNames("size-1.5 rounded-full", showInactive ? "bg-ink-600" : "bg-ink-300")} />
+          Mostrar inativos
+        </button>
+      </div>
+
+      {/* Active flat list */}
+      {filteredCosts.length > 0 ? (
+        <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+          <div className="flex items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5">
+            <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Compromisso</span>
+            <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Valor / mês</span>
+            <span className="w-36 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Recorrência</span>
+            <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Ações</span>
+          </div>
+          {filteredCosts.map((cost) => {
+            const cat = getCostCategory(cost);
+            const color = categoryColor(cat?.name, cat?.color);
+            if (editingCost === cost.id) return <div key={cost.id}>{costEditForm(cost)}</div>;
+            return (
+              <div
+                key={cost.id}
+                className="group relative flex items-center gap-4 border-b border-ink-100 px-5 py-3.5 transition-colors last:border-0 hover:bg-surface-muted/40"
+              >
+                <CatAvatar category={cat?.name} color={color} size={42} />
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold tabular text-ink-700">
-                      {formatMoney(
-                        costs
-                          .filter((cost) => cost.active)
-                          .reduce((sum, cost) => sum + Number(cost.amount || 0), 0),
-                      )}
+                    <p className="text-sm font-semibold text-ink-900">{cost.description}</p>
+                    <span
+                      className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none"
+                      style={{ background: color + "1A", color }}
+                    >
+                      {cat?.name}
                     </span>
-                    {!category.is_default ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="size-8 px-0"
-                        aria-label={`Excluir categoria ${category.name}`}
-                        onClick={async () => {
-                          if (!window.confirm(`Excluir categoria "${category.name}"?`)) return;
-                          await deleteFixedCostCategory(category.id);
-                          await onReload();
-                        }}
-                      >
-                        <Trash2 className="size-4" aria-hidden="true" />
-                      </Button>
-                    ) : null}
                   </div>
                 </div>
-                <ul className="divide-y divide-ink-100">
-                  {costs.map((cost) => (
-                    <li key={cost.id} className="px-4 py-3">
-                      {editingCost === cost.id ? (
-                        <form
-                          className="grid grid-cols-1 gap-2 lg:grid-cols-[160px_1fr_130px_90px_auto_auto]"
-                          onSubmit={async (event) => {
-                            event.preventDefault();
-                            await updateFixedCost(cost.id, {
-                              category_id: Number(costDraft.category_id ?? cost.category_id),
-                              description: String(costDraft.description ?? cost.description).trim(),
-                              amount: Number(costDraft.amount ?? cost.amount),
-                              due_day: Number(costDraft.due_day ?? cost.due_day),
-                            });
-                            setEditingCost(null);
+                <p className="w-28 shrink-0 text-right text-sm font-bold tabular text-ink-900">
+                  {formatMoney(cost.amount)}
+                </p>
+                <div className="flex w-36 shrink-0 justify-end">
+                  {cost.due_day ? (
+                    <span className="inline-flex items-center gap-1 rounded-control bg-surface-muted px-2.5 py-1 text-xs font-medium text-ink-600">
+                      <Calendar className="size-3 text-ink-400" aria-hidden="true" />
+                      Dia {cost.due_day}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700">
+                      <SlidersHorizontal className="size-3" aria-hidden="true" />
+                      Personalizada
+                    </span>
+                  )}
+                </div>
+                <div className="flex w-24 shrink-0 items-center justify-end gap-0.5">
+                  <button
+                    type="button"
+                    title="Editar"
+                    className="flex size-7 items-center justify-center rounded-control text-ink-400 opacity-0 transition-all hover:bg-surface-muted hover:text-ink-700 group-hover:opacity-100"
+                    onClick={(e) => { e.stopPropagation(); setEditingCost(cost.id); setCostDraft(cost); }}
+                  >
+                    <Pencil className="size-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Desativar"
+                    className="flex size-7 items-center justify-center rounded-control text-ink-400 opacity-0 transition-all hover:bg-warning-50 hover:text-warning-700 group-hover:opacity-100"
+                    onClick={async (e) => { e.stopPropagation(); await updateFixedCost(cost.id, { active: false }); await onReload(); }}
+                  >
+                    <X className="size-3.5" aria-hidden="true" />
+                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      title="Mais opções"
+                      className="flex size-7 items-center justify-center rounded-control text-ink-300 transition-all hover:bg-surface-muted hover:text-ink-600 group-hover:text-ink-500"
+                      onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === cost.id ? null : cost.id); }}
+                    >
+                      <MoreVertical className="size-4" aria-hidden="true" />
+                    </button>
+                    {menuOpen === cost.id && (
+                      <div className="absolute right-0 top-8 z-30 min-w-[152px] overflow-hidden rounded-control border border-ink-200 bg-surface shadow-lift">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-ink-700 hover:bg-surface-muted"
+                          onClick={(e) => { e.stopPropagation(); setEditingCost(cost.id); setCostDraft(cost); setMenuOpen(null); }}
+                        >
+                          <Pencil className="size-3.5 text-ink-400" aria-hidden="true" />Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-ink-700 hover:bg-surface-muted"
+                          onClick={async (e) => { e.stopPropagation(); await updateFixedCost(cost.id, { active: false }); setMenuOpen(null); await onReload(); }}
+                        >
+                          <X className="size-3.5 text-ink-400" aria-hidden="true" />Desativar
+                        </button>
+                        <div className="my-0.5 border-t border-ink-100" />
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-danger-600 hover:bg-danger-50"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!window.confirm(`Excluir "${cost.description}"?`)) return;
+                            await deleteFixedCost(cost.id);
+                            setMenuOpen(null);
                             await onReload();
-                            showToast("Custo atualizado.", "success");
                           }}
                         >
-                          <Select
-                            aria-label="Categoria"
-                            value={Number(costDraft.category_id ?? cost.category_id)}
-                            onChange={(event) =>
-                              setCostDraft((current) => ({
-                                ...current,
-                                category_id: Number(event.target.value),
-                              }))
-                            }
-                          >
-                            {data.categories.map((cat) => (
-                              <option key={cat.id} value={cat.id}>
-                                {cat.name}
-                              </option>
-                            ))}
-                          </Select>
-                          <Input
-                            aria-label="Descrição"
-                            value={String(costDraft.description ?? cost.description)}
-                            onChange={(event) =>
-                              setCostDraft((current) => ({ ...current, description: event.target.value }))
-                            }
-                          />
-                          <Input
-                            aria-label="Valor"
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            value={Number(costDraft.amount ?? cost.amount)}
-                            onChange={(event) =>
-                              setCostDraft((current) => ({ ...current, amount: Number(event.target.value) }))
-                            }
-                          />
-                          <Input
-                            aria-label="Dia de vencimento"
-                            type="number"
-                            min="1"
-                            max="31"
-                            value={Number(costDraft.due_day ?? cost.due_day)}
-                            onChange={(event) =>
-                              setCostDraft((current) => ({ ...current, due_day: Number(event.target.value) }))
-                            }
-                          />
-                          <Button type="submit" variant="primary">
-                            Salvar
-                          </Button>
-                          <Button type="button" onClick={() => setEditingCost(null)}>
-                            Cancelar
-                          </Button>
-                        </form>
-                      ) : (
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                          <span className="flex size-9 shrink-0 flex-col items-center justify-center rounded-control bg-surface-muted text-ink-700">
-                            <span className="text-sm font-bold tabular leading-none">{cost.due_day}</span>
-                            <span className="text-[9px] font-medium uppercase text-ink-400">dia</span>
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p
-                              className={classNames(
-                                "text-sm font-medium",
-                                cost.active ? "text-ink-900" : "text-ink-400 line-through",
-                              )}
-                            >
-                              {cost.description}
-                            </p>
-                            <p className="text-xs text-ink-400">todo dia {cost.due_day}</p>
-                          </div>
-                          <p
-                            className={classNames(
-                              "font-semibold tabular",
-                              cost.active ? "text-ink-900" : "text-ink-400",
-                            )}
-                          >
-                            {formatMoney(cost.amount)}
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditingCost(cost.id);
-                                setCostDraft(cost);
-                              }}
-                            >
-                              Editar
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={async () => {
-                                await updateFixedCost(cost.id, { active: !cost.active });
-                                await onReload();
-                              }}
-                            >
-                              {cost.active ? "Desativar" : "Reativar"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={async () => {
-                                if (!window.confirm(`Excluir "${cost.description}"?`)) return;
-                                await deleteFixedCost(cost.id);
-                                await onReload();
-                              }}
-                            >
-                              Excluir
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            ))}
-          </div>
-        ) : (
+                          <AlertCircle className="size-3.5" aria-hidden="true" />Excluir
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <Card className="p-5 sm:p-6">
           <EmptyState
             icon={<Wallet className="size-5" aria-hidden="true" />}
             title="Nenhum custo fixo cadastrado ainda."
             detail="Comece pelos compromissos que se repetem todo mês: aluguel, internet, assinaturas."
           />
-        )}
-      </Card>
+        </Card>
+      )}
 
-      <Card className="p-5 sm:p-6">
+      {/* Inactive section */}
+      {showInactive && inactiveCosts.length > 0 && (
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">Inativos</p>
+            <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[11px] font-semibold text-ink-500">
+              {inactiveCosts.length}
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+            {inactiveCosts.map((cost, idx) => {
+              const cat = getCostCategory(cost);
+              const color = categoryColor(cat?.name, cat?.color);
+              if (editingCost === cost.id) return <div key={cost.id}>{costEditForm(cost)}</div>;
+              return (
+                <div
+                  key={cost.id}
+                  className={classNames(
+                    "flex items-center gap-4 px-5 py-3.5",
+                    idx < inactiveCosts.length - 1 ? "border-b border-ink-100" : "",
+                  )}
+                >
+                  <div className="opacity-40">
+                    <CatAvatar category={cat?.name} color={color} size={38} />
+                  </div>
+                  <div className="min-w-0 flex-1 opacity-50">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-ink-500 line-through">{cost.description}</p>
+                      <span
+                        className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none"
+                        style={{ background: color + "1A", color }}
+                      >
+                        {cat?.name}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-ink-400">{cost.due_day ? `Dia ${cost.due_day}` : "Personalizada"}</p>
+                  </div>
+                  <p className="w-28 shrink-0 text-right text-sm font-semibold tabular text-ink-400 line-through opacity-50">
+                    {formatMoney(cost.amount)}
+                  </p>
+                  <div className="flex w-36 shrink-0 justify-end">
+                    <span className="rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-500">Inativo</span>
+                  </div>
+                  <div className="flex w-24 shrink-0 justify-end">
+                    <button
+                      type="button"
+                      className="rounded-control border border-ink-200 bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-600 transition-colors hover:bg-surface-muted"
+                      onClick={async () => { await updateFixedCost(cost.id, { active: true }); await onReload(); }}
+                    >
+                      Reativar
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <Card id="add-cost-form" className="p-5 sm:p-6">
         <h2 className="text-sm font-semibold text-ink-900">Adicionar custo fixo</h2>
         <p className="mt-0.5 text-xs text-ink-500">
           O valor vira a base de todos os meses; ajustes pontuais ficam na lista acima.
@@ -1468,6 +1686,7 @@ function IncomePlanning({
   const [entryForm, setEntryForm] = useState({ description: "", amount: "", expected_day: "" });
   const [editingEntry, setEditingEntry] = useState<number | null>(null);
   const [entryDraft, setEntryDraft] = useState<Partial<ExpectedIncomeEntry>>({});
+  const [menuOpen, setMenuOpen] = useState<number | null>(null);
 
   const addEntry = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1485,119 +1704,90 @@ function IncomePlanning({
     }
   };
 
-  const setIncomeOverride = async (item: ExpectedIncomeMonthEntry, amount: number) => {
-    try {
-      if (item.is_override && Math.abs(amount - Number(item.base_amount)) < 0.005) {
-        await deleteExpectedIncomeOverride(item.expected_income_id, selectedMonth);
-      } else {
-        await setExpectedIncomeOverride(item.expected_income_id, selectedMonth, amount);
-      }
-      await onReload();
-      showToast("Valor do mês atualizado.", "success");
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Erro ao atualizar valor.", "error");
-    }
-  };
+  const total = data.incomeMonth.total;
+  const activeEntries = data.incomeEntries.filter((e) => e.active);
+  const shownEntries = showInactive ? data.incomeEntries : activeEntries;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" onClick={() => setMenuOpen(null)}>
+      {/* Hero card */}
       <Card className="border-positive-200 bg-positive-50/70 p-5 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-positive-700">
-              Receita esperada em {formatMonthShort(selectedMonth)}
+            <p className="text-xs font-semibold uppercase tracking-wider text-positive-700">
+              Receita prevista · {formatMonthLong(selectedMonth)}
             </p>
-            <p className="mt-1 text-3xl font-bold tracking-tight tabular text-positive-700">
-              {formatMoney(data.incomeMonth.total)}
+            <p className="mt-2 text-4xl font-bold tabular tracking-tight text-positive-800">
+              {formatMoney(total)}
             </p>
           </div>
-          <label className="flex items-center gap-2 text-sm text-ink-600">
-            <input
-              type="checkbox"
-              className="rounded border-ink-300 text-positive-600 focus:ring-positive-200"
-              checked={showInactive}
-              onChange={(event) => setShowInactive(event.target.checked)}
-            />
-            Mostrar inativas
-          </label>
+          <Button
+            type="button"
+            variant="primary"
+            className="bg-positive-600 hover:bg-positive-700"
+            onClick={(e) => {
+              e.stopPropagation();
+              document.getElementById("add-income-form")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            Nova entrada
+          </Button>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-4">
+          <div className="rounded-control border border-positive-200 bg-positive-100/60 p-3.5">
+            <p className="text-xs font-medium text-positive-700">Entradas ativas</p>
+            <p className="mt-1 text-xl font-bold tabular text-positive-800">{formatMoney(total)}</p>
+            <p className="mt-0.5 text-xs text-positive-600">{activeEntries.length} entradas configuradas</p>
+          </div>
+          <div className="rounded-control border border-positive-200 bg-white/50 p-3.5">
+            <p className="text-xs font-medium text-positive-700">Inativos</p>
+            <p className="mt-1 text-xl font-bold tabular text-positive-800">
+              {data.incomeEntries.filter((e) => !e.active).length} entradas
+            </p>
+            <p className="mt-0.5 text-xs text-positive-600">
+              {data.incomeEntries.filter((e) => !e.active).length > 0 ? "Ative para incluir na receita" : "Nenhuma entrada inativa"}
+            </p>
+          </div>
         </div>
       </Card>
 
-      <Card className="p-5 sm:p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-900">Entradas deste mês</h2>
-            <p className="mt-0.5 text-xs text-ink-500">
-              Ajustes aqui valem apenas para {formatMonthShort(selectedMonth)}.
-            </p>
-          </div>
-        </div>
-        {data.incomeMonth.entries.length ? (
-          <ul className="divide-y divide-ink-100">
-            {data.incomeMonth.entries.map((item) => (
-              <li
-                key={item.expected_income_id}
-                className="flex flex-col gap-3 px-2 py-3 sm:flex-row sm:items-center"
-              >
-                <span className="flex size-9 shrink-0 flex-col items-center justify-center rounded-control bg-positive-100 text-positive-700">
-                  <span className="text-sm font-bold tabular leading-none">{item.expected_day}</span>
-                  <span className="text-[9px] font-medium uppercase text-positive-600/70">dia</span>
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium text-ink-900">{item.description}</p>
-                    {item.is_override ? <Badge tone="primary">Ajustado no mês</Badge> : null}
-                  </div>
-                  {item.is_override ? (
-                    <button
-                      type="button"
-                      className="mt-1 text-xs font-medium text-ink-600 hover:text-ink-800"
-                      onClick={async () => {
-                        await deleteExpectedIncomeOverride(item.expected_income_id, selectedMonth);
-                        await onReload();
-                      }}
-                    >
-                      Voltar ao valor base ({formatMoney(item.base_amount)})
-                    </button>
-                  ) : null}
-                </div>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  aria-label={`Valor de ${item.description} neste mês`}
-                  defaultValue={Number(item.amount).toFixed(2)}
-                  className="w-full text-right font-bold tabular text-positive-700 sm:w-32"
-                  onBlur={(event) => {
-                    const amount = Number(event.target.value);
-                    if (!Number.isNaN(amount) && Math.abs(amount - Number(item.amount)) >= 0.005) {
-                      void setIncomeOverride(item, amount);
-                    }
-                  }}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState title="Nenhuma entrada ativa para este mês." />
-        )}
-      </Card>
-
-      <Card className="p-5 sm:p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-ink-900">Entradas recorrentes</h2>
-            <p className="mt-0.5 text-xs text-ink-500">A base que se repete todos os meses.</p>
-          </div>
-          <span className="text-xs text-ink-500">
+      {/* List header */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-ink-900">
+          Entradas recorrentes
+          <span className="ml-2 text-xs font-normal text-ink-400">
             {pluralize(data.incomeEntries.length, "entrada", "entradas")}
           </span>
-        </div>
-        {data.incomeEntries.length ? (
-          <ul className="mb-5 space-y-2">
-            {data.incomeEntries.map((entry) => (
-              <li key={entry.id} className="rounded-control border border-ink-200 bg-surface px-4 py-3">
-                {editingEntry === entry.id ? (
+        </h3>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setShowInactive(!showInactive); }}
+          className={classNames(
+            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            showInactive ? "border-ink-400 bg-ink-100 text-ink-700" : "border-ink-200 bg-surface text-ink-500 hover:border-ink-300",
+          )}
+        >
+          <span className={classNames("size-1.5 rounded-full", showInactive ? "bg-ink-600" : "bg-ink-300")} />
+          Mostrar inativas
+        </button>
+      </div>
+
+      {/* Entries list */}
+      {shownEntries.length > 0 ? (
+        <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+          <div className="flex items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5">
+            <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Entrada</span>
+            <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Valor</span>
+            <span className="w-36 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Status</span>
+            <span className="w-16 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Ações</span>
+          </div>
+          {shownEntries.map((entry, idx) => {
+            const inactive = !entry.active;
+            const isLast = idx === shownEntries.length - 1;
+            if (editingEntry === entry.id) {
+              return (
+                <div key={entry.id} className={classNames("px-5 py-3", !isLast ? "border-b border-ink-100" : "")}>
                   <form
                     className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_100px_auto_auto]"
                     onSubmit={async (event) => {
@@ -1614,113 +1804,131 @@ function IncomePlanning({
                     <Input
                       aria-label="Descrição"
                       value={String(entryDraft.description ?? entry.description)}
-                      onChange={(event) =>
-                        setEntryDraft((current) => ({ ...current, description: event.target.value }))
-                      }
+                      onChange={(event) => setEntryDraft((c) => ({ ...c, description: event.target.value }))}
                     />
                     <Input
                       aria-label="Valor"
                       type="number"
                       step="0.01"
                       value={Number(entryDraft.amount ?? entry.amount)}
-                      onChange={(event) =>
-                        setEntryDraft((current) => ({ ...current, amount: Number(event.target.value) }))
-                      }
+                      onChange={(event) => setEntryDraft((c) => ({ ...c, amount: Number(event.target.value) }))}
                     />
                     <Input
                       aria-label="Dia esperado"
                       type="number"
                       value={Number(entryDraft.expected_day ?? entry.expected_day)}
-                      onChange={(event) =>
-                        setEntryDraft((current) => ({ ...current, expected_day: Number(event.target.value) }))
-                      }
+                      onChange={(event) => setEntryDraft((c) => ({ ...c, expected_day: Number(event.target.value) }))}
                     />
-                    <Button type="submit" variant="primary">
-                      Salvar
-                    </Button>
-                    <Button type="button" onClick={() => setEditingEntry(null)}>
-                      Cancelar
-                    </Button>
+                    <Button type="submit" variant="primary">Salvar</Button>
+                    <Button type="button" onClick={() => setEditingEntry(null)}>Cancelar</Button>
                   </form>
-                ) : (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <span
-                      className={classNames(
-                        "flex size-9 shrink-0 flex-col items-center justify-center rounded-control",
-                        entry.active ? "bg-positive-100 text-positive-700" : "bg-surface-muted text-ink-400",
-                      )}
-                    >
-                      <span className="text-sm font-bold tabular leading-none">{entry.expected_day}</span>
-                      <span className="text-[9px] font-medium uppercase opacity-70">dia</span>
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={classNames(
-                          "text-sm font-medium",
-                          entry.active ? "text-ink-900" : "text-ink-400 line-through",
-                        )}
-                      >
-                        {entry.description}
-                      </p>
-                      <p className="text-xs text-ink-400">recorrente · todo mês</p>
-                    </div>
-                    <p
-                      className={classNames(
-                        "font-bold tabular",
-                        entry.active ? "text-positive-700" : "text-ink-400",
-                      )}
-                    >
-                      {formatMoney(entry.amount)}
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setEditingEntry(entry.id);
-                          setEntryDraft(entry);
-                        }}
-                      >
-                        Editar
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={async () => {
-                          await updateExpectedIncome(entry.id, { active: !entry.active });
-                          await onReload();
-                        }}
-                      >
-                        {entry.active ? "Desativar" : "Reativar"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={async () => {
-                          if (!window.confirm(`Excluir "${entry.description}"?`)) return;
-                          await deleteExpectedIncome(entry.id);
-                          await onReload();
-                        }}
-                      >
-                        Excluir
-                      </Button>
-                    </div>
-                  </div>
+                </div>
+              );
+            }
+            return (
+              <div
+                key={entry.id}
+                className={classNames(
+                  "group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-surface-muted/40",
+                  !isLast ? "border-b border-ink-100" : "",
+                  inactive ? "opacity-60" : "",
                 )}
-              </li>
-            ))}
-          </ul>
-        ) : (
+              >
+                <DayBadge day={entry.expected_day} tone="neutral" size={38} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className={classNames("text-sm font-semibold", inactive ? "text-ink-400 line-through" : "text-ink-900")}>
+                      {entry.description}
+                    </p>
+                    {inactive && (
+                      <span className="rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold text-ink-500">Inativo</span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-ink-400">recorrente · todo mês</p>
+                </div>
+                <p className={classNames("w-28 shrink-0 text-right text-sm font-bold tabular", inactive ? "text-ink-400" : "text-positive-700")}>
+                  {formatMoney(entry.amount)}
+                </p>
+                <div className="flex w-36 shrink-0 justify-end">
+                  {inactive ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-semibold text-ink-500 ring-1 ring-inset ring-ink-200">Inativo</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-50 px-2.5 py-1 text-xs font-semibold text-warning-800 ring-1 ring-inset ring-warning-200">
+                      <span className="size-1.5 rounded-full bg-warning-500" />
+                      Aguardando
+                    </span>
+                  )}
+                </div>
+                <div className="flex w-16 shrink-0 items-center justify-end gap-0.5">
+                  <button
+                    type="button"
+                    title="Editar"
+                    className="flex size-7 items-center justify-center rounded-control text-ink-400 opacity-0 transition-all hover:bg-surface-muted hover:text-ink-700 group-hover:opacity-100"
+                    onClick={(e) => { e.stopPropagation(); setEditingEntry(entry.id); setEntryDraft(entry); }}
+                  >
+                    <Pencil className="size-3.5" aria-hidden="true" />
+                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className="flex size-7 items-center justify-center rounded-control text-ink-300 transition-all hover:bg-surface-muted hover:text-ink-600 group-hover:text-ink-500"
+                      onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === entry.id ? null : entry.id); }}
+                    >
+                      <MoreVertical className="size-4" aria-hidden="true" />
+                    </button>
+                    {menuOpen === entry.id && (
+                      <div className="absolute right-0 top-8 z-30 min-w-[152px] overflow-hidden rounded-control border border-ink-200 bg-surface shadow-lift">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-ink-700 hover:bg-surface-muted"
+                          onClick={(e) => { e.stopPropagation(); setEditingEntry(entry.id); setEntryDraft(entry); setMenuOpen(null); }}
+                        >
+                          <Pencil className="size-3.5 text-ink-400" aria-hidden="true" />Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-ink-700 hover:bg-surface-muted"
+                          onClick={async (e) => { e.stopPropagation(); await updateExpectedIncome(entry.id, { active: !entry.active }); setMenuOpen(null); await onReload(); }}
+                        >
+                          <X className="size-3.5 text-ink-400" aria-hidden="true" />{entry.active ? "Desativar" : "Reativar"}
+                        </button>
+                        <div className="my-0.5 border-t border-ink-100" />
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-danger-600 hover:bg-danger-50"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!window.confirm(`Excluir "${entry.description}"?`)) return;
+                            await deleteExpectedIncome(entry.id);
+                            setMenuOpen(null);
+                            await onReload();
+                          }}
+                        >
+                          <AlertCircle className="size-3.5" aria-hidden="true" />Excluir
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <Card className="p-5 sm:p-6">
           <EmptyState
             title="Nenhuma entrada cadastrada."
             detail="Cadastre salário e outras receitas previstas."
           />
-        )}
+        </Card>
+      )}
+
+      {/* Add entry form */}
+      <Card id="add-income-form" className="p-5 sm:p-6">
+        <h2 className="text-sm font-semibold text-ink-900">Nova entrada recorrente</h2>
+        <p className="mt-0.5 text-xs text-ink-500">A base que se repete todos os meses.</p>
         <form
-          className="grid grid-cols-1 gap-2 border-t border-ink-100 pt-5 sm:grid-cols-[1fr_140px_100px_auto]"
+          className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_100px_auto]"
           onSubmit={addEntry}
         >
           <Input
