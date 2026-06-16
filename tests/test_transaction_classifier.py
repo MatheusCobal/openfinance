@@ -979,9 +979,9 @@ class CreditPurchaseScopeTest(unittest.TestCase):
 
         body = self.client.get("/stats/monthly").json()
         by_name = {item["name"]: item for item in body["categories"]}
-        self.assertIn("Compras pessoais", by_name)
+        self.assertIn("Outros", by_name)
         self.assertNotIn("Pet", by_name)
-        self.assertAlmostEqual(by_name["Compras pessoais"]["total"], 120.0)
+        self.assertAlmostEqual(by_name["Outros"]["total"], 120.0)
 
     def test_stats_summary_excludes_bank_pix(self):
         body = self.client.get("/stats").json()

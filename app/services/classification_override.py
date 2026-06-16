@@ -16,6 +16,8 @@ from app.services.transaction_classifier import (
     IGNORED_CASHFLOW_TYPES,
     INTERNAL_CATEGORIES,
     classify_transaction,
+    is_supported_internal_category,
+    normalize_internal_category,
 )
 
 MANUAL_OVERRIDE_SOURCE = "manual_override"
@@ -40,7 +42,7 @@ def classification_options() -> dict:
 
 
 def validate_override_values(internal_category: str, cashflow_type: str) -> None:
-    if internal_category not in INTERNAL_CATEGORIES:
+    if not is_supported_internal_category(internal_category):
         raise ValueError(
             f"internal_category {internal_category!r} is not in the 10D-B taxonomy"
         )
@@ -70,6 +72,7 @@ def apply_manual_classification(
     the same rule the automatic classifier applies.
     """
     validate_override_values(internal_category, cashflow_type)
+    internal_category = normalize_internal_category(internal_category)
     tx = _get_transaction(session, transaction_id)
 
     tx.internal_category = internal_category

@@ -670,7 +670,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertNotIn("bank-pix-jun", tx_ids)
 
         by_category = {category["name"]: category for category in june["categories"]}
-        self.assertEqual(set(by_category), {"Alimentação", "Transporte", "Compras pessoais"})
+        self.assertEqual(set(by_category), {"Alimentação", "Transporte", "Outros"})
         self.assertAlmostEqual(by_category["Alimentação"]["total"], 100.0, places=2)
         self.assertAlmostEqual(by_category["Alimentação"]["average_12m"], 90.0, places=2)
         self.assertEqual(by_category["Alimentação"]["average_months_used"], 2)
@@ -686,16 +686,16 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         )
         self.assertEqual(by_category["Transporte"]["transactions"][0]["classification_source"], "manual_override")
         self.assertEqual(
-            by_category["Compras pessoais"]["transactions"][0]["classification_source"],
+            by_category["Outros"]["transactions"][0]["classification_source"],
             "user_rule",
         )
         self.assertEqual(
-            by_category["Compras pessoais"]["transactions"][0]["internal_category"],
+            by_category["Outros"]["transactions"][0]["internal_category"],
             "Pet",
         )
         self.assertEqual(
-            by_category["Compras pessoais"]["transactions"][0]["effective_category"],
-            "Compras pessoais",
+            by_category["Outros"]["transactions"][0]["effective_category"],
+            "Outros",
         )
 
     def test_historical_month_uses_official_bill_as_display_total(self):

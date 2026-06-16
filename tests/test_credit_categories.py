@@ -26,9 +26,9 @@ class CreditCategoryResolverTest(unittest.TestCase):
             ("Healthcare", "Saúde"),
             ("Pet supplies and vet", "Pet"),
             ("Gas stations", "Transporte"),
-            ("Shopping", "Compras pessoais"),
-            ("Electronics", "Compras pessoais"),
-            ("Clothing", "Compras pessoais"),
+            ("Shopping", "Outros"),
+            ("Electronics", "Outros"),
+            ("Clothing", "Outros"),
             ("Airport and airlines", "Lazer / Viagem"),
             ("Accomodation", "Lazer / Viagem"),
             ("Mileage programs", "Lazer / Viagem"),
@@ -51,7 +51,7 @@ class CreditCategoryResolverTest(unittest.TestCase):
             ("Cobasi racao", "Pet"),
             ("Curso online Python", "Educação"),
             ("Latam passagem aeroporto", "Lazer / Viagem"),
-            ("Loja Renner roupas", "Compras pessoais"),
+            ("Loja Renner roupas", "Outros"),
         ]
         for description, expected in cases:
             with self.subTest(description=description):
@@ -66,35 +66,35 @@ class CreditCategoryResolverTest(unittest.TestCase):
                 pluggy_raw_category=None,
                 current_internal_category="Presentes",
             ),
-            "Compras pessoais",
+            "Outros",
         )
         self.assertEqual(
             self.resolve(
                 pluggy_raw_category=None,
                 current_internal_category="Beleza / Cuidados pessoais",
             ),
-            "Compras pessoais",
+            "Outros",
         )
         self.assertEqual(
             self.resolve(
                 pluggy_raw_category="Shopping",
                 current_internal_category="Pet",
             ),
-            "Compras pessoais",
+            "Outros",
         )
 
-    def test_unknown_services_and_empty_values_fall_back_to_other_fees(self):
+    def test_unknown_services_and_empty_values_fall_back_to_outros(self):
         self.assertEqual(
             self.resolve(pluggy_raw_category=None),
-            "Outros / Taxas",
+            "Outros",
         )
         self.assertEqual(
             self.resolve(pluggy_raw_category="Something brand new"),
-            "Outros / Taxas",
+            "Outros",
         )
         self.assertEqual(
             self.resolve(pluggy_raw_category="Services"),
-            "Outros / Taxas",
+            "Outros",
         )
         self.assertEqual(
             self.resolve(
@@ -111,7 +111,7 @@ class CreditCategoryResolverTest(unittest.TestCase):
                 description="Pagamento recebido",
                 current_internal_category="Pagamento de cartão",
             ),
-            "Outros / Taxas",
+            "Outros",
         )
 
     def test_bank_transaction_is_not_resolved_as_credit_category(self):

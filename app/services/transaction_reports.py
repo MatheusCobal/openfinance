@@ -214,7 +214,7 @@ def upcoming_summary(
         for tx in serialized_transactions:
             if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
                 continue
-            name = tx.get("effective_category") or "Outros / Taxas"
+            name = tx.get("effective_category") or "Outros"
             bucket = categories_by_name.setdefault(
                 name,
                 {

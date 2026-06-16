@@ -4,6 +4,7 @@ from typing import Iterable, Optional
 
 from app.categorization import normalize_description
 from app.models import Transaction
+from app.services.transaction_classifier import normalize_internal_category
 
 
 CREDIT_CATEGORY_LABELS = (
@@ -15,11 +16,10 @@ CREDIT_CATEGORY_LABELS = (
     "Pet",
     "Educação",
     "Lazer / Viagem",
-    "Compras pessoais",
-    "Outros / Taxas",
+    "Outros",
 )
 
-DEFAULT_CREDIT_CATEGORY = "Outros / Taxas"
+DEFAULT_CREDIT_CATEGORY = "Outros"
 
 _DIRECT_PLUGGY_CATEGORY_MAP = {
     "food": "Alimentação",
@@ -75,29 +75,29 @@ _DIRECT_PLUGGY_CATEGORY_MAP = {
     "stadiums and arenas": "Lazer / Viagem",
     "tickets": "Lazer / Viagem",
     "leisure": "Lazer / Viagem",
-    "shopping": "Compras pessoais",
-    "online shopping": "Compras pessoais",
-    "electronics": "Compras pessoais",
-    "clothing": "Compras pessoais",
-    "office supplies": "Compras pessoais",
-    "sports goods": "Compras pessoais",
-    "wellness and fitness": "Compras pessoais",
-    "wellness": "Compras pessoais",
-    "gyms and fitness centers": "Compras pessoais",
-    "beauty": "Compras pessoais",
-    "personal care": "Compras pessoais",
-    "kids and toys": "Compras pessoais",
-    "donations": "Compras pessoais",
-    "tax": "Outros / Taxas",
-    "taxes": "Outros / Taxas",
-    "income taxes": "Outros / Taxas",
-    "vehicle ownership taxes and fees": "Outros / Taxas",
-    "fee": "Outros / Taxas",
-    "fees": "Outros / Taxas",
-    "credit card fees": "Outros / Taxas",
-    "tax on financial operations": "Outros / Taxas",
-    "insurance": "Outros / Taxas",
-    "adjustment": "Outros / Taxas",
+    "shopping": "Outros",
+    "online shopping": "Outros",
+    "electronics": "Outros",
+    "clothing": "Outros",
+    "office supplies": "Outros",
+    "sports goods": "Outros",
+    "wellness and fitness": "Outros",
+    "wellness": "Outros",
+    "gyms and fitness centers": "Outros",
+    "beauty": "Outros",
+    "personal care": "Outros",
+    "kids and toys": "Outros",
+    "donations": "Outros",
+    "tax": "Outros",
+    "taxes": "Outros",
+    "income taxes": "Outros",
+    "vehicle ownership taxes and fees": "Outros",
+    "fee": "Outros",
+    "fees": "Outros",
+    "credit card fees": "Outros",
+    "tax on financial operations": "Outros",
+    "insurance": "Outros",
+    "adjustment": "Outros",
 }
 
 _LEGACY_INTERNAL_CATEGORY_MAP = {
@@ -112,22 +112,22 @@ _LEGACY_INTERNAL_CATEGORY_MAP = {
     "lazer viagem": "Lazer / Viagem",
     "lazer": "Lazer / Viagem",
     "viagem": "Lazer / Viagem",
-    "compras pessoais": "Compras pessoais",
-    "compras": "Compras pessoais",
-    "presentes": "Compras pessoais",
-    "beleza cuidados pessoais": "Compras pessoais",
-    "outros taxas": "Outros / Taxas",
-    "impostos taxas": "Outros / Taxas",
-    "financiamentos": "Outros / Taxas",
-    "estorno": "Outros / Taxas",
-    "ajustes": "Outros / Taxas",
-    "ignorar": "Outros / Taxas",
-    "outros": "Outros / Taxas",
+    "compras pessoais": "Outros",
+    "compras": "Outros",
+    "presentes": "Outros",
+    "beleza cuidados pessoais": "Outros",
+    "outros taxas": "Outros",
+    "impostos taxas": "Outros",
+    "financiamentos": "Outros",
+    "estorno": "Outros",
+    "ajustes": "Outros",
+    "ignorar": "Outros",
+    "outros": "Outros",
 }
 
 _DESCRIPTION_PATTERNS = (
     (
-        "Outros / Taxas",
+        "Outros",
         (
             "iof",
             "anuidade",
@@ -274,7 +274,7 @@ _DESCRIPTION_PATTERNS = (
         ),
     ),
     (
-        "Compras pessoais",
+        "Outros",
         (
             "roupa",
             "vestuario",
@@ -379,7 +379,9 @@ def resolve_credit_internal_category(
     current_internal_category: Optional[str] = None,
 ) -> str:
     if (account_type or "").upper() != "CREDIT":
-        return current_internal_category or transaction.internal_category or DEFAULT_CREDIT_CATEGORY
+        return normalize_internal_category(
+            current_internal_category or transaction.internal_category or DEFAULT_CREDIT_CATEGORY
+        )
 
     return resolve_credit_category_from_pluggy(
         pluggy_raw_category=transaction.pluggy_raw_category or transaction.category,

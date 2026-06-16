@@ -56,6 +56,11 @@ INTERNAL_CATEGORIES = (
     "Outros",
 )
 
+LEGACY_INTERNAL_CATEGORY_ALIASES = {
+    "compras pessoais": "Outros",
+    "outros taxas": "Outros",
+}
+
 IGNORED_CASHFLOW_TYPES = {
     "transfer",
     "credit_card_payment",
@@ -316,6 +321,31 @@ def normalize_pluggy_value(value: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
+def normalize_internal_category(value: Optional[str]) -> str:
+    """Canonicalize persisted/legacy internal category values."""
+    if value is None:
+        return "Outros"
+    text = str(value).strip()
+    if not text:
+        return "Outros"
+    normalized = normalize_pluggy_value(text)
+    if normalized in LEGACY_INTERNAL_CATEGORY_ALIASES:
+        return LEGACY_INTERNAL_CATEGORY_ALIASES[normalized]
+    if text in INTERNAL_CATEGORIES:
+        return text
+    return "Outros"
+
+
+def is_supported_internal_category(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    text = str(value).strip()
+    if not text:
+        return False
+    normalized = normalize_pluggy_value(text)
+    return text in INTERNAL_CATEGORIES or normalized in LEGACY_INTERNAL_CATEGORY_ALIASES
+
+
 def _user_rule_matches(data: ClassificationInput, rule: "CompiledUserRule") -> bool:
     # A rule with no criteria must never match everything (defensive — the
     # service layer already rejects such rules at creation time).
@@ -364,7 +394,7 @@ def match_user_rule(data: ClassificationInput) -> Optional[ClassificationResult]
     for rule in data.user_rules:
         if _user_rule_matches(data, rule):
             return ClassificationResult(
-                internal_category=rule.target_internal_category,
+                internal_category=normalize_internal_category(rule.target_internal_category),
                 cashflow_type=rule.target_cashflow_type,
                 source="user_rule",
                 confidence="high",
@@ -535,7 +565,7 @@ def _persisted_transaction_classification(tx: Transaction) -> dict[str, Any]:
         "pluggy_raw_subcategory": tx.pluggy_raw_subcategory,
         "pluggy_raw_type": tx.pluggy_raw_type,
         "pluggy_merchant": tx.pluggy_merchant,
-        "internal_category": tx.internal_category,
+        "internal_category": normalize_internal_category(tx.internal_category),
         "cashflow_type": tx.cashflow_type,
         "classification_source": tx.classification_source,
         "classification_confidence": tx.classification_confidence,

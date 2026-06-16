@@ -365,7 +365,7 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
         if serialized.get("ignored_from_totals") or serialized.get("cashflow_type") != "expense":
             continue
 
-        category_name = serialized.get("effective_category") or "Outros / Taxas"
+        category_name = serialized.get("effective_category") or "Outros"
         amount = Decimal(str(serialized["amount_abs"]))
         tx_month = month_key(tx.date)
         totals_by_month_category[tx_month][category_name] += amount
@@ -429,7 +429,7 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
 
         categories_by_name: Dict[str, dict[str, Any]] = {}
         for tx in txs:
-            category_name = tx.get("effective_category") or "Outros / Taxas"
+            category_name = tx.get("effective_category") or "Outros"
             bucket = categories_by_name.setdefault(
                 category_name,
                 {

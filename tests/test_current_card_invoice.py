@@ -331,10 +331,10 @@ class CurrentCardInvoiceTest(unittest.TestCase):
             summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
 
         category = summary["categories"][0]
-        self.assertEqual(category["name"], "Compras pessoais")
-        self.assertEqual(category["effective_category"], "Compras pessoais")
+        self.assertEqual(category["name"], "Outros")
+        self.assertEqual(category["effective_category"], "Outros")
         self.assertEqual(category["transactions"][0]["internal_category"], "Pet")
-        self.assertEqual(category["transactions"][0]["effective_category"], "Compras pessoais")
+        self.assertEqual(category["transactions"][0]["effective_category"], "Outros")
 
     def test_future_planning_month_can_still_use_scheduled_installments(self):
         with Session(self.engine) as session:

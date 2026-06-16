@@ -405,7 +405,7 @@ def current_card_invoice_summary(
     for tx in raw_purchase_transactions:
         if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
             continue
-        name = tx.get("effective_category") or "Outros / Taxas"
+        name = tx.get("effective_category") or "Outros"
         amount = Decimal(str(tx.get("amount") or 0))
         bucket = categories_by_name.setdefault(
             name,

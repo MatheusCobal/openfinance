@@ -155,6 +155,15 @@ class ManualClassificationOverrideTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(self._get_tx("tx-food").is_user_overridden)
 
+    def test_apply_override_normalizes_removed_category_alias(self):
+        response = self.client.patch(
+            "/transactions/tx-food/classification",
+            json={"internal_category": "Compras pessoais", "cashflow_type": "expense"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["internal_category"], "Outros")
+        self.assertEqual(self._get_tx("tx-food").internal_category, "Outros")
+
     def test_apply_override_rejects_invalid_cashflow_type(self):
         response = self.client.patch(
             "/transactions/tx-food/classification",

@@ -393,7 +393,7 @@ type CategoryPeriodSummary = {
 };
 
 function categoryName(category: { name?: string | null; resolved_category?: string | null }) {
-  return category.resolved_category || category.name || "Outros / Taxas";
+  return category.resolved_category || category.name || "Outros";
 }
 
 function summarizeCreditCategories(data: InvoiceHistorySummary): CategoryPeriodSummary[] {

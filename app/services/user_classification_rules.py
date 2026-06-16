@@ -24,10 +24,11 @@ from app.services.transaction_classifier import (
     AMOUNT_SIGNS,
     CASHFLOW_TYPES,
     IGNORED_CASHFLOW_TYPES,
-    INTERNAL_CATEGORIES,
     ClassificationInput,
     CompiledUserRule,
     _user_rule_matches,
+    is_supported_internal_category,
+    normalize_internal_category,
     normalize_pluggy_value,
     serialize_transaction_classification,
 )
@@ -85,7 +86,7 @@ def compile_rule(rule: UserClassificationRule) -> CompiledUserRule:
         if rule.match_description
         else None,
         match_amount_sign=(rule.match_amount_sign or "any").lower(),
-        target_internal_category=rule.target_internal_category,
+        target_internal_category=normalize_internal_category(rule.target_internal_category),
         target_cashflow_type=rule.target_cashflow_type,
         ignored_from_totals=_resolved_ignored_from_totals(
             rule.target_cashflow_type,
@@ -130,10 +131,11 @@ def _validate_and_normalize_fields(fields: dict[str, Any]) -> dict[str, Any]:
         raise UserRuleValidationError("match_amount_sign must be positive, negative or any")
 
     target_internal_category = _clean(fields.get("target_internal_category"))
-    if target_internal_category not in INTERNAL_CATEGORIES:
+    if not is_supported_internal_category(target_internal_category):
         raise UserRuleValidationError(
             "target_internal_category is not in the 10D-B taxonomy"
         )
+    target_internal_category = normalize_internal_category(target_internal_category)
 
     target_cashflow_type = _clean(fields.get("target_cashflow_type"))
     if target_cashflow_type not in CASHFLOW_TYPES:

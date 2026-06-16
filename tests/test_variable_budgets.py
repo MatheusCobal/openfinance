@@ -135,10 +135,10 @@ class VariableBudgetServiceTest(unittest.TestCase):
     def test_refund_only_category_floors_at_zero(self):
         with Session(self.engine) as session:
             _seed_accounts(session)
-            upsert_goal(session, YEAR_MONTH, "Compras pessoais", 300)
+            upsert_goal(session, YEAR_MONTH, "Outros", 300)
             _add_tx(session, "canc-1", "-100.00", "Estorno compra", "Shopping")
             payload = _progress(session)
-            item = _item(payload, "Compras pessoais")
+            item = _item(payload, "Outros")
         self.assertEqual(item["spent"], 0.0)
         self.assertEqual(item["transaction_count"], 0)
 
@@ -270,7 +270,10 @@ class VariableBudgetApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         categories = response.json()["categories"]
         self.assertIn("Alimentação", categories)
-        self.assertEqual(len(categories), 10)
+        self.assertIn("Outros", categories)
+        self.assertNotIn("Compras pessoais", categories)
+        self.assertNotIn("Outros / Taxas", categories)
+        self.assertEqual(len(categories), 9)
 
     def test_validation_rejects_negative_target(self):
         response = self.client.put(
