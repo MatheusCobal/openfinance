@@ -684,7 +684,9 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
             11.111111,
             places=5,
         )
-        self.assertEqual(by_category["Transporte"]["transactions"][0]["classification_source"], "manual_override")
+        self.assertEqual(
+            by_category["Transporte"]["transactions"][0]["classification_source"], "manual_override"
+        )
         self.assertEqual(
             by_category["Outros"]["transactions"][0]["classification_source"],
             "user_rule",
@@ -1124,7 +1126,9 @@ class TestHistoricoPageLoads(unittest.TestCase):
             source,
         )
 
-    def test_historico_separates_invoice_history_from_classified_spending_and_raw_bank_cashflow(self):
+    def test_historico_separates_invoice_history_from_classified_spending_and_raw_bank_cashflow(
+        self,
+    ):
         source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
 
         self.assertIn("Meses fechados respeitam o valor oficial do banco", source)
@@ -1143,7 +1147,12 @@ class TestHistoricoPageLoads(unittest.TestCase):
         source = Path("frontend/src/pages/PlanejamentoPage.tsx").read_text(encoding="utf-8")
 
         self.assertIn("const PLANNING_MONTH_WINDOW_SIZE = 12", source)
-        self.assertIn("monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE)", source)
+        # The strip starts at the vigente month (currentMonth + 1) and spans
+        # PLANNING_MONTH_WINDOW_SIZE + 1 entries (the vigente month plus the
+        # 12-month horizon).
+        self.assertIn(
+            "monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE + 1)", source
+        )
 
     def test_credit_card_payments_monthly_endpoint(self):
         response = self.client.get("/credit-card-payments/monthly?months=3")
