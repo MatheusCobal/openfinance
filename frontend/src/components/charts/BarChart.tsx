@@ -18,6 +18,8 @@ interface BarChartProps {
   ariaLabel?: string;
   onBarClick?: (index: number) => void;
   showValueLabels?: boolean;
+  /** Show only the currency value in the tooltip, without the dataset label. */
+  tooltipValueOnly?: boolean;
 }
 
 function compactCurrency(value: number) {
@@ -63,6 +65,7 @@ export function BarChart({
   ariaLabel,
   onBarClick,
   showValueLabels = false,
+  tooltipValueOnly = false,
 }: BarChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -115,11 +118,14 @@ export function BarChart({
             cornerRadius: 8,
             displayColors: datasets.length > 1,
             callbacks: {
-              label: (ctx) =>
-                ` ${ctx.dataset.label ? `${ctx.dataset.label}: ` : ""}${Number(ctx.parsed.y).toLocaleString(
-                  "pt-BR",
-                  { style: "currency", currency: "BRL" },
-                )}`,
+              label: (ctx) => {
+                const value = Number(ctx.parsed.y).toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                });
+                if (tooltipValueOnly) return ` ${value}`;
+                return ` ${ctx.dataset.label ? `${ctx.dataset.label}: ` : ""}${value}`;
+              },
             },
           },
         },
@@ -151,7 +157,7 @@ export function BarChart({
       },
     });
     return () => chart.destroy();
-  }, [datasets, labels, onBarClick, showValueLabels, stacked]);
+  }, [datasets, labels, onBarClick, showValueLabels, stacked, tooltipValueOnly]);
 
   return <canvas ref={canvasRef} role="img" aria-label={ariaLabel} />;
 }

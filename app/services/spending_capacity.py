@@ -53,16 +53,18 @@ def spending_capacity_summary(
     # for variable budgets (fatura vigente), instead of the calendar month.
     planning_inv = planning_invoice_for_month(session, year_month, today=today)
 
-    current_ym = today.strftime("%Y-%m")
-    if year_month == current_ym:
-        cycle_start_str = planning_inv.get("cycle_start")
-        cycle_end_str = planning_inv.get("cycle_end")
-        if cycle_start_str and cycle_end_str:
-            vb_first_day = date.fromisoformat(cycle_start_str)
-            vb_last_day = date.fromisoformat(cycle_end_str)
-        else:
-            vb_first_day = first_day
-            vb_last_day = last_day
+    # Variable budgets must track the *fatura vigente* — the billing cycle that
+    # is currently open/forming — rather than the calendar month or a
+    # closed/official bill. The planning invoice exposes that cycle window both
+    # for the current month (``open_invoice``) and for the vigente future month
+    # (``active_open_invoice_transactions``); use it whenever present. Months
+    # without an open cycle (official bills, scheduled installments, past
+    # months) keep the calendar-month window unchanged.
+    cycle_start_str = planning_inv.get("cycle_start")
+    cycle_end_str = planning_inv.get("cycle_end")
+    if cycle_start_str and cycle_end_str:
+        vb_first_day = date.fromisoformat(cycle_start_str)
+        vb_last_day = date.fromisoformat(cycle_end_str)
     else:
         vb_first_day = first_day
         vb_last_day = last_day
@@ -152,6 +154,7 @@ def spending_capacity_summary(
     planned_after_fixed_costs = expected_income_total - fixed_cost_total
     remaining_after_plan = expected_income_total - planned_expense_total
 
+    current_ym = today.strftime("%Y-%m")
     if year_month == current_ym:
         planning_mode = "current_month"
     elif year_month > current_ym:
