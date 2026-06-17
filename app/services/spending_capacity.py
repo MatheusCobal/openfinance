@@ -55,13 +55,25 @@ def spending_capacity_summary(
 
     # Variable budgets must track the *fatura vigente* — the billing cycle that
     # is currently open/forming — rather than the calendar month or a
-    # closed/official bill. The planning invoice exposes that cycle window both
-    # for the current month (``open_invoice``) and for the vigente future month
-    # (``active_open_invoice_transactions``); use it whenever present. Months
-    # without an open cycle (official bills, scheduled installments, past
-    # months) keep the calendar-month window unchanged.
+    # closed/official bill.
+    #
+    # The planning invoice exposes that cycle window directly for the current
+    # month (``open_invoice``) and for a vigente future month whose card has a
+    # ``credit_balance_close_date`` (``active_open_invoice_transactions``).
+    # When the card has no close date, the vigente future month resolves to a
+    # balance-based source (``dashboard_current_invoice`` /
+    # ``account_balance_*``) that carries no cycle window — but the invoice
+    # forming *now* is simply the current month's open invoice, so we borrow
+    # the current month's cycle window. Months further out, past months, and
+    # anything without an open cycle keep the calendar-month window unchanged.
+    today_ym = today.strftime("%Y-%m")
+    vigente_ym = _shift_year_month(today_ym, 1)
     cycle_start_str = planning_inv.get("cycle_start")
     cycle_end_str = planning_inv.get("cycle_end")
+    if not (cycle_start_str and cycle_end_str) and year_month == vigente_ym:
+        current_inv = planning_invoice_for_month(session, today_ym, today=today)
+        cycle_start_str = current_inv.get("cycle_start")
+        cycle_end_str = current_inv.get("cycle_end")
     if cycle_start_str and cycle_end_str:
         vb_first_day = date.fromisoformat(cycle_start_str)
         vb_last_day = date.fromisoformat(cycle_end_str)
