@@ -16,7 +16,7 @@ export function CheckToggle({ paid, onToggle, className }: CheckToggleProps) {
       aria-pressed={paid}
       title={paid ? "Marcar como não pago" : "Marcar como pago"}
       className={classNames(
-        "flex size-7 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
+        "flex size-9 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
         paid
           ? "border-positive-500 bg-positive-500 text-white"
           : "border-ink-300 text-transparent hover:border-positive-400",

@@ -924,7 +924,7 @@ function FixedCostsAgenda({
                         ? "bg-primary-500 font-bold text-white"
                         : items.length
                           ? "bg-white/[0.06] text-white/80"
-                          : "text-white/30",
+                          : "text-white/60",
                     )}
                   >
                     {day}
@@ -2009,10 +2009,10 @@ export function PlanejamentoPage() {
               value={activeTab}
               onChange={setActiveTab}
               items={[
-                { key: "overview", label: "Plano do mês" },
-                { key: "custos", label: "Custos fixos" },
-                { key: "variaveis", label: "Metas variáveis" },
-                { key: "receita", label: "Receita prevista" },
+                { key: "overview", label: "Plano" },
+                { key: "custos", label: "Fixos" },
+                { key: "variaveis", label: "Variáveis" },
+                { key: "receita", label: "Receita" },
               ]}
             />
             <MonthStrip months={months} value={selectedMonth} onChange={setSelectedMonth} />

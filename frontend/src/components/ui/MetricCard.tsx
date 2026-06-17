@@ -26,7 +26,7 @@ export function MetricCard({ label, value, subtitle, icon, tone = "neutral" }: M
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-ink-500">{label}</p>
-          <div className="mt-1.5 text-2xl font-bold leading-tight tracking-tight text-ink-900 tabular">
+          <div className="mt-1.5 text-3xl font-bold leading-tight tracking-tight text-ink-900 tabular">
             {value}
           </div>
         </div>

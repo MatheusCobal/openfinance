@@ -38,7 +38,7 @@ export function Sidebar() {
               <>
                 <span
                   className={classNames(
-                    "absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary-400 transition-opacity",
+                    "absolute inset-y-1.5 left-0 w-1 rounded-full bg-primary-400 transition-opacity",
                     isActive ? "opacity-100" : "opacity-0",
                   )}
                   aria-hidden="true"
