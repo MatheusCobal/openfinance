@@ -394,14 +394,17 @@ function VariableBudgetsPanel({
   const remaining = Math.max(target - consumed, 0);
   const hasTarget = target > 0 || budgeted.length > 0;
 
+  // Variáveis sempre acompanha a fatura vigente / em aberto. No mês atual isso
+  // vem de card_invoice_current_open_total; no mês vigente (padrão da tela, um
+  // mês futuro) esse campo é 0 e o valor correto é a fatura em formação exposta
+  // por planning_invoice. Usamos `||` para que o 0 caia no planning_invoice.
   const invoiceTotal = asMoneyNumber(
-    capacity.card_invoice_current_open_total ?? capacity.planning_invoice?.amount,
+    capacity.card_invoice_current_open_total || capacity.planning_invoice?.amount,
   );
   const invoiceLabel =
-    capacity.card_invoice_current_open_label ??
-    capacity.planning_invoice?.source_label ??
-    invoiceSourceLabel(capacity.card_invoice_current_open_source ?? capacity.planning_invoice?.source);
-  const isFuture = capacity.planning_mode === "future_month";
+    capacity.card_invoice_current_open_label ||
+    capacity.planning_invoice?.source_label ||
+    invoiceSourceLabel(capacity.card_invoice_current_open_source || capacity.planning_invoice?.source);
 
   const budgetedCategories = new Set(budgeted.map((item) => item.category));
   const availableToAdd = eligible.filter((category) => !budgetedCategories.has(category));
@@ -459,10 +462,10 @@ function VariableBudgetsPanel({
   const summaryCards = [
     {
       label: "Fatura vigente",
-      value: isFuture ? "—" : formatMoney(invoiceTotal),
+      value: invoiceTotal > 0 ? formatMoney(invoiceTotal) : "—",
       icon: <CreditCard className="size-4" aria-hidden="true" />,
       toneClass: "bg-primary-50 text-primary-600",
-      sub: isFuture ? "Mês futuro" : invoiceLabel,
+      sub: invoiceTotal > 0 ? invoiceLabel : "Sem fatura em aberto",
     },
     {
       label: "Meta total do mês",
@@ -2015,7 +2018,11 @@ export function PlanejamentoPage() {
                 { key: "receita", label: "Receita" },
               ]}
             />
-            <MonthStrip months={months} value={selectedMonth} onChange={setSelectedMonth} />
+            {/* Custos fixos são compromissos recorrentes, não uma visão por mês —
+                a navegação mensal fica oculta nessa aba. */}
+            {activeTab !== "custos" ? (
+              <MonthStrip months={months} value={selectedMonth} onChange={setSelectedMonth} />
+            ) : null}
           </div>
 
           {loading && !data ? <LoadingState label="Carregando planejamento..." /> : null}

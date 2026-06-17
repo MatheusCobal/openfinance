@@ -568,11 +568,10 @@ function CategorySpendingTab({
                     return (
                       <div
                         key={month.month}
-                        className="flex h-full items-end"
-                        title={`${formatMonthLong(month.month)} · ${formatMoney(month.total)}`}
+                        className="group/bar relative flex h-full items-end"
                       >
                         <span
-                          className="block w-full rounded-t-[4px] bg-ink-100"
+                          className="block w-full rounded-t-[4px] bg-ink-100 transition-opacity group-hover/bar:opacity-100"
                           style={{
                             height: month.total > 0 ? `${height}%` : "4px",
                             backgroundColor: month.total > 0 ? color : undefined,
@@ -580,6 +579,14 @@ function CategorySpendingTab({
                           }}
                           aria-hidden="true"
                         />
+                        <span
+                          role="tooltip"
+                          className="pointer-events-none absolute -top-9 left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-control bg-ink-900 px-2 py-1 text-center text-[10px] font-semibold leading-tight text-white shadow-lift group-hover/bar:block"
+                        >
+                          {formatMonthCompact(month.month)}
+                          <br />
+                          {formatMoney(month.total)}
+                        </span>
                       </div>
                     );
                   })}

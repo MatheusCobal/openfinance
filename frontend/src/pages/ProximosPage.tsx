@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, CalendarDays, CreditCard, RefreshCw, TrendingUp } from "lucide-react";
+import { CalendarClock, CalendarDays, ChevronDown, CreditCard, RefreshCw, TrendingUp } from "lucide-react";
 import { getUpcoming } from "../api/proximos";
 import { BarChart } from "../components/charts/BarChart";
 import { PageContainer } from "../components/layout/PageContainer";
@@ -182,6 +182,7 @@ export function ProximosPage() {
                       backgroundColors: barColors,
                     },
                   ]}
+                  tooltipValueOnly
                   onBarClick={(index) => setSelectedMonth(data.months[index]?.month || null)}
                 />
               </ChartCard>
@@ -231,10 +232,10 @@ export function ProximosPage() {
                         return (
                           <details
                             key={String(category.id ?? category.name)}
-                            className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
-                            open
+                            name="proximos-categoria"
+                            className="group overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
                           >
-                            <summary className="flex cursor-pointer items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted">
+                            <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
                               <span
                                 className="size-2.5 shrink-0 rounded-[4px]"
                                 style={{ background: color }}
@@ -251,6 +252,10 @@ export function ProximosPage() {
                               <span className="ml-3 text-sm font-bold tabular text-ink-900">
                                 {formatMoney(category.total || 0)}
                               </span>
+                              <ChevronDown
+                                className="ml-1 size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"
+                                aria-hidden="true"
+                              />
                             </summary>
                             {transactionList(category.transactions)}
                           </details>
@@ -258,10 +263,10 @@ export function ProximosPage() {
                       })
                     ) : (
                       <details
-                        className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
-                        open
+                        name="proximos-categoria"
+                        className="group overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
                       >
-                        <summary className="flex cursor-pointer items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted">
+                        <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
                           <span className="min-w-0 flex-1 text-sm font-semibold text-ink-900">
                             Parcelas do mês
                           </span>
@@ -271,6 +276,10 @@ export function ProximosPage() {
                           <span className="ml-3 text-sm font-bold tabular text-ink-900">
                             {formatMoney(selected.total || 0)}
                           </span>
+                          <ChevronDown
+                            className="ml-1 size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"
+                            aria-hidden="true"
+                          />
                         </summary>
                         {transactionList(selected.transactions)}
                       </details>
