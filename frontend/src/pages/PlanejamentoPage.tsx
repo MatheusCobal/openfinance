@@ -318,11 +318,6 @@ function VariableBudgetRow({
             style={{ width: `${progress}%`, backgroundColor: barColor }}
           />
         </div>
-        {over && (
-          <p className="mt-0.5 text-[10px] font-medium text-danger-600">
-            +{formatMoney(item.spent - item.target)} acima
-          </p>
-        )}
       </div>
       <p className={classNames("w-28 shrink-0 text-right text-sm font-bold tabular", over ? "text-danger-700" : "text-ink-900")}>
         {formatMoney(item.spent)}
@@ -352,6 +347,12 @@ function VariableBudgetRow({
           </button>
         )}
       </div>
+      <p className={classNames(
+        "w-24 shrink-0 text-right text-sm font-bold tabular",
+        over ? "text-danger-700" : "text-positive-700",
+      )}>
+        {over ? `+${formatMoney(item.spent - item.target)}` : formatMoney(Math.max(item.remaining, 0))}
+      </p>
       <div className="flex w-24 shrink-0 items-center justify-end gap-1">
         {over ? (
           <span className="rounded-full bg-danger-50 px-2 py-0.5 text-[10px] font-semibold text-danger-700">Excedeu</span>
@@ -544,6 +545,7 @@ function VariableBudgetsPanel({
             <span className="w-48 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Progresso</span>
             <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Consumido</span>
             <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Meta</span>
+            <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Sobra</span>
             <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Status</span>
           </div>
           {shownBudgets.map((item) => (
