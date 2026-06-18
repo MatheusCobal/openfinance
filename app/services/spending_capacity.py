@@ -263,12 +263,20 @@ def spending_capacity_summary(
     else:
         future_card_obligation_display_month = year_month
 
+    # For future months: the forming invoice already captures spending on budgeted
+    # categories. Only reserve the portion of variable goals not yet on the card
+    # to avoid double-counting.
+    variable_uncommitted = (
+        max(variable_budget_total - variable_budget_actual_spent, Decimal("0"))
+        + variable_budget_overage
+    )
+
     if planning_mode == "future_month":
         budget_available_to_spend = (
             expected_income_total
             - fixed_cost_planned_total
-            - variable_budget_total
             - future_card_obligation_total
+            - variable_uncommitted
         )
     else:
         budget_available_to_spend = (
@@ -338,6 +346,7 @@ def spending_capacity_summary(
         "fixed_cost_pending_count": fixed["pending_count"],
         "variable_budget_total": float(variable_budget_total),
         "planned_variable_total": float(variable_budget_total),
+        "variable_budget_uncommitted": float(variable_uncommitted if planning_mode == "future_month" else variable_budget_reserved),
         "variable_budget_spent": float(variable_budget_spent),
         "variable_budget_actual_spent": float(variable_budget_actual_spent),
         "variable_budget_future_spent": float(variable_budget_future_spent),

@@ -99,6 +99,7 @@ export interface PlanningOverview {
   fixed_cost_pending_total?: number;
   fixed_cost_reserved_total?: number;
   variable_budget_total?: number;
+  variable_budget_uncommitted?: number;
   variable_budget_consumed?: number;
   variable_budget_remaining?: number;
   variable_budget_overage?: number;

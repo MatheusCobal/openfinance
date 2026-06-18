@@ -155,7 +155,7 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
     ? capacity.fixed_cost_planned_total || 0
     : capacity.fixed_cost_reserved_total || 0;
   const variable = isFuture
-    ? capacity.variable_budget_total || 0
+    ? asMoneyNumber(capacity.variable_budget_uncommitted ?? capacity.variable_budget_total)
     : (capacity.variable_budget_consumed || 0) + (capacity.variable_budget_overage || 0);
   const card = invoiceIncludedAmount(capacity);
   const status =
