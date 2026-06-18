@@ -165,7 +165,7 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["source"], "account_balance")
         self.assertEqual(summary["cards"][0]["next_bill_id"], "bill-jul")
 
-    def test_invoice_payment_near_due_date_raises_confidence_to_high(self):
+    def test_invoice_payment_diagnostic_is_not_exposed(self):
         with Session(self.engine) as session:
             self._add_item(session)
             self._add_credit_account(session, balance=Decimal("28619.60"))
@@ -185,13 +185,12 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         with Session(self.engine) as session:
             summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
 
-        self.assertEqual(summary["confidence"], "high")
-        self.assertEqual(
-            summary["cards"][0]["matched_payment_transactions"][0]["id"],
-            "payment-1",
-        )
+        self.assertEqual(summary["confidence"], "medium")
+        self.assertNotIn("matched_payment_transactions", summary["cards"][0])
+        self.assertNotIn("possible_refunds_total", summary)
+        self.assertNotIn("possible_refund_transactions", summary)
 
-    def test_bank_invoice_payment_near_due_date_also_raises_confidence(self):
+    def test_bank_invoice_payment_diagnostic_is_not_exposed(self):
         with Session(self.engine) as session:
             self._add_item(session)
             self._add_credit_account(session, balance=Decimal("28619.60"))
@@ -212,11 +211,8 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         with Session(self.engine) as session:
             summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
 
-        self.assertEqual(summary["confidence"], "high")
-        self.assertEqual(
-            summary["cards"][0]["matched_payment_transactions"][0]["id"],
-            "bank-payment-1",
-        )
+        self.assertEqual(summary["confidence"], "medium")
+        self.assertNotIn("matched_payment_transactions", summary["cards"][0])
 
     def test_duplicate_payment_and_refund_transactions_are_ignored(self):
         with Session(self.engine) as session:
@@ -251,8 +247,8 @@ class CurrentCardInvoiceTest(unittest.TestCase):
             summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
 
         self.assertEqual(summary["confidence"], "medium")
-        self.assertEqual(summary["cards"][0]["matched_payment_transactions"], [])
-        self.assertEqual(summary["possible_refund_transactions"], [])
+        self.assertNotIn("matched_payment_transactions", summary["cards"][0])
+        self.assertNotIn("possible_refund_transactions", summary)
 
     def test_inactive_accounts_and_items_do_not_enter_calculation(self):
         with Session(self.engine) as session:
@@ -280,7 +276,7 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["account_count"], 1)
         self.assertEqual(summary["cards"][0]["account_id"], "credit-1")
 
-    def test_negative_credit_transaction_is_reported_as_possible_refund_only(self):
+    def test_negative_credit_transaction_diagnostic_is_not_exposed(self):
         with Session(self.engine) as session:
             self._add_item(session)
             self._add_credit_account(session, balance=Decimal("28619.60"))
@@ -301,9 +297,9 @@ class CurrentCardInvoiceTest(unittest.TestCase):
             summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
 
         self.assertEqual(summary["amount"], 11488.32)
-        self.assertEqual(summary["possible_refunds_total"], -873.0)
-        self.assertEqual(summary["possible_refund_transactions"][0]["id"], "refund-1")
-        self.assertTrue(summary["source_detail"]["refunds_are_diagnostic_only"])
+        self.assertNotIn("possible_refunds_total", summary)
+        self.assertNotIn("possible_refund_transactions", summary)
+        self.assertNotIn("refund_abs_total", summary["reconciliation"])
 
     def test_current_invoice_categories_use_credit_category_resolver(self):
         with Session(self.engine) as session:
@@ -331,11 +327,56 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         with Session(self.engine) as session:
             summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
 
-        category = summary["categories"][0]
+        category = next(item for item in summary["categories"] if item["name"] == "Outros")
         self.assertEqual(category["name"], "Outros")
         self.assertEqual(category["effective_category"], "Outros")
         self.assertEqual(category["transactions"][0]["internal_category"], "Pet")
         self.assertEqual(category["transactions"][0]["effective_category"], "Outros")
+
+    def test_categories_include_next_invoice_installments_and_reconcile_to_balance(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("1200"))
+            session.add(
+                Transaction(
+                    id="current-purchase",
+                    account_id="credit-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("100"),
+                    description="Compra atual",
+                    category="Groceries",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="next-invoice-installment",
+                    account_id="credit-1",
+                    date=date(2026, 7, 6),
+                    amount=Decimal("300"),
+                    description="Parcela futura 02/06",
+                    category="Shopping",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 18))
+
+        self.assertEqual(summary["amount"], 1200.0)
+        self.assertEqual(summary["reconciliation"]["identified_category_total"], 400.0)
+        self.assertEqual(summary["reconciliation"]["unreconciled_amount"], 800.0)
+        self.assertEqual(summary["reconciliation"]["amount_minus_category_total"], 0.0)
+        self.assertEqual(sum(item["total"] for item in summary["categories"]), 1200.0)
+        unreconciled = next(
+            item
+            for item in summary["categories"]
+            if item["source"] == "account_balance_reconciliation"
+        )
+        self.assertEqual(unreconciled["total"], 800.0)
+        self.assertEqual(
+            {tx["id"] for tx in summary["raw_purchase_transactions"]},
+            {"current-purchase", "next-invoice-installment"},
+        )
 
     def test_future_planning_month_can_still_use_scheduled_installments(self):
         with Session(self.engine) as session:

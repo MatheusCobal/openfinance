@@ -98,31 +98,6 @@ async function loadDashboardData() {
   };
 }
 
-function InvoiceReconciliation({ reconciliation }: { reconciliation?: Record<string, any> }) {
-  if (!reconciliation) return null;
-  const rows = [
-    ["Compras classificadas", reconciliation.classified_purchase_total],
-    ["Pagamentos e estornos", reconciliation.refund_abs_total],
-    ["Diferença", reconciliation.difference],
-  ].filter(([, value]) => value !== undefined && value !== null);
-  if (rows.length === 0) return null;
-  return (
-    <div className="mt-4 rounded-control border border-ink-100 bg-surface-muted p-3.5">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-        Conferência da fatura
-      </p>
-      <div className="mt-2.5 grid gap-1.5 text-sm">
-        {rows.map(([label, value]) => (
-          <div key={label as string} className="flex items-center justify-between gap-4">
-            <span className="text-xs text-ink-500">{label as string}</span>
-            <span className="text-xs font-semibold tabular text-ink-800">{formatMoney(value)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function DashboardPage() {
   const { showToast } = useToast();
   const { data, loading, error, run } = useAsync(loadDashboardData, []);
@@ -475,7 +450,6 @@ export function DashboardPage() {
                       ? `Saldo do cartão de ${formatMoney(adjustedCard.raw_balance)}, já descontada a fatura anterior de ${formatMoney(adjustedCard.latest_bill_amount)}.`
                       : "Valor considerado no cálculo do disponível para gastar."}
                   </p>
-                  <InvoiceReconciliation reconciliation={data.currentInvoice.reconciliation} />
                   {nextInvoice ? (
                     <div className="mt-4 flex items-start gap-2.5 rounded-control border border-ink-100 bg-surface-muted p-3.5">
                       <CalendarDays className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
@@ -511,6 +485,10 @@ export function DashboardPage() {
                         total: Number(category.total),
                         count: category.count ?? 0,
                         color: category.color,
+                        subtitle:
+                          category.source === "account_balance_reconciliation"
+                            ? category.description || "Saldo sem transações detalhadas"
+                            : undefined,
                       }))}
                       onSelect={(id) =>
                         setSelectedCategory(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import datetime
 from decimal import Decimal
 from typing import Any, Optional
@@ -13,15 +14,10 @@ from app.services.credit_categories import (
     resolve_credit_internal_category,
 )
 from app.services.transaction_classifier import serialize_transaction_classification
-from app.services.transactions import (
-    _non_duplicate_clause,
-    credit_card_payment_transactions,
-)
+from app.services.transactions import _non_duplicate_clause
 
 
-PAYMENT_MATCH_TOLERANCE = Decimal("1.00")
 RECENT_DUE_WINDOW_DAYS = 5
-REFUND_LOOKBACK_DAYS = 30
 
 REFUND_DESCRIPTION_PATTERNS = tuple(
     normalize_description(pattern)
@@ -124,37 +120,6 @@ def _should_subtract_latest_bill(
     return True
 
 
-def _serialize_payment(tx: Transaction) -> dict[str, Any]:
-    return {
-        "id": tx.id,
-        "account_id": tx.account_id,
-        "date": tx.date.isoformat(),
-        "amount": float(abs(tx.amount)),
-        "signed_amount": float(tx.amount),
-        "description": tx.description,
-        "category": tx.category,
-    }
-
-
-def _matching_invoice_payments(
-    session: Session,
-    bill: Optional[CreditCardBill],
-) -> list[Transaction]:
-    if bill is None or bill.due_date is None:
-        return []
-    bill_amount = _bill_amount(bill)
-    if bill_amount <= 0:
-        return []
-    start = bill.due_date - datetime.timedelta(days=RECENT_DUE_WINDOW_DAYS)
-    end = bill.due_date + datetime.timedelta(days=RECENT_DUE_WINDOW_DAYS)
-    payments = credit_card_payment_transactions(session, start, end)
-    return [
-        tx
-        for tx in payments
-        if abs(abs(Decimal(tx.amount)) - bill_amount) <= PAYMENT_MATCH_TOLERANCE
-    ]
-
-
 def _looks_like_refund(tx: Transaction) -> bool:
     if tx.amount < 0:
         return True
@@ -167,43 +132,6 @@ def _looks_like_refund_text(tx: Transaction) -> bool:
         return True
     normalized_category = normalize_description(tx.category or "")
     return any(pattern in normalized_category for pattern in REFUND_DESCRIPTION_PATTERNS)
-
-
-def _serialize_refund(tx: Transaction) -> dict[str, Any]:
-    return {
-        "id": tx.id,
-        "account_id": tx.account_id,
-        "date": tx.date.isoformat(),
-        "amount": float(tx.amount),
-        "signed_amount": float(tx.amount),
-        "description": tx.description,
-        "category": tx.category,
-    }
-
-
-def _possible_refunds(
-    session: Session,
-    account: Account,
-    latest_bill: Optional[CreditCardBill],
-    today: datetime.date,
-) -> list[Transaction]:
-    from app.services.classification import TransactionClassifier
-
-    start = today - datetime.timedelta(days=REFUND_LOOKBACK_DAYS)
-    if latest_bill is not None and latest_bill.due_date is not None:
-        start = max(start, latest_bill.due_date - datetime.timedelta(days=RECENT_DUE_WINDOW_DAYS))
-    rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id == account.id,
-            Transaction.date >= start,
-            Transaction.date <= today,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc(), Transaction.description.asc())
-    ).all()
-    classifier = TransactionClassifier.from_session(session)
-    return [tx for tx in rows if not classifier.is_invoice_payment(tx) and _looks_like_refund(tx)]
 
 
 def _category_window_start(
@@ -287,6 +215,39 @@ def _current_invoice_category_transactions(
     ]
 
 
+def _next_invoice_scheduled_transactions(
+    session: Session,
+    account: Account,
+    today: datetime.date,
+) -> list[Transaction]:
+    """Return the future installments that compose the next due invoice.
+
+    Pluggy stores scheduled installments with a future transaction date. The
+    adjusted card balance can already include those commitments, so omitting
+    them from the category breakdown creates a large unexplained gap.
+    """
+    from app.services.classification import TransactionClassifier
+
+    if today.month == 12:
+        year, month = today.year + 1, 1
+    else:
+        year, month = today.year, today.month + 1
+    first_day = datetime.date(year, month, 1)
+    last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
+    rows = session.exec(
+        select(Transaction)
+        .where(
+            Transaction.account_id == account.id,
+            Transaction.date >= first_day,
+            Transaction.date <= last_day,
+            _non_duplicate_clause(),
+        )
+        .order_by(Transaction.date.asc(), Transaction.description.asc())
+    ).all()
+    classifier = TransactionClassifier.from_session(session)
+    return [tx for tx in rows if tx.amount > 0 and classifier.is_card_purchase(tx)]
+
+
 def current_card_invoice_summary(
     session: Session,
     today: Optional[datetime.date] = None,
@@ -304,12 +265,10 @@ def current_card_invoice_summary(
 
     user_rules = load_compiled_user_rules(session)
     cards: list[dict[str, Any]] = []
-    all_possible_refunds: list[dict[str, Any]] = []
     raw_purchase_transactions: list[dict[str, Any]] = []
     raw_total = Decimal("0")
     adjusted_total = Decimal("0")
     adjusted_any = False
-    matched_payment_any = False
 
     for account in _active_credit_accounts_with_balance(session):
         raw_balance = Decimal(account.balance or 0)
@@ -340,19 +299,13 @@ def current_card_invoice_summary(
                 }
             )
 
-        matched_payments = _matching_invoice_payments(session, latest)
-        if matched_payments and adjustments:
-            matched_payment_any = True
-
-        possible_refunds = _possible_refunds(session, account, latest, today)
-        serialized_refunds = [_serialize_refund(tx) for tx in possible_refunds]
-        all_possible_refunds.extend(serialized_refunds)
         category_transactions = _current_invoice_category_transactions(
             session,
             account,
             latest,
             today,
         )
+        category_transactions.extend(_next_invoice_scheduled_transactions(session, account, today))
         raw_purchase_transactions.extend(
             _serialize_current_invoice_transaction(tx, user_rules) for tx in category_transactions
         )
@@ -384,20 +337,11 @@ def current_card_invoice_summary(
                     else None
                 ),
                 "adjustments": adjustments,
-                "matched_payment_transactions": [_serialize_payment(tx) for tx in matched_payments],
-                "possible_refunds_total": float(
-                    sum((Decimal(tx.amount) for tx in possible_refunds), Decimal("0"))
-                ),
-                "possible_refund_transactions": serialized_refunds,
             }
         )
 
     source = "adjusted_account_balance" if adjusted_any else "account_balance"
-    confidence = "high" if matched_payment_any else ("medium" if cards else "none")
-    possible_refunds_total = sum(
-        (Decimal(str(tx["signed_amount"])) for tx in all_possible_refunds),
-        Decimal("0"),
-    )
+    confidence = "medium" if cards else "none"
     category_total = Decimal("0")
     category_count = 0
     categories_by_name: dict[str, dict[str, Any]] = {}
@@ -426,6 +370,24 @@ def current_card_invoice_summary(
         bucket["transactions"].append(tx)
         category_total += amount
         category_count += 1
+
+    identified_category_total = category_total
+    unreconciled_amount = adjusted_total - identified_category_total
+    if unreconciled_amount > Decimal("0.005"):
+        categories_by_name["Não conciliado"] = {
+            "id": "unreconciled",
+            "name": "Não conciliado",
+            "effective_category": "Não conciliado",
+            "resolved_category": "Não conciliado",
+            "credit_category": "Não conciliado",
+            "color": "#64748b",
+            "total": unreconciled_amount,
+            "count": 0,
+            "transactions": [],
+            "source": "account_balance_reconciliation",
+            "description": "Saldo informado pela instituição sem transações detalhadas",
+        }
+        category_total += unreconciled_amount
     categories = [
         {
             **bucket,
@@ -457,20 +419,16 @@ def current_card_invoice_summary(
         "category_count": category_count,
         "raw_purchase_transactions": raw_purchase_transactions,
         "legacy_category_breakdown_removed": False,
-        "possible_refunds_total": float(possible_refunds_total),
-        "possible_refund_transactions": all_possible_refunds,
         "source_detail": {
-            "refunds_are_diagnostic_only": True,
-            "reason": "Refunds may already be reflected in Account.balance, so they are not applied again.",
+            "category_basis": "current_purchases_plus_next_invoice_installments",
+            "unreconciled_balance_is_explicit": True,
         },
         "reconciliation": {
             "amount": float(adjusted_total),
             "category_total": float(category_total),
-            "refund_total": float(possible_refunds_total),
-            "refund_abs_total": float(abs(possible_refunds_total)),
+            "identified_category_total": float(identified_category_total),
+            "unreconciled_amount": float(max(unreconciled_amount, Decimal("0"))),
             "amount_minus_category_total": float(adjusted_total - category_total),
-            "refunds_affect_amount": False,
-            "refunds_are_diagnostic_only": True,
             "legacy_category_breakdown_removed": False,
             "source_label": source_label,
         },

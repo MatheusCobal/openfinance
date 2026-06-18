@@ -9,6 +9,7 @@ export interface CategoryBreakdownItem {
   total: number;
   count: number;
   color?: string | null;
+  subtitle?: string | null;
   /** Optional extra line under the bar (e.g. comparison with average). */
   detail?: React.ReactNode;
 }
@@ -46,7 +47,7 @@ export function CategoryBreakdown({ items, onSelect, className }: CategoryBreakd
                   <h3 className="truncate text-sm font-semibold text-ink-900">{item.name}</h3>
                 </div>
                 <p className="mt-1 text-xs text-ink-500">
-                  {pluralCompras(item.count ?? 0)} · {Math.round(share)}% do total
+                  {item.subtitle || pluralCompras(item.count ?? 0)} · {Math.round(share)}% do total
                 </p>
               </div>
               <p className="shrink-0 text-sm font-bold tabular text-ink-900">{formatMoney(item.total)}</p>

@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, ChevronDown, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Wallet, X } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, ChevronDown, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
   createFixedCostCategory,
   createFixedCostMatch,
   deleteExpectedIncome,
-  deleteExpectedIncomeOverride,
   deleteFixedCost,
-  deleteFixedCostCategory,
   deleteFixedCostMatch,
   deleteFixedCostOverride,
   deleteVariableBudget,
@@ -20,7 +18,6 @@ import {
   listFixedCosts,
   listFixedCostTemplates,
   listTransactionsForMonth,
-  setExpectedIncomeOverride,
   setFixedCostOverride,
   replicateVariableBudgets,
   setVariableBudget,
@@ -71,7 +68,6 @@ import type { Transaction } from "../types/common";
 import type {
   ExpectedIncomeEntry,
   ExpectedIncomeMonth,
-  ExpectedIncomeMonthEntry,
   FixedCost,
   FixedCostCategory,
   FixedCostMonthEntry,
