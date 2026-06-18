@@ -115,7 +115,7 @@ export function ProximosPage() {
         {data ? (
           data.months?.length ? (
             <div className="space-y-6">
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <MetricCard
                   label="Próxima fatura"
                   value={formatMoney(data.next_invoice?.amount ?? summary.next?.total)}
@@ -151,17 +151,6 @@ export function ProximosPage() {
                   }
                   tone="warning"
                   icon={<TrendingUp className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="Mês mais pesado"
-                  value={summary.largest ? formatMoney(summary.largest.total) : "—"}
-                  subtitle={
-                    summary.largest
-                      ? `${formatMonthLong(summary.largest.month)} · ${pluralParcelas(summary.largest.count)}`
-                      : "Sem parcelas"
-                  }
-                  tone="danger"
-                  icon={<CalendarClock className="size-4" aria-hidden="true" />}
                 />
               </section>
 
