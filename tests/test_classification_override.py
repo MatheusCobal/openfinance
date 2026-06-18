@@ -41,12 +41,8 @@ class ManualClassificationOverrideTest(unittest.TestCase):
     def _seed_base_data(self):
         with Session(self.engine) as session:
             session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
-            session.add(
-                Account(id="credit-1", item_id="item-1", name="Credit Card", type="CREDIT")
-            )
-            session.add(
-                Account(id="bank-1", item_id="item-1", name="Checking", type="BANK")
-            )
+            session.add(Account(id="credit-1", item_id="item-1", name="Credit Card", type="CREDIT"))
+            session.add(Account(id="bank-1", item_id="item-1", name="Checking", type="BANK"))
             session.add(
                 Transaction(
                     id="tx-food",
@@ -261,9 +257,7 @@ class ManualClassificationOverrideTest(unittest.TestCase):
             SQLModel.metadata.create_all(engine)
             with Session(engine) as session:
                 session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
-                session.add(
-                    Account(id="credit-1", item_id="item-1", name="Card", type="CREDIT")
-                )
+                session.add(Account(id="credit-1", item_id="item-1", name="Card", type="CREDIT"))
                 session.add(
                     Transaction(
                         id="tx-manual",

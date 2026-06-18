@@ -207,10 +207,7 @@ def _month_keys_between(start_month: date, end_month_exclusive: date) -> list[st
 
 
 def _month_keys_ending_at(end_month: date, count: int) -> list[str]:
-    return [
-        month_key(shift_month(end_month, offset))
-        for offset in range(-(count - 1), 1)
-    ]
+    return [month_key(shift_month(end_month, offset)) for offset in range(-(count - 1), 1)]
 
 
 def _history_card_purchase_transaction(
@@ -298,9 +295,7 @@ def _credit_card_invoice_snapshot_totals_by_month(
     selected_months: set[str],
 ) -> dict[str, dict[str, Any]]:
     snapshots = session.exec(
-        select(CreditCardInvoiceMonth).where(
-            CreditCardInvoiceMonth.year_month.in_(selected_months)
-        )
+        select(CreditCardInvoiceMonth).where(CreditCardInvoiceMonth.year_month.in_(selected_months))
     ).all()
     return {
         snapshot.year_month: {
@@ -355,9 +350,7 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
     totals_by_month_category: Dict[str, Dict[str, Decimal]] = defaultdict(
         lambda: defaultdict(lambda: Decimal("0"))
     )
-    counts_by_month_category: Dict[str, Dict[str, int]] = defaultdict(
-        lambda: defaultdict(int)
-    )
+    counts_by_month_category: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     first_purchase_month: date | None = None
 
     for tx in purchases:
@@ -401,16 +394,10 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
         average_month_keys = average_month_keys_for(selected_month)
         average_months_used = len(average_month_keys)
         bill_bucket = official_bills_by_month.get(selected_month)
-        official_bill_total = (
-            Decimal(bill_bucket["total"])
-            if bill_bucket is not None
-            else None
-        )
+        official_bill_total = Decimal(bill_bucket["total"]) if bill_bucket is not None else None
         snapshot_bucket = invoice_snapshots_by_month.get(selected_month)
         snapshot_invoice_total = (
-            Decimal(snapshot_bucket["total"])
-            if snapshot_bucket is not None
-            else None
+            Decimal(snapshot_bucket["total"]) if snapshot_bucket is not None else None
         )
         is_current_invoice = selected_month == vigente_month
         if is_current_invoice:
@@ -465,9 +452,7 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
             )
             difference = bucket["total"] - average
             difference_percent = (
-                float((difference / average) * Decimal("100"))
-                if average > 0
-                else None
+                float((difference / average) * Decimal("100")) if average > 0 else None
             )
             categories.append(
                 {
@@ -488,17 +473,13 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
                 "invoice_display_total": float(month_invoice_display_total),
                 "invoice_total_source": invoice_total_source,
                 "official_bill_total": (
-                    float(official_bill_total)
-                    if official_bill_total is not None
-                    else None
+                    float(official_bill_total) if official_bill_total is not None else None
                 ),
                 "official_bill_count": bill_bucket["bill_count"] if bill_bucket else 0,
                 "official_bill_due_dates": bill_bucket["due_dates"] if bill_bucket else [],
                 "official_bills": bill_bucket["bills"] if bill_bucket else [],
                 "snapshot_invoice_total": (
-                    float(snapshot_invoice_total)
-                    if snapshot_invoice_total is not None
-                    else None
+                    float(snapshot_invoice_total) if snapshot_invoice_total is not None else None
                 ),
                 "snapshot_payment_count": (
                     snapshot_bucket["payment_count"] if snapshot_bucket else 0
@@ -506,9 +487,7 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
                 "snapshot_captured_at": (
                     snapshot_bucket["captured_at"] if snapshot_bucket else None
                 ),
-                "snapshot_updated_at": (
-                    snapshot_bucket["updated_at"] if snapshot_bucket else None
-                ),
+                "snapshot_updated_at": (snapshot_bucket["updated_at"] if snapshot_bucket else None),
                 "classified_purchase_total": float(month_classified_total),
                 "classified_purchase_difference_from_invoice": float(
                     month_classified_total - month_invoice_display_total

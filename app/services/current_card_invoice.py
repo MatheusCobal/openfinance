@@ -354,8 +354,7 @@ def current_card_invoice_summary(
             today,
         )
         raw_purchase_transactions.extend(
-            _serialize_current_invoice_transaction(tx, user_rules)
-            for tx in category_transactions
+            _serialize_current_invoice_transaction(tx, user_rules) for tx in category_transactions
         )
 
         adjusted_total += adjusted_balance

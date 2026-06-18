@@ -43,14 +43,22 @@ def _seed_accounts(session: Session) -> None:
     session.add(Item(id=ITEM_ID, connector_id=1, connector_name="T", status="UPDATED"))
     session.add(
         Account(
-            id=CC_ID, item_id=ITEM_ID, name="Card", type="CREDIT",
-            currency_code="BRL", is_active=True,
+            id=CC_ID,
+            item_id=ITEM_ID,
+            name="Card",
+            type="CREDIT",
+            currency_code="BRL",
+            is_active=True,
         )
     )
     session.add(
         Account(
-            id=BANK_ID, item_id=ITEM_ID, name="Checking", type="BANK",
-            currency_code="BRL", is_active=True,
+            id=BANK_ID,
+            item_id=ITEM_ID,
+            name="Checking",
+            type="BANK",
+            currency_code="BRL",
+            is_active=True,
         )
     )
     session.commit()
@@ -208,8 +216,12 @@ class VariableBudgetServiceTest(unittest.TestCase):
             upsert_goal(session, YEAR_MONTH, "Alimentação", 500)
             first_day, last_day = _month_bounds("2026-07")
             payload = variable_budget_progress(
-                session, "2026-07", first_day, last_day,
-                datetime.date(2026, 7, 12), exclude_transaction_ids=set(),
+                session,
+                "2026-07",
+                first_day,
+                last_day,
+                datetime.date(2026, 7, 12),
+                exclude_transaction_ids=set(),
             )
         self.assertEqual(payload["items"], [])
         self.assertEqual(payload["summary"]["target"], 0.0)
@@ -244,8 +256,13 @@ class VariableBudgetApiTest(unittest.TestCase):
         item = _item(body, "Alimentação")
         self.assertIsNotNone(item)
         for key in (
-            "category", "target", "spent", "remaining",
-            "progress_percent", "status", "transaction_count",
+            "category",
+            "target",
+            "spent",
+            "remaining",
+            "progress_percent",
+            "status",
+            "transaction_count",
         ):
             self.assertIn(key, item)
 

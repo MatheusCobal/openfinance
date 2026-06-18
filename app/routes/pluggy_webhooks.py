@@ -100,9 +100,7 @@ async def pluggy_webhook(
 def recent_webhook_events(limit: int = 25, session: Session = Depends(get_session)):
     limit = max(1, min(limit, 100))
     events = session.exec(
-        select(PluggyWebhookEvent)
-        .order_by(desc(PluggyWebhookEvent.received_at))
-        .limit(limit)
+        select(PluggyWebhookEvent).order_by(desc(PluggyWebhookEvent.received_at)).limit(limit)
     ).all()
     return [
         {

@@ -34,6 +34,7 @@ from app.services.transaction_reports import (
 
 router = APIRouter()
 
+
 @router.get("/transactions")
 def list_transactions(
     account_id: Optional[str] = None,

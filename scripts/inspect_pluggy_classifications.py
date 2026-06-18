@@ -96,8 +96,7 @@ def inspect(
     summary = {"transactions": 0, "outros": 0, "unknown_cashflow": 0}
     with engine.connect() as connection:
         columns = {
-            column["name"]
-            for column in sqlalchemy_inspect(connection).get_columns("transaction")
+            column["name"] for column in sqlalchemy_inspect(connection).get_columns("transaction")
         }
         account_rows = connection.execute(text('SELECT id, type FROM "account"')).mappings()
         account_types = {row["id"]: row["type"] for row in account_rows}
@@ -124,9 +123,7 @@ def inspect(
             account_type = account_types.get(row_dict["account_id"])
             if scope_types is not None and account_type not in scope_types:
                 continue
-            internal_category, cashflow_type = _effective_classification(
-                row_dict, account_type
-            )
+            internal_category, cashflow_type = _effective_classification(row_dict, account_type)
             summary["transactions"] += 1
             if internal_category == "Outros":
                 summary["outros"] += 1

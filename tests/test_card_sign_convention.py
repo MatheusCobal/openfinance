@@ -128,9 +128,7 @@ class CardClassificationSignTest(unittest.TestCase):
         purchase = TransactionClassification(
             kind=TransactionKind.CARD_PURCHASE, account_type="CREDIT"
         )
-        refund = TransactionClassification(
-            kind=TransactionKind.CARD_REFUND, account_type="CREDIT"
-        )
+        refund = TransactionClassification(kind=TransactionKind.CARD_REFUND, account_type="CREDIT")
         payment = TransactionClassification(
             kind=TransactionKind.INVOICE_PAYMENT, account_type="CREDIT"
         )
@@ -229,7 +227,9 @@ class VigenteFormingInvoiceSignTest(unittest.TestCase):
         with Session(self.engine) as session:
             self._seed(session)
             _add_tx(session, "buy-1", datetime.date(2026, 6, 8), "300.00", "Loja", "Shopping")
-            _add_tx(session, "canc-1", datetime.date(2026, 6, 10), "-100.00", "CANC PARCELA", "Shopping")
+            _add_tx(
+                session, "canc-1", datetime.date(2026, 6, 10), "-100.00", "CANC PARCELA", "Shopping"
+            )
             _add_tx(
                 session,
                 "pay-1",
@@ -247,7 +247,9 @@ class VigenteFormingInvoiceSignTest(unittest.TestCase):
         # A cycle with no purchases must not produce a forming invoice.
         with Session(self.engine) as session:
             self._seed(session)
-            _add_tx(session, "canc-1", datetime.date(2026, 6, 10), "-100.00", "CANC PARCELA", "Shopping")
+            _add_tx(
+                session, "canc-1", datetime.date(2026, 6, 10), "-100.00", "CANC PARCELA", "Shopping"
+            )
             inv = self._invoice(session)
         self.assertNotEqual(inv["source"], "active_open_invoice_transactions")
 
@@ -259,8 +261,12 @@ class ScheduledInstallmentsSignTest(unittest.TestCase):
     def test_future_purchases_counted_and_refunds_ignored(self):
         with Session(self.engine) as session:
             _seed_credit_account(session)
-            _add_tx(session, "parc-1", datetime.date(2026, 7, 15), "400.00", "Parcela 2/4", "Shopping")
-            _add_tx(session, "canc-1", datetime.date(2026, 7, 16), "-90.00", "CANC PARCELA", "Shopping")
+            _add_tx(
+                session, "parc-1", datetime.date(2026, 7, 15), "400.00", "Parcela 2/4", "Shopping"
+            )
+            _add_tx(
+                session, "canc-1", datetime.date(2026, 7, 16), "-90.00", "CANC PARCELA", "Shopping"
+            )
             result = scheduled_installments_for_month(session, "2026-07", today=TODAY)
         self.assertEqual(result["total"], 400.0)
         self.assertEqual(result["count"], 1)

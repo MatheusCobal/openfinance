@@ -75,8 +75,7 @@ def reclassify(database_url: str, apply: bool) -> dict:
     totals = Counter()
     with engine.begin() as connection:
         columns = {
-            column["name"]
-            for column in sqlalchemy_inspect(connection).get_columns("transaction")
+            column["name"] for column in sqlalchemy_inspect(connection).get_columns("transaction")
         }
         missing_columns = set(CLASSIFICATION_COLUMNS) - columns
         if apply and missing_columns:
@@ -111,11 +110,7 @@ def reclassify(database_url: str, apply: bool) -> dict:
             if optional in columns:
                 select_columns.append(optional)
         rows = connection.execute(
-            text(
-                "SELECT "
-                + ", ".join(select_columns)
-                + ' FROM "transaction" ORDER BY date ASC'
-            )
+            text("SELECT " + ", ".join(select_columns) + ' FROM "transaction" ORDER BY date ASC')
         ).mappings()
         for row in rows:
             row_dict = dict(row)

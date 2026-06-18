@@ -132,9 +132,7 @@ def _validate_and_normalize_fields(fields: dict[str, Any]) -> dict[str, Any]:
 
     target_internal_category = _clean(fields.get("target_internal_category"))
     if not is_supported_internal_category(target_internal_category):
-        raise UserRuleValidationError(
-            "target_internal_category is not in the 10D-B taxonomy"
-        )
+        raise UserRuleValidationError("target_internal_category is not in the 10D-B taxonomy")
     target_internal_category = normalize_internal_category(target_internal_category)
 
     target_cashflow_type = _clean(fields.get("target_cashflow_type"))

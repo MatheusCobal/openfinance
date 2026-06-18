@@ -79,9 +79,7 @@ def _normalize_target(target_amount: Any) -> Decimal:
 
 def list_goals(session: Session, year_month: str) -> Dict[str, VariableBudget]:
     year_month = validate_year_month(year_month)
-    rows = session.exec(
-        select(VariableBudget).where(VariableBudget.year_month == year_month)
-    ).all()
+    rows = session.exec(select(VariableBudget).where(VariableBudget.year_month == year_month)).all()
     return {row.category: row for row in rows}
 
 
@@ -273,9 +271,7 @@ def variable_budget_progress(
     target_consumed = min(budgeted_spent_total, target_total)
     target_overage = max(budgeted_spent_total - target_total, Decimal("0"))
     target_remaining = max(target_total - budgeted_spent_total, Decimal("0"))
-    progress_pct = (
-        float(budgeted_spent_total / target_total * 100) if target_total > 0 else None
-    )
+    progress_pct = float(budgeted_spent_total / target_total * 100) if target_total > 0 else None
 
     summary = {
         "target": float(target_total),

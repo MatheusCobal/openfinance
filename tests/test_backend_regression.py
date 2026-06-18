@@ -22,6 +22,7 @@ from app.models import (
     Transaction,
 )
 
+
 def next_month(value: date) -> date:
     if value.month == 12:
         return date(value.year + 1, 1, 1)
@@ -487,6 +488,7 @@ class BackendRegressionTest(unittest.TestCase):
                 response = self.client.get(endpoint, params={"months": 25})
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.json()["detail"], "months must be between 1 and 24")
+
 
 if __name__ == "__main__":
     unittest.main()

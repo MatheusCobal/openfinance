@@ -25,7 +25,6 @@ from app.services.transaction_reports import invoice_summary
 from app.services.transactions import account_ids_by_type, credit_card_spend_transactions
 
 
-
 def _make_engine():
     engine = create_engine(
         "sqlite://",
@@ -516,6 +515,7 @@ class TestMonthlyStatsSummaryActiveFiltering(unittest.TestCase):
 
     def _session(self):
         return Session(self.engine)
+
 
 if __name__ == "__main__":
     unittest.main()

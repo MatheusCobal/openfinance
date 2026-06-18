@@ -9,8 +9,7 @@ data.
 
 def main() -> None:
     print(
-        "10D-A: legacy category seeding is disabled; no categories or category "
-        "rules were created."
+        "10D-A: legacy category seeding is disabled; no categories or category rules were created."
     )
 
 

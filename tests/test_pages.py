@@ -326,7 +326,13 @@ class ReactSourceContractTest(unittest.TestCase):
 
     def test_old_internal_html_files_are_not_page_route_targets(self):
         pages = Path("app/routes/pages.py").read_text(encoding="utf-8")
-        for name in ("dashboard.html", "planejamento.html", "historico.html", "proximos.html", "regras.html"):
+        for name in (
+            "dashboard.html",
+            "planejamento.html",
+            "historico.html",
+            "proximos.html",
+            "regras.html",
+        ):
             self.assertNotIn(name, pages)
         self.assertIn("react_app()", pages)
 

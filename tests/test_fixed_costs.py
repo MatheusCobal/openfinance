@@ -16,6 +16,7 @@ from app.models import (
     Transaction,
 )
 
+
 class FixedCostsTest(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine(

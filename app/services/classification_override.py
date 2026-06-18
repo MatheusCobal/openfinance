@@ -43,13 +43,9 @@ def classification_options() -> dict:
 
 def validate_override_values(internal_category: str, cashflow_type: str) -> None:
     if not is_supported_internal_category(internal_category):
-        raise ValueError(
-            f"internal_category {internal_category!r} is not in the 10D-B taxonomy"
-        )
+        raise ValueError(f"internal_category {internal_category!r} is not in the 10D-B taxonomy")
     if cashflow_type not in CASHFLOW_TYPES:
-        raise ValueError(
-            f"cashflow_type {cashflow_type!r} is not a supported cashflow type"
-        )
+        raise ValueError(f"cashflow_type {cashflow_type!r} is not a supported cashflow type")
 
 
 def _get_transaction(session: Session, transaction_id: str) -> Transaction:

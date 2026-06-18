@@ -19,6 +19,7 @@ from app.services.credit_card_invoice import planning_invoice_for_month
 from app.services.current_card_invoice import current_card_invoice_summary
 from app.services.planning import planning_month_summary
 
+
 class CurrentCardInvoiceTest(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine(

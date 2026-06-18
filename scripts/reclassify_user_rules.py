@@ -113,9 +113,7 @@ def reclassify_user_rules(database_url: str, apply: bool) -> dict:
             if values["internal_category"] == "Outros":
                 still_outros += 1
 
-            row_changed = any(
-                getattr(tx, field) != value for field, value in values.items()
-            )
+            row_changed = any(getattr(tx, field) != value for field, value in values.items())
             if row_changed:
                 would_change += 1
                 old_category = tx.internal_category or "<unset>"
