@@ -183,6 +183,7 @@ export function ProximosPage() {
                     },
                   ]}
                   tooltipValueOnly
+                  showValueLabels
                   onBarClick={(index) => setSelectedMonth(data.months[index]?.month || null)}
                 />
               </ChartCard>
