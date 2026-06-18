@@ -12,6 +12,7 @@ from app.services.variable_budgets import (
     VariableBudgetValidationError,
     delete_goal,
     eligible_categories,
+    replicate_goals,
     upsert_goal,
 )
 
@@ -74,6 +75,29 @@ def upsert_variable_budget(
         "category": goal.category,
         "target_amount": float(goal.target_amount),
     }
+
+
+class ReplicateBody(BaseModel):
+    source_month: str
+    months_ahead: int = 11
+    overwrite: bool = False
+
+
+@router.post("/budgets/variable/replicate")
+def replicate_variable_budgets(
+    body: ReplicateBody,
+    session: Session = Depends(get_session),
+):
+    try:
+        result = replicate_goals(
+            session,
+            source_month=body.source_month,
+            months_ahead=body.months_ahead,
+            overwrite=body.overwrite,
+        )
+    except VariableBudgetValidationError as exc:
+        raise HTTPException(400, str(exc))
+    return result
 
 
 @router.delete("/budgets/variable")

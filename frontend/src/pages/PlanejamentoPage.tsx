@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, ChevronDown, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Wallet, X } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, ChevronDown, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Wallet, X } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
@@ -22,6 +22,7 @@ import {
   listTransactionsForMonth,
   setExpectedIncomeOverride,
   setFixedCostOverride,
+  replicateVariableBudgets,
   setVariableBudget,
   updateExpectedIncome,
   updateFixedCost,
@@ -414,6 +415,25 @@ function VariableBudgetsPanel({
   const [newAmount, setNewAmount] = useState("");
   const [statusFilter, setStatusFilter] = useState<"Todas" | "OK" | "Atenção" | "Excedido">("Todas");
   const [editingGoal, setEditingGoal] = useState<string | null>(null);
+  const [replicating, setReplicating] = useState(false);
+  const [replicateConfirm, setReplicateConfirm] = useState(false);
+
+  const handleReplicate = async () => {
+    setReplicating(true);
+    try {
+      const result = await replicateVariableBudgets(selectedMonth);
+      await onReload();
+      const msg = result.skipped > 0
+        ? `Metas copiadas para ${result.replicated} ${result.replicated === 1 ? "mês" : "meses"} (${result.skipped} ignorados — já tinham metas).`
+        : `Metas copiadas para ${result.replicated} ${result.replicated === 1 ? "mês" : "meses"}.`;
+      showToast(msg, "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Erro ao replicar metas.", "error");
+    } finally {
+      setReplicating(false);
+      setReplicateConfirm(false);
+    }
+  };
 
   const saveGoal = async (category: string, amount: number) => {
     try {
@@ -497,6 +517,43 @@ function VariableBudgetsPanel({
             <span className="tabular font-semibold text-ink-700">{formatMoney(target)}</span> / mês
           </p>
         </div>
+        {budgeted.length > 0 && (
+          <div className="flex items-center gap-2">
+            {replicateConfirm ? (
+              <>
+                <p className="text-xs text-ink-500">
+                  Copiar {budgeted.length} {budgeted.length === 1 ? "meta" : "metas"} para os próximos 11 meses?
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void handleReplicate()}
+                  loading={replicating}
+                >
+                  Confirmar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setReplicateConfirm(false)}
+                  disabled={replicating}
+                >
+                  Cancelar
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setReplicateConfirm(true)}
+              >
+                <Copy className="size-3.5" aria-hidden="true" />
+                Replicar para próximos meses
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 3 summary cards */}

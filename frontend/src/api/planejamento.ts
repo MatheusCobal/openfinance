@@ -35,6 +35,17 @@ export function deleteVariableBudget(yearMonth: string, category: string) {
   );
 }
 
+export function replicateVariableBudgets(
+  sourceMonth: string,
+  monthsAhead = 11,
+  overwrite = false,
+) {
+  return apiPost<{ replicated: number; skipped: number; months: string[] }>(
+    "/budgets/variable/replicate",
+    { source_month: sourceMonth, months_ahead: monthsAhead, overwrite },
+  );
+}
+
 export function listFixedCostCategories() {
   return apiGet<FixedCostCategory[]>("/fixed-cost-categories");
 }

@@ -136,6 +136,50 @@ def delete_goal(session: Session, year_month: str, category: str) -> bool:
     return True
 
 
+def _shift_month(year_month: str, delta: int) -> str:
+    year, month = int(year_month[:4]), int(year_month[5:])
+    month += delta
+    while month > 12:
+        month -= 12
+        year += 1
+    while month < 1:
+        month += 12
+        year -= 1
+    return f"{year:04d}-{month:02d}"
+
+
+def replicate_goals(
+    session: Session,
+    source_month: str,
+    months_ahead: int = 11,
+    overwrite: bool = False,
+) -> dict:
+    source_month = validate_year_month(source_month)
+    if not (1 <= months_ahead <= 36):
+        raise VariableBudgetValidationError("months_ahead must be between 1 and 36")
+
+    source_goals = list_goals(session, source_month)
+    if not source_goals:
+        return {"replicated": 0, "skipped": 0, "months": []}
+
+    replicated = 0
+    skipped = 0
+    updated_months = []
+
+    for delta in range(1, months_ahead + 1):
+        target_month = _shift_month(source_month, delta)
+        existing = list_goals(session, target_month)
+        if existing and not overwrite:
+            skipped += 1
+            continue
+        for category, goal in source_goals.items():
+            upsert_goal(session, target_month, category, goal.target_amount)
+        replicated += 1
+        updated_months.append(target_month)
+
+    return {"replicated": replicated, "skipped": skipped, "months": updated_months}
+
+
 def spend_by_category(
     session: Session,
     first_day: date,
