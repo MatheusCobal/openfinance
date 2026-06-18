@@ -264,11 +264,15 @@ def spending_capacity_summary(
         future_card_obligation_display_month = year_month
 
     # For future months: the forming invoice already captures spending on budgeted
-    # categories. Only reserve the portion of variable goals not yet on the card
-    # to avoid double-counting.
-    variable_uncommitted = (
-        max(variable_budget_total - variable_budget_actual_spent, Decimal("0"))
-        + variable_budget_overage
+    # categories. Reserve only the per-category uncommitted portion (sum of
+    # max(goal - spent, 0) per category). Categories that exceeded their goal
+    # contribute 0 — their overage is already inside the invoice and must not be
+    # deducted again. Using the aggregate max(total_goal - total_spent, 0) would
+    # silently absorb per-category overages into other categories' remainders.
+    variable_uncommitted = sum(
+        max(Decimal(str(item["remaining"])), Decimal("0"))
+        for item in variable_budgets.get("items", [])
+        if item.get("has_target")
     )
 
     if planning_mode == "future_month":
@@ -346,7 +350,9 @@ def spending_capacity_summary(
         "fixed_cost_pending_count": fixed["pending_count"],
         "variable_budget_total": float(variable_budget_total),
         "planned_variable_total": float(variable_budget_total),
-        "variable_budget_uncommitted": float(variable_uncommitted if planning_mode == "future_month" else variable_budget_reserved),
+        "variable_budget_uncommitted": float(
+            variable_uncommitted if planning_mode == "future_month" else variable_budget_reserved
+        ),
         "variable_budget_spent": float(variable_budget_spent),
         "variable_budget_actual_spent": float(variable_budget_actual_spent),
         "variable_budget_future_spent": float(variable_budget_future_spent),
