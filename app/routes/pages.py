@@ -31,6 +31,13 @@ def index():
     return FileResponse(STATIC_DIR / "landing.html")
 
 
+@router.get("/login", include_in_schema=False)
+def login_page():
+    # Public login screen of the React app (kept public by the auth middleware).
+    # Serving the SPA shell here lets a hard refresh / direct hit on /login work.
+    return react_app()
+
+
 @router.get("/dashboard", include_in_schema=False)
 def dashboard():
     return react_app()

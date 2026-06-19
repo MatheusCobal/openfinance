@@ -11,6 +11,7 @@ from app.security import (
     validate_security_configuration,
 )
 from app.routes import (
+    auth,
     bank,
     budgets,
     credit_card,
@@ -36,12 +37,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="OpenFinance Collector", lifespan=lifespan)
-# Minimal single-user auth gate. No-op when OPENFINANCE_REQUIRE_AUTH is false
+# Session-cookie auth gate. No-op when OPENFINANCE_REQUIRE_AUTH is false
 # (default), so local development and the test suite are unaffected.
 app.add_middleware(OpenFinanceAuthMiddleware)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 app.include_router(pages.router)
+app.include_router(auth.router)
 app.include_router(pluggy_webhooks.router)
 app.include_router(sync.router)
 app.include_router(transactions.router)

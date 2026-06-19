@@ -194,10 +194,9 @@ PLUGGY_CLIENT_SECRET        client secret do dashboard.pluggy.ai (obrigatório s
 PLUGGY_BASE_URL             URL base da API Pluggy (padrão: https://api.pluggy.ai)
 DATABASE_URL                URL do banco SQLite (padrão: sqlite:///./openfinance.db)
 OPENFINANCE_ENV             local | production (padrão: local)
-OPENFINANCE_REQUIRE_AUTH    ativa o Basic Auth do app (padrão: false)
-OPENFINANCE_ADMIN_TOKEN     senha do Basic Auth (obrigatória quando require_auth=true)
+OPENFINANCE_REQUIRE_AUTH    exige login (sessão) em páginas e APIs (padrão: false)
 OPENFINANCE_PUBLIC_HEALTH   deixa /health público mesmo com auth (padrão: true)
-OPENFINANCE_WEBHOOK_SECRET  segredo do webhook Pluggy, separado do admin token
+OPENFINANCE_WEBHOOK_SECRET  segredo do webhook Pluggy (independente do login do app)
 ```
 
 Importar a aplicação, rodar testes e executar migrações Alembic não exigem credenciais Pluggy. As credenciais só são validadas quando o cliente Pluggy é usado, por exemplo em `/connect-token` ou no sync.
@@ -208,40 +207,66 @@ Importar a aplicação, rodar testes e executar migrações Alembic não exigem 
 
 O app é **local-first** e roda sem autenticação por padrão. **Não exponha publicamente sem ativar a auth.**
 
+A autenticação é **login próprio** (email + senha), sem cadastro público:
+
+- senhas com hash **Argon2id** (`argon2-cffi`, em `app/auth/passwords.py`);
+- sessão **server-side**: um token opaco aleatório guardado na tabela `sessions` (`app/auth/sessions.py`, migration `b9d4e1f6a2c3`), com expiração;
+- o token viaja num cookie **`of_session`** — `HttpOnly` + `SameSite=Lax`, e `Secure` apenas quando `OPENFINANCE_ENV=production` (decidido pelo ambiente, não pelo scheme da request, já que o app fica atrás do Caddy em HTTP interno);
+- sem JWT, sem token em `localStorage`, sem Basic Auth.
+
 Para habilitar a proteção:
 
 ```bash
 OPENFINANCE_REQUIRE_AUTH=true
-OPENFINANCE_ADMIN_TOKEN=<um-token-forte-e-secreto>
 ```
 
-Com a auth ativa, todas as páginas e APIs exigem **HTTP Basic Auth**. No navegador aparece o diálogo nativo de login:
+Com a auth ativa, páginas e APIs exigem uma sessão válida. Requisições de navegação (HTML) sem sessão são redirecionadas para `/login`; chamadas de API respondem `401`.
 
-- **usuário:** qualquer valor (é ignorado);
-- **senha:** o valor de `OPENFINANCE_ADMIN_TOKEN`.
+Endpoints de autenticação (`app/routes/auth.py`):
 
-O navegador reenvia a credencial automaticamente nas próximas requisições (inclusive nos `fetch()` do frontend), então não há tela de login própria e o frontend não muda.
+- `GET /auth/config` — informa ao frontend se o login está ativo, sem expor segredos;
+- `POST /auth/login` — recebe `{"email", "password"}`; em caso de sucesso define o cookie de sessão e retorna `{"id", "email"}`;
+- `GET /auth/me` — retorna o usuário da sessão atual (`401` se não autenticado);
+- `POST /auth/logout` — revoga a sessão no servidor e limpa o cookie.
+
+O frontend possui tela de login, restaura a sessão com `/auth/me`, protege as rotas internas e oferece logout no layout principal. Quando `OPENFINANCE_REQUIRE_AUTH=false`, o app React preserva o modo local aberto.
 
 Exceções (públicas mesmo com auth ativa):
 
 - `/static/*` — sempre público (não contém segredos);
+- `/` e `/login` — landing institucional e página de login (sem dados financeiros);
+- `/auth/login` e `/auth/config` — endpoints públicos necessários para iniciar o fluxo de login;
 - `/health` — público quando `OPENFINANCE_PUBLIC_HEALTH=true` (padrão); defina `false` para exigir auth também nele.
+
+### Criar o primeiro usuário
+
+Não há cadastro público; usuários são provisionados pelo script `scripts/create_user.py`, que faz o hash Argon2id e grava na tabela `users`. Rodar de novo para o mesmo email **reseta a senha** daquele usuário.
+
+```bash
+# Local
+python scripts/create_user.py --email voce@example.com
+# a senha é solicitada de forma interativa (recomendado); ou use --password '...'
+
+# Produção (dentro do container, mesmo banco do volume)
+docker compose -f docker-compose.prod.yml exec openfinance \
+    python scripts/create_user.py --email voce@example.com
+```
 
 ### Checklist mínimo antes de expor publicamente
 
 1. `OPENFINANCE_ENV=production` — ativa os guardrails de startup.
-2. `OPENFINANCE_REQUIRE_AUTH=true` — ativa o Basic Auth.
-3. `OPENFINANCE_ADMIN_TOKEN=<token forte e único>` — senha do Basic Auth.
+2. `OPENFINANCE_REQUIRE_AUTH=true` — exige login.
+3. Criar ao menos um usuário com `scripts/create_user.py`.
 4. `OPENFINANCE_WEBHOOK_SECRET=<segredo forte e diferente>` — se usar webhook Pluggy.
 5. Não exponha sem HTTPS (use Caddy, Nginx ou Cloudflare Tunnel como reverse proxy).
 6. Prefira também proteger no reverse proxy como defesa em profundidade.
 
-> O app recusa iniciar se `OPENFINANCE_ENV=production` e `OPENFINANCE_REQUIRE_AUTH=false`
-> ou `OPENFINANCE_ADMIN_TOKEN` vazio. A validação roda no startup, antes de aceitar conexões.
+> O app recusa iniciar se `OPENFINANCE_ENV=production` e `OPENFINANCE_REQUIRE_AUTH=false`.
+> A validação roda no startup, antes de aceitar conexões.
 
 ### Webhook Pluggy
 
-O `/webhooks/pluggy` **não** usa Basic Auth (a Pluggy não envia essas credenciais). Ele é protegido por um segredo próprio na URL:
+O `/webhooks/pluggy` **não** usa o login do app (a Pluggy não envia credenciais de sessão). Ele é protegido por um segredo próprio na URL:
 
 ```bash
 OPENFINANCE_WEBHOOK_SECRET=<um-segredo-forte>
@@ -253,7 +278,7 @@ Configure no painel Pluggy/ngrok a URL com o token na query string:
 https://SEU_DOMINIO/webhooks/pluggy?token=<OPENFINANCE_WEBHOOK_SECRET>
 ```
 
-Sem o token correto, o webhook é rejeitado (403) antes de processar qualquer payload, acionar sync ou alterar o banco. O `OPENFINANCE_ADMIN_TOKEN` **não** funciona como token de webhook.
+Sem o token correto, o webhook é rejeitado (403) antes de processar qualquer payload, acionar sync ou alterar o banco. Esse segredo é específico do webhook e não tem relação com o login do app.
 
 Quando `OPENFINANCE_WEBHOOK_SECRET` está definido, a validação do token é aplicada **sempre** — inclusive em modo local com `OPENFINANCE_REQUIRE_AUTH=false`. Assim, uma instância local com webhook configurado nunca fica aberta acidentalmente. Com `OPENFINANCE_WEBHOOK_SECRET` vazio e `OPENFINANCE_REQUIRE_AUTH=false`, o endpoint fica aberto (comportamento conveniente para desenvolvimento local sem webhook).
 
@@ -334,7 +359,7 @@ rclone copy backups/ remote:openfinance-backups/
 
 ```bash
 cp .env.example .env
-# Editar .env com suas credenciais Pluggy e, se quiser auth, o OPENFINANCE_ADMIN_TOKEN
+# Editar .env com suas credenciais Pluggy (a auth do app é controlada por OPENFINANCE_REQUIRE_AUTH)
 ```
 
 Exemplo mínimo de `.env` para teste local sem Pluggy:
@@ -345,7 +370,6 @@ PLUGGY_CLIENT_ID=
 PLUGGY_CLIENT_SECRET=
 OPENFINANCE_ENV=local
 OPENFINANCE_REQUIRE_AUTH=false
-OPENFINANCE_ADMIN_TOKEN=
 OPENFINANCE_WEBHOOK_SECRET=
 ```
 
@@ -425,10 +449,15 @@ No `.env`:
 ```
 OPENFINANCE_ENV=production
 OPENFINANCE_REQUIRE_AUTH=true
-OPENFINANCE_ADMIN_TOKEN=<token forte gerado com: python -c "import secrets; print(secrets.token_urlsafe(32))">
 ```
 
-O app recusa iniciar se `OPENFINANCE_ENV=production` sem auth configurada corretamente.
+Depois, crie ao menos um usuário (não há cadastro público):
+
+```bash
+docker compose exec openfinance python scripts/create_user.py --email voce@example.com
+```
+
+O app recusa iniciar se `OPENFINANCE_ENV=production` e `OPENFINANCE_REQUIRE_AUTH=false`.
 
 ---
 
@@ -461,12 +490,21 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 # Editar .env.production com domínio, email e tokens reais
 ```
 
-`OPENFINANCE_ADMIN_TOKEN` e `OPENFINANCE_WEBHOOK_SECRET` devem ser **diferentes entre si**. Nunca commitar `.env.production`.
+Use um segredo forte e dedicado para `OPENFINANCE_WEBHOOK_SECRET` (se usar webhook Pluggy). Nunca commitar `.env.production`.
 
 ### Subir em produção
 
 ```bash
 docker compose -f docker-compose.prod.yml up --build -d
+```
+
+### Criar o primeiro usuário
+
+Não há cadastro público — provisione o usuário dentro do container (mesmo banco do volume):
+
+```bash
+docker compose -f docker-compose.prod.yml exec openfinance \
+    python scripts/create_user.py --email voce@example.com
 ```
 
 ### Verificar
@@ -512,7 +550,7 @@ https://SEU_DOMINIO/webhooks/pluggy?token=<OPENFINANCE_WEBHOOK_SECRET>
 
 ### Segurança
 
-- `OPENFINANCE_ENV=production` obriga `REQUIRE_AUTH=true` e token não-vazio — o app recusa iniciar se misconfigured.
+- `OPENFINANCE_ENV=production` obriga `OPENFINANCE_REQUIRE_AUTH=true` — o app recusa iniciar se estiver sem autenticação.
 - O container `openfinance` não publica porta no host (`expose` é apenas documentação interna no Compose). Apenas o Caddy escuta em `80`/`443`.
 - HTTPS gerenciado automaticamente pelo Caddy via Let's Encrypt (certificados em `caddy_data`).
 - Nunca commitar `.env.production`. Nunca usar `down -v`.
@@ -616,8 +654,9 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 
 ## Limitações intencionais
 
-- Auth desativada por padrão (local-first); proteção mínima via Basic Auth disponível — veja [Autenticação](#autenticação-antes-de-expor-publicamente) antes de expor publicamente
-- Em `OPENFINANCE_ENV=production`, app recusa iniciar se auth estiver desativada ou admin token vazio (guardrail de startup)
+- Auth desativada por padrão (local-first); login próprio (sessão por cookie `HttpOnly`) disponível — veja [Autenticação](#autenticação-antes-de-expor-publicamente) antes de expor publicamente
+- Em `OPENFINANCE_ENV=production`, app recusa iniciar se auth estiver desativada (guardrail de startup)
+- Single-tenant: a auth protege o acesso, mas os dados financeiros ainda são compartilhados (sem `user_id` por usuário); crie apenas um usuário até o isolamento por usuário existir
 - Filtro de contas hardcoded em `type == "CREDIT"` (foco em cartão; conta corrente fica de fora)
 - Sync incremental com janela de segurança de 7 dias para capturar alterações recentes
 - Webhooks dependem do ngrok rodando junto com o app local

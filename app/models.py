@@ -369,3 +369,39 @@ class VariableBudget(SQLModel, table=True):
     target_amount: Decimal
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
     updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class User(SQLModel, table=True):
+    """An application user that can authenticate.
+
+    Single-tenant for now: the app serves one shared financial dataset and only
+    one real user is expected until per-user data isolation is implemented (see
+    the auth plan, "Fase 6"). The ``get_current_user`` dependency already returns
+    this object so future queries can filter by ``user_id`` without reworking how
+    identity is carried through the request.
+    """
+
+    __tablename__: ClassVar[str] = "users"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    # Argon2id PHC string produced by app.auth.passwords.hash_password.
+    password_hash: str
+    is_active: bool = Field(default=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class AuthSession(SQLModel, table=True):
+    """Server-side session: an opaque token mapped to a user with an expiry.
+
+    The token is the only thing stored in the client's HttpOnly cookie, so
+    logout/revocation is a single row delete and there is no signed-cookie secret
+    to rotate. Expired rows are removed lazily when looked up.
+    """
+
+    __tablename__: ClassVar[str] = "sessions"
+
+    token: str = Field(primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    expires_at: datetime.datetime = Field(index=True)

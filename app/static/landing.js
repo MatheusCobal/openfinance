@@ -1,7 +1,7 @@
 // OpenFinance — public landing page interactions.
 // Strictly presentational: this file must NEVER call any API endpoint.
-// A request to a protected route would trigger the browser's Basic Auth
-// popup on the public page when auth is enabled (see tests/test_pages.py).
+// A request to a protected route could trigger an auth redirect or API 401 on
+// the public page when login is enabled (see tests/test_pages.py).
 
 (function () {
   'use strict';

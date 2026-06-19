@@ -1,4 +1,3 @@
-import base64
 import json
 import unittest
 from html.parser import HTMLParser
@@ -12,18 +11,18 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 import app.security as security
+from app.auth import sessions as auth_sessions
+from app.auth.sessions import SESSION_COOKIE_NAME
 from app.database import get_session
 from app.main import app
 
 
-ADMIN_TOKEN = "test-admin-token-123"
 INTERNAL_ROUTES = ("/dashboard", "/planejamento", "/historico", "/proximos", "/regras")
 
 
 def make_settings(
     *,
     require_auth=False,
-    admin_token="",
     public_health=True,
     webhook_secret="",
     env="local",
@@ -32,15 +31,9 @@ def make_settings(
         _env_file=None,
         openfinance_env=env,
         openfinance_require_auth=require_auth,
-        openfinance_admin_token=admin_token,
         openfinance_public_health=public_health,
         openfinance_webhook_secret=webhook_secret,
     )
-
-
-def basic_header(token, username="anyuser"):
-    raw = f"{username}:{token}".encode("utf-8")
-    return {"Authorization": "Basic " + base64.b64encode(raw).decode("ascii")}
 
 
 class StaticAssetParser(HTMLParser):
@@ -79,6 +72,9 @@ class PageSmokeTest(unittest.TestCase):
         settings = make_settings(**kwargs)
         return patch.object(security, "get_security_settings", lambda: settings)
 
+    def _session(self, valid):
+        return patch.object(auth_sessions, "session_is_valid", lambda token: valid)
+
     def test_root_serves_public_landing_page(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
@@ -116,6 +112,12 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn("landing.css?v=", response.text)
         self.assertIn("landing.js?v=", response.text)
 
+    def test_login_route_serves_react_app_shell(self):
+        response = self.client.get("/login")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+        self.assertIn('<div id="root"></div>', response.text)
+
     def test_internal_routes_serve_react_app_shell(self):
         for path in INTERNAL_ROUTES:
             with self.subTest(path=path):
@@ -130,29 +132,30 @@ class PageSmokeTest(unittest.TestCase):
                 self.assertNotIn("regras.js", response.text)
 
     def test_internal_routes_are_protected_when_auth_is_active(self):
-        with self._use_auth(require_auth=True, admin_token=ADMIN_TOKEN):
+        with self._use_auth(require_auth=True), self._session(False):
+            for path in INTERNAL_ROUTES:
+                with self.subTest(path=path):
+                    response = self.client.get(path, headers={"accept": "text/html"})
+                    self.assertEqual(response.status_code, 303)
+                    self.assertEqual(response.headers["location"], "/login")
+
+    def test_internal_routes_return_react_app_with_valid_session(self):
+        self.client.cookies.set(SESSION_COOKIE_NAME, "good")
+        with self._use_auth(require_auth=True), self._session(True):
             for path in INTERNAL_ROUTES:
                 with self.subTest(path=path):
                     response = self.client.get(path)
-                    self.assertEqual(response.status_code, 401)
-                    self.assertEqual(response.headers.get("WWW-Authenticate"), "Basic")
-
-    def test_internal_routes_return_react_app_with_valid_auth(self):
-        with self._use_auth(require_auth=True, admin_token=ADMIN_TOKEN):
-            for path in INTERNAL_ROUTES:
-                with self.subTest(path=path):
-                    response = self.client.get(path, headers=basic_header(ADMIN_TOKEN))
                     self.assertEqual(response.status_code, 200)
                     self.assertIn('<div id="root"></div>', response.text)
 
     def test_public_landing_stays_public_when_auth_is_active(self):
-        with self._use_auth(require_auth=True, admin_token=ADMIN_TOKEN):
+        with self._use_auth(require_auth=True), self._session(False):
             response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
 
     def test_apis_continue_protected_when_auth_is_active(self):
-        with self._use_auth(require_auth=True, admin_token=ADMIN_TOKEN):
+        with self._use_auth(require_auth=True), self._session(False):
             response = self.client.get("/planning/month/2026-07")
         self.assertEqual(response.status_code, 401)
 

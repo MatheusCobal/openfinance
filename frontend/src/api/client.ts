@@ -12,6 +12,14 @@ export class ApiError extends Error {
   }
 }
 
+let onUnauthorized: (() => void) | null = null;
+
+/** Register a callback invoked when an authenticated API call returns 401.
+ *  Requests to /auth/* are excluded so login/me/logout manage their own flow. */
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 function normalizeDetail(body: unknown, fallback: string): string {
   const shaped = body as ApiErrorShape | null;
   if (!shaped) return fallback;
@@ -43,6 +51,9 @@ export async function apiRequest<T>(url: string, init: RequestInit = {}): Promis
   });
   const body = await parseResponse(response).catch(() => null);
   if (!response.ok) {
+    if (response.status === 401 && !url.startsWith("/auth/")) {
+      onUnauthorized?.();
+    }
     throw new ApiError(normalizeDetail(body, `HTTP ${response.status}`), response.status, body);
   }
   return body as T;
