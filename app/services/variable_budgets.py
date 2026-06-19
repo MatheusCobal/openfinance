@@ -35,6 +35,7 @@ from app.services.credit_categories import (
     CREDIT_CATEGORY_LABELS,
     resolve_credit_internal_category,
 )
+from app.services.scoping import scope_query
 from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
     _non_duplicate_clause,
@@ -77,9 +78,19 @@ def _normalize_target(target_amount: Any) -> Decimal:
     return value
 
 
-def list_goals(session: Session, year_month: str) -> Dict[str, VariableBudget]:
+def list_goals(
+    session: Session,
+    year_month: str,
+    user_id: Optional[int] = None,
+) -> Dict[str, VariableBudget]:
     year_month = validate_year_month(year_month)
-    rows = session.exec(select(VariableBudget).where(VariableBudget.year_month == year_month)).all()
+    rows = session.exec(
+        scope_query(
+            select(VariableBudget).where(VariableBudget.year_month == year_month),
+            VariableBudget.user_id,
+            user_id,
+        )
+    ).all()
     return {row.category: row for row in rows}
 
 
@@ -88,15 +99,20 @@ def upsert_goal(
     year_month: str,
     category: str,
     target_amount: Any,
+    user_id: Optional[int] = None,
 ) -> VariableBudget:
     year_month = validate_year_month(year_month)
     category = validate_category(category)
     target = _normalize_target(target_amount)
 
     existing = session.exec(
-        select(VariableBudget).where(
-            VariableBudget.year_month == year_month,
-            VariableBudget.category == category,
+        scope_query(
+            select(VariableBudget).where(
+                VariableBudget.year_month == year_month,
+                VariableBudget.category == category,
+            ),
+            VariableBudget.user_id,
+            user_id,
         )
     ).first()
     if existing is not None:
@@ -113,6 +129,7 @@ def upsert_goal(
         year_month=year_month,
         category=category,
         target_amount=target,
+        user_id=user_id,
     )
     session.add(goal)
     session.commit()
@@ -120,13 +137,22 @@ def upsert_goal(
     return goal
 
 
-def delete_goal(session: Session, year_month: str, category: str) -> bool:
+def delete_goal(
+    session: Session,
+    year_month: str,
+    category: str,
+    user_id: Optional[int] = None,
+) -> bool:
     year_month = validate_year_month(year_month)
     category = validate_category(category)
     existing = session.exec(
-        select(VariableBudget).where(
-            VariableBudget.year_month == year_month,
-            VariableBudget.category == category,
+        scope_query(
+            select(VariableBudget).where(
+                VariableBudget.year_month == year_month,
+                VariableBudget.category == category,
+            ),
+            VariableBudget.user_id,
+            user_id,
         )
     ).first()
     if existing is None:
@@ -153,12 +179,13 @@ def replicate_goals(
     source_month: str,
     months_ahead: int = 11,
     overwrite: bool = False,
+    user_id: Optional[int] = None,
 ) -> dict:
     source_month = validate_year_month(source_month)
     if not (1 <= months_ahead <= 36):
         raise VariableBudgetValidationError("months_ahead must be between 1 and 36")
 
-    source_goals = list_goals(session, source_month)
+    source_goals = list_goals(session, source_month, user_id=user_id)
     if not source_goals:
         return {"replicated": 0, "skipped": 0, "months": []}
 
@@ -168,12 +195,12 @@ def replicate_goals(
 
     for delta in range(1, months_ahead + 1):
         target_month = _shift_month(source_month, delta)
-        existing = list_goals(session, target_month)
+        existing = list_goals(session, target_month, user_id=user_id)
         if existing and not overwrite:
             skipped += 1
             continue
         for category, goal in source_goals.items():
-            upsert_goal(session, target_month, category, goal.target_amount)
+            upsert_goal(session, target_month, category, goal.target_amount, user_id=user_id)
         replicated += 1
         updated_months.append(target_month)
 
@@ -185,6 +212,7 @@ def spend_by_category(
     first_day: date,
     last_day: date,
     exclude_transaction_ids: Optional[Set[str]] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Real variable spending per category for the period.
 
@@ -194,15 +222,21 @@ def spend_by_category(
     dropped to avoid double counting.
     """
     skip = exclude_transaction_ids or set()
-    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES))
+    credit_account_ids = set(
+        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
+    )
     if not credit_account_ids:
         return {}
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     txs = session.exec(
-        select(Transaction).where(
-            Transaction.date >= first_day,
-            Transaction.date <= last_day,
-            _non_duplicate_clause(),
+        scope_query(
+            select(Transaction).where(
+                Transaction.date >= first_day,
+                Transaction.date <= last_day,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
         )
     ).all()
 
@@ -253,6 +287,7 @@ def variable_budget_progress(
     last_day: date,
     today: date,
     exclude_transaction_ids: Optional[Set[str]] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Full variable-budget payload for a month.
 
@@ -262,8 +297,8 @@ def variable_budget_progress(
     empty state (``items == []`` and all-zero totals) — no misleading values.
     """
     exclude_ids = set(exclude_transaction_ids or set())
-    goals = list_goals(session, year_month)
-    spend = spend_by_category(session, first_day, last_day, exclude_ids)
+    goals = list_goals(session, year_month, user_id=user_id)
+    spend = spend_by_category(session, first_day, last_day, exclude_ids, user_id=user_id)
 
     target_total = Decimal("0")
     budgeted_spent_total = Decimal("0")

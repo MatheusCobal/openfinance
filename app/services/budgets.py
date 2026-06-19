@@ -22,6 +22,7 @@ def budget_progress_summary(
     today: date,
     include_ignored: bool = False,
     fixed_cost_accounted_transaction_ids: Optional[Set[str]] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     # 10D-C: variable budgets are now rebuilt on top of the Pluggy-based
     # classification (see app.services.variable_budgets). The response shape is
@@ -33,7 +34,7 @@ def budget_progress_summary(
         from app.services.fixed_costs import accounted_transaction_ids_for_month
 
         fixed_cost_accounted_transaction_ids = accounted_transaction_ids_for_month(
-            session, year_month
+            session, year_month, user_id=user_id
         )
 
     return variable_budget_progress(
@@ -43,4 +44,5 @@ def budget_progress_summary(
         last_day=last_day,
         today=today,
         exclude_transaction_ids=set(fixed_cost_accounted_transaction_ids),
+        user_id=user_id,
     )

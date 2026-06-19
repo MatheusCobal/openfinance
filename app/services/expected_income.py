@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session, select
 
 from app.models import ExpectedIncome, ExpectedIncomeOverride
+from app.services.scoping import scope_query
 from app.services.transactions import bank_income_transactions
 
 
@@ -31,8 +32,14 @@ def _serialize(entry: ExpectedIncome) -> Dict[str, Any]:
     }
 
 
-def list_expected_income(session: Session, include_inactive: bool = False) -> List[Dict[str, Any]]:
-    query = select(ExpectedIncome).order_by(ExpectedIncome.expected_day, ExpectedIncome.description)
+def list_expected_income(
+    session: Session,
+    include_inactive: bool = False,
+    user_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    query = scope_query(select(ExpectedIncome), ExpectedIncome.user_id, user_id).order_by(
+        ExpectedIncome.expected_day, ExpectedIncome.description
+    )
     if not include_inactive:
         query = query.where(ExpectedIncome.active.is_(True))
     return [_serialize(entry) for entry in session.exec(query).all()]
@@ -43,12 +50,14 @@ def create_expected_income(
     description: str,
     amount: Decimal,
     expected_day: int,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     _validate(description, amount, expected_day)
     entry = ExpectedIncome(
         description=description.strip(),
         amount=amount,
         expected_day=expected_day,
+        user_id=user_id,
     )
     session.add(entry)
     session.commit()
@@ -63,9 +72,10 @@ def update_expected_income(
     amount: Optional[Decimal] = None,
     expected_day: Optional[int] = None,
     active: Optional[bool] = None,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     entry = session.get(ExpectedIncome, entry_id)
-    if entry is None:
+    if entry is None or (user_id is not None and entry.user_id != user_id):
         return None
 
     new_desc = description.strip() if description is not None else entry.description
@@ -84,9 +94,13 @@ def update_expected_income(
     return _serialize(entry)
 
 
-def delete_expected_income(session: Session, entry_id: int) -> bool:
+def delete_expected_income(
+    session: Session,
+    entry_id: int,
+    user_id: Optional[int] = None,
+) -> bool:
     entry = session.get(ExpectedIncome, entry_id)
-    if entry is None:
+    if entry is None or (user_id is not None and entry.user_id != user_id):
         return False
     session.delete(entry)
     session.commit()
@@ -99,17 +113,29 @@ def _shift_year_month(year_month: str, months: int) -> str:
     return f"{zero_based // 12:04d}-{(zero_based % 12) + 1:02d}"
 
 
-def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
+def monthly_breakdown(
+    session: Session,
+    year_month: str,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     _parse_year_month(year_month)
     entries = session.exec(
-        select(ExpectedIncome)
-        .where(ExpectedIncome.active.is_(True))
-        .order_by(ExpectedIncome.expected_day, ExpectedIncome.description)
+        scope_query(
+            select(ExpectedIncome).where(ExpectedIncome.active.is_(True)),
+            ExpectedIncome.user_id,
+            user_id,
+        ).order_by(ExpectedIncome.expected_day, ExpectedIncome.description)
     ).all()
     overrides = {
         ov.expected_income_id: ov
         for ov in session.exec(
-            select(ExpectedIncomeOverride).where(ExpectedIncomeOverride.year_month == year_month)
+            scope_query(
+                select(ExpectedIncomeOverride).where(
+                    ExpectedIncomeOverride.year_month == year_month
+                ),
+                ExpectedIncomeOverride.user_id,
+                user_id,
+            )
         ).all()
     }
 
@@ -137,11 +163,16 @@ def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
     }
 
 
-def upcoming_months(session: Session, start_year_month: str, months: int) -> List[Dict[str, Any]]:
+def upcoming_months(
+    session: Session,
+    start_year_month: str,
+    months: int,
+    user_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     if not (1 <= months <= 24):
         raise ExpectedIncomeValidationError("months must be between 1 and 24")
     return [
-        monthly_breakdown(session, _shift_year_month(start_year_month, offset))
+        monthly_breakdown(session, _shift_year_month(start_year_month, offset), user_id=user_id)
         for offset in range(months)
     ]
 
@@ -151,12 +182,13 @@ def set_override(
     entry_id: int,
     year_month: str,
     amount: Decimal,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     _parse_year_month(year_month)
     if amount < 0:
         raise ExpectedIncomeValidationError("amount must be non-negative")
     entry = session.get(ExpectedIncome, entry_id)
-    if entry is None:
+    if entry is None or (user_id is not None and entry.user_id != user_id):
         return None
 
     existing = session.exec(
@@ -170,6 +202,7 @@ def set_override(
             expected_income_id=entry_id,
             year_month=year_month,
             amount=amount,
+            user_id=user_id,
         )
     else:
         existing.amount = amount
@@ -184,12 +217,21 @@ def set_override(
     }
 
 
-def delete_override(session: Session, entry_id: int, year_month: str) -> bool:
+def delete_override(
+    session: Session,
+    entry_id: int,
+    year_month: str,
+    user_id: Optional[int] = None,
+) -> bool:
     _parse_year_month(year_month)
     existing = session.exec(
-        select(ExpectedIncomeOverride).where(
-            ExpectedIncomeOverride.expected_income_id == entry_id,
-            ExpectedIncomeOverride.year_month == year_month,
+        scope_query(
+            select(ExpectedIncomeOverride).where(
+                ExpectedIncomeOverride.expected_income_id == entry_id,
+                ExpectedIncomeOverride.year_month == year_month,
+            ),
+            ExpectedIncomeOverride.user_id,
+            user_id,
         )
     ).first()
     if existing is None:
@@ -212,7 +254,10 @@ def _parse_year_month(year_month: str) -> tuple[int, int]:
 
 
 def expected_income_forecast(
-    session: Session, year_month: str, today: Optional[date] = None
+    session: Session,
+    year_month: str,
+    today: Optional[date] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     year, month = _parse_year_month(year_month)
     today = today or date.today()
@@ -228,14 +273,17 @@ def expected_income_forecast(
             session,
             first_day,
             min(last_day, today),
+            user_id=user_id,
         )
     received_total = sum((tx.amount for tx in received_transactions), Decimal("0"))
     received_count = len(received_transactions)
 
     entries = session.exec(
-        select(ExpectedIncome)
-        .where(ExpectedIncome.active.is_(True))
-        .order_by(ExpectedIncome.expected_day, ExpectedIncome.description)
+        scope_query(
+            select(ExpectedIncome).where(ExpectedIncome.active.is_(True)),
+            ExpectedIncome.user_id,
+            user_id,
+        ).order_by(ExpectedIncome.expected_day, ExpectedIncome.description)
     ).all()
     expected_total = sum((entry.amount for entry in entries), Decimal("0"))
     remaining = expected_total - received_total

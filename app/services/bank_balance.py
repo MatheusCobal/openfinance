@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from sqlmodel import Session, select
 
 from app.models import Account, Item
+from app.services.scoping import scope_query
 
 
-def bank_balance_summary(session: Session) -> dict[str, Any]:
+def bank_balance_summary(session: Session, user_id: Optional[int] = None) -> dict[str, Any]:
     """Return total balance across all active BANK accounts.
 
     Rules:
@@ -17,10 +18,14 @@ def bank_balance_summary(session: Session) -> dict[str, Any]:
     - Account.item_id belongs to an active Item
     - Accounts with balance=None are treated as zero (no balance data yet)
     """
-    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
+    active_item_ids = {
+        item.id
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+        if item.is_active
+    }
     accounts = [
         a
-        for a in session.exec(select(Account)).all()
+        for a in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
         if a.type == "BANK" and a.is_active and a.item_id in active_item_ids
     ]
 

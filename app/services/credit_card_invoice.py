@@ -51,6 +51,7 @@ from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.models import Account, CreditCardBill, Transaction
+from app.services.scoping import scope_query
 from app.services.transactions import _non_duplicate_clause
 
 
@@ -125,17 +126,21 @@ def _next_calendar_month(today: datetime.date) -> str:
     return f"{today.year:04d}-{today.month + 1:02d}"
 
 
-def _active_item_ids(session: Session) -> set:
+def _active_item_ids(session: Session, user_id: Optional[int] = None) -> set:
     from app.models import Item
 
-    return {item.id for item in session.exec(select(Item)).all() if item.is_active}
+    return {
+        item.id
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+        if item.is_active
+    }
 
 
-def _active_credit_accounts(session: Session) -> list[Account]:
-    active_ids = _active_item_ids(session)
+def _active_credit_accounts(session: Session, user_id: Optional[int] = None) -> list[Account]:
+    active_ids = _active_item_ids(session, user_id=user_id)
     return [
         a
-        for a in session.exec(select(Account)).all()
+        for a in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
         if a.type == "CREDIT" and a.is_active and a.item_id in active_ids
     ]
 
@@ -209,26 +214,29 @@ def _find_invoice_payment_transactions(
     account_ids: set[str],
     start_date: datetime.date,
     end_date: datetime.date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     from app.services.classification import TransactionClassifier
     from app.services.transactions import account_ids_by_type
 
-    active_credit_ids = set(account_ids_by_type(session, {"CREDIT"}))
+    active_credit_ids = set(account_ids_by_type(session, {"CREDIT"}, user_id=user_id))
     if account_ids:
         active_credit_ids &= account_ids
     if not active_credit_ids:
         return []
 
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(active_credit_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc(), Transaction.description.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(active_credit_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
     return [tx for tx in rows if classifier.is_invoice_payment(tx)]
 
@@ -312,6 +320,7 @@ def _card_payment_status(bill: CreditCardBill) -> Dict[str, Any]:
 def _payment_status_for_official_bills(
     session: Session,
     bills: list[CreditCardBill],
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     invoice_amount = sum((b.total_amount or Decimal("0") for b in bills), Decimal("0"))
     if invoice_amount <= 0:
@@ -338,6 +347,7 @@ def _payment_status_for_official_bills(
             account_ids={bill.account_id},
             start_date=start_date,
             end_date=end_date,
+            user_id=user_id,
         ):
             if tx.id not in seen_ids:
                 seen_ids.add(tx.id)
@@ -353,6 +363,7 @@ def _payment_status_for_non_official_invoice(
     session: Session,
     result: Dict[str, Any],
     today: datetime.date,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     invoice_amount = Decimal(str(result.get("amount") or 0))
     source = result.get("source") or "none"
@@ -374,6 +385,7 @@ def _payment_status_for_non_official_invoice(
                 account_ids=account_ids,
                 start_date=start_date,
                 end_date=end_date,
+                user_id=user_id,
             ):
                 if tx.id not in seen_ids:
                     seen_ids.add(tx.id)
@@ -458,6 +470,7 @@ def scheduled_installments_for_month(
     session: Session,
     year_month: str,
     today: Optional[datetime.date] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Future-dated credit-card purchases that will land in ``year_month``.
 
@@ -483,7 +496,7 @@ def scheduled_installments_for_month(
             "transactions": [],
         }
 
-    credit_account_ids = account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
+    credit_account_ids = account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
     if not credit_account_ids:
         return {
             "year_month": year_month,
@@ -493,17 +506,19 @@ def scheduled_installments_for_month(
         }
 
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(credit_account_ids),
-            Transaction.date >= window_start,
-            Transaction.date <= last_day,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc(), Transaction.description.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.date >= window_start,
+                Transaction.date <= last_day,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
 
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     total = Decimal("0")
     items: list[Dict[str, Any]] = []
     for tx in rows:
@@ -540,6 +555,7 @@ def _current_month_invoice(
     year_month: str,
     today: datetime.date,
     credit_accounts: list[Account],
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Open invoice estimate for the current billing month.
 
@@ -561,7 +577,7 @@ def _current_month_invoice(
 
     credit_account_ids = {a.id for a in credit_accounts}
     bal_total = _account_balance_total(credit_accounts)
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
 
     if not credit_accounts:
         return _none_result(year_month, "current_month", 0, float(bal_total))
@@ -578,12 +594,16 @@ def _current_month_invoice(
         cycle_end = max(all_ends)
 
         open_cycle_txs = session.exec(
-            select(Transaction).where(
-                Transaction.account_id.in_(credit_account_ids),
-                Transaction.date >= cycle_start,
-                Transaction.date <= cycle_end,
-                or_(Transaction.bill_id.is_(None), Transaction.bill_id == ""),
-                _non_duplicate_clause(),
+            scope_query(
+                select(Transaction).where(
+                    Transaction.account_id.in_(credit_account_ids),
+                    Transaction.date >= cycle_start,
+                    Transaction.date <= cycle_end,
+                    or_(Transaction.bill_id.is_(None), Transaction.bill_id == ""),
+                    _non_duplicate_clause(),
+                ),
+                Transaction.user_id,
+                user_id,
             )
         ).all()
         net_total, purchase_count, refund_count = _net_open_invoice(open_cycle_txs, classifier)
@@ -609,12 +629,16 @@ def _current_month_invoice(
     # ---- Tier 2: calendar-month fallback (no close_date available) ----
     effective_end = min(month_end, today)
     open_month_txs = session.exec(
-        select(Transaction).where(
-            Transaction.account_id.in_(credit_account_ids),
-            Transaction.date >= month_start,
-            Transaction.date <= effective_end,
-            or_(Transaction.bill_id.is_(None), Transaction.bill_id == ""),
-            _non_duplicate_clause(),
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.date >= month_start,
+                Transaction.date <= effective_end,
+                or_(Transaction.bill_id.is_(None), Transaction.bill_id == ""),
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
         )
     ).all()
     net_total, purchase_count, refund_count = _net_open_invoice(open_month_txs, classifier)
@@ -708,7 +732,7 @@ def _current_month_invoice(
             }
 
     # ---- Tier 4: transaction fallback ----
-    inv = invoice_summary(session, from_date=month_start, to_date=month_end)
+    inv = invoice_summary(session, from_date=month_start, to_date=month_end, user_id=user_id)
     inv_total = float(inv["invoice_gross_total"])
     if inv_total > 0:
         return {
@@ -738,6 +762,7 @@ def _vigente_forming_invoice(
     year_month: str,
     today: datetime.date,
     credit_accounts: list[Account],
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """The "fatura vigente": invoice currently FORMING, due next month.
 
@@ -778,17 +803,21 @@ def _vigente_forming_invoice(
 
     credit_account_ids = {a.id for a in credit_accounts}
     cycle_txs = session.exec(
-        select(Transaction).where(
-            Transaction.account_id.in_(credit_account_ids),
-            Transaction.date >= cycle_start,
-            Transaction.date <= cycle_end,
-            _non_duplicate_clause(),
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.date >= cycle_start,
+                Transaction.date <= cycle_end,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
         )
     ).all()
 
     from app.services.classification import TransactionClassifier
 
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     net_total, purchase_count, refund_count = _net_open_invoice(cycle_txs, classifier)
     if not purchase_count:
         return None
@@ -816,6 +845,7 @@ def _vigente_dashboard_invoice(
     year_month: str,
     today: datetime.date,
     credit_accounts: list[Account],
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """Vigente-month fallback that mirrors the Dashboard's current invoice.
 
@@ -854,7 +884,7 @@ def _vigente_dashboard_invoice(
 
     from app.services.current_card_invoice import current_card_invoice_summary
 
-    summary = current_card_invoice_summary(session, today=today)
+    summary = current_card_invoice_summary(session, today=today, user_id=user_id)
     amount = Decimal(str(summary.get("adjusted_total") or 0))
     if amount <= 0 or not summary.get("cards"):
         return None
@@ -882,6 +912,7 @@ def _future_month_invoice(
     year_month: str,
     today: datetime.date,
     credit_accounts: list[Account],
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Invoice estimate for a future month.
 
@@ -910,12 +941,14 @@ def _future_month_invoice(
         return _none_result(year_month, "future_month", 0, float(bal_total))
 
     # ---- Tier 0: fatura vigente (forming-cycle transactions, vigente month) ----
-    forming = _vigente_forming_invoice(session, year_month, today, credit_accounts)
+    forming = _vigente_forming_invoice(session, year_month, today, credit_accounts, user_id=user_id)
     if forming is not None:
         return forming
 
     # ---- Tier 1: official CreditCardBill ----
-    bills = session.exec(select(CreditCardBill)).all()
+    bills = session.exec(
+        scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
+    ).all()
     matched_bills = [
         b
         for b in bills
@@ -928,7 +961,9 @@ def _future_month_invoice(
     if matched_bills:
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
-        payment_status = _payment_status_for_official_bills(session, matched_bills)
+        payment_status = _payment_status_for_official_bills(
+            session, matched_bills, user_id=user_id
+        )
         return _with_payment_status(
             {
                 "year_month": year_month,
@@ -997,12 +1032,16 @@ def _future_month_invoice(
         }
 
     # ---- Tier 2b: Dashboard adjusted current invoice (vigente month only) ----
-    dashboard = _vigente_dashboard_invoice(session, year_month, today, credit_accounts)
+    dashboard = _vigente_dashboard_invoice(
+        session, year_month, today, credit_accounts, user_id=user_id
+    )
     if dashboard is not None:
         return dashboard
 
     # ---- Tier 3: scheduled future installments ----
-    installments = scheduled_installments_for_month(session, year_month, today=today)
+    installments = scheduled_installments_for_month(
+        session, year_month, today=today, user_id=user_id
+    )
     if installments["total"] > 0:
         return {
             "year_month": year_month,
@@ -1022,7 +1061,7 @@ def _future_month_invoice(
         }
 
     # ---- Tier 4: transaction fallback ----
-    inv = invoice_summary(session, from_date=first_day, to_date=last_day)
+    inv = invoice_summary(session, from_date=first_day, to_date=last_day, user_id=user_id)
     inv_total = float(inv["invoice_gross_total"])
     if inv_total > 0:
         return {
@@ -1049,6 +1088,7 @@ def _past_month_invoice(
     session: Session,
     year_month: str,
     credit_accounts: list[Account],
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Invoice summary for a past month.
 
@@ -1070,7 +1110,9 @@ def _past_month_invoice(
         return _none_result(year_month, "past_month", 0, float(bal_total))
 
     # ---- Tier 1: official CreditCardBill ----
-    bills = session.exec(select(CreditCardBill)).all()
+    bills = session.exec(
+        scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
+    ).all()
     matched_bills = [
         b
         for b in bills
@@ -1083,7 +1125,9 @@ def _past_month_invoice(
     if matched_bills:
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
-        payment_status = _payment_status_for_official_bills(session, matched_bills)
+        payment_status = _payment_status_for_official_bills(
+            session, matched_bills, user_id=user_id
+        )
         return _with_payment_status(
             {
                 "year_month": year_month,
@@ -1114,7 +1158,7 @@ def _past_month_invoice(
         )
 
     # ---- Tier 2: transaction fallback ----
-    inv = invoice_summary(session, from_date=first_day, to_date=last_day)
+    inv = invoice_summary(session, from_date=first_day, to_date=last_day, user_id=user_id)
     inv_total = float(inv["invoice_gross_total"])
     if inv_total > 0:
         return {
@@ -1146,6 +1190,7 @@ def planning_invoice_for_month(
     session: Session,
     year_month: str,
     today: Optional[datetime.date] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Return the planning invoice for ``year_month`` as a single structured dict.
 
@@ -1159,18 +1204,18 @@ def planning_invoice_for_month(
     today = today if today is not None else datetime.date.today()
     current_ym = today.strftime("%Y-%m")
 
-    credit_accounts = _active_credit_accounts(session)
+    credit_accounts = _active_credit_accounts(session, user_id=user_id)
 
     if year_month == current_ym:
-        result = _current_month_invoice(session, year_month, today, credit_accounts)
+        result = _current_month_invoice(session, year_month, today, credit_accounts, user_id=user_id)
     elif year_month > current_ym:
-        result = _future_month_invoice(session, year_month, today, credit_accounts)
+        result = _future_month_invoice(session, year_month, today, credit_accounts, user_id=user_id)
     else:
-        result = _past_month_invoice(session, year_month, credit_accounts)
+        result = _past_month_invoice(session, year_month, credit_accounts, user_id=user_id)
 
     if "payment_status" in result:
         return result
     return _with_payment_status(
         result,
-        _payment_status_for_non_official_invoice(session, result, today),
+        _payment_status_for_non_official_invoice(session, result, today, user_id=user_id),
     )

@@ -135,6 +135,7 @@ class SnapshotOutcome:
 def sync_credit_card_bills(
     session: Session,
     account_id: str,
+    user_id: Optional[int] = None,
 ) -> SnapshotOutcome:
     outcome = SnapshotOutcome()
     try:
@@ -177,8 +178,10 @@ def sync_credit_card_bills(
         }
         existing = session.get(CreditCardBill, bill_id)
         if existing is None:
-            session.add(CreditCardBill(id=bill_id, **values))
+            session.add(CreditCardBill(id=bill_id, user_id=user_id, **values))
         else:
+            if user_id is not None:
+                existing.user_id = user_id
             for field_name, value in values.items():
                 setattr(existing, field_name, value)
             session.add(existing)
@@ -230,7 +233,11 @@ def _investment_transaction_values(raw: Dict[str, Any], investment_id: str) -> D
     }
 
 
-def sync_investments(session: Session, item_id: str) -> SnapshotOutcome:
+def sync_investments(
+    session: Session,
+    item_id: str,
+    user_id: Optional[int] = None,
+) -> SnapshotOutcome:
     outcome = SnapshotOutcome()
     try:
         investments = pluggy.list_investments(item_id)
@@ -254,9 +261,11 @@ def sync_investments(session: Session, item_id: str) -> SnapshotOutcome:
         values = _investment_values(raw)
         existing = session.get(Investment, investment_id)
         if existing is None:
-            session.add(Investment(id=investment_id, item_id=item_id, **values))
+            session.add(Investment(id=investment_id, item_id=item_id, user_id=user_id, **values))
         else:
             existing.item_id = item_id
+            if user_id is not None:
+                existing.user_id = user_id
             for field_name, value in values.items():
                 setattr(existing, field_name, value)
             session.add(existing)
@@ -288,8 +297,10 @@ def sync_investments(session: Session, item_id: str) -> SnapshotOutcome:
             tx_values = _investment_transaction_values(raw_tx, investment_id)
             tx_existing = session.get(InvestmentTransaction, tx_id)
             if tx_existing is None:
-                session.add(InvestmentTransaction(id=tx_id, **tx_values))
+                session.add(InvestmentTransaction(id=tx_id, user_id=user_id, **tx_values))
             else:
+                if user_id is not None:
+                    tx_existing.user_id = user_id
                 for field_name, value in tx_values.items():
                     setattr(tx_existing, field_name, value)
                 session.add(tx_existing)

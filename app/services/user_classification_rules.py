@@ -32,6 +32,7 @@ from app.services.transaction_classifier import (
     normalize_pluggy_value,
     serialize_transaction_classification,
 )
+from app.services.scoping import scope_query
 from app.services.transactions import _non_duplicate_clause
 
 # Content matchers; at least one must be set so a rule can never match the
@@ -95,12 +96,17 @@ def compile_rule(rule: UserClassificationRule) -> CompiledUserRule:
     )
 
 
-def load_compiled_user_rules(session: Session) -> tuple[CompiledUserRule, ...]:
+def load_compiled_user_rules(
+    session: Session,
+    user_id: Optional[int] = None,
+) -> tuple[CompiledUserRule, ...]:
     """Enabled rules, ordered by ascending priority (lowest value wins)."""
     rules = session.exec(
-        select(UserClassificationRule)
-        .where(UserClassificationRule.enabled.is_(True))
-        .order_by(UserClassificationRule.priority.asc(), UserClassificationRule.id.asc())
+        scope_query(
+            select(UserClassificationRule).where(UserClassificationRule.enabled.is_(True)),
+            UserClassificationRule.user_id,
+            user_id,
+        ).order_by(UserClassificationRule.priority.asc(), UserClassificationRule.id.asc())
     ).all()
     return tuple(compile_rule(rule) for rule in rules)
 
@@ -169,8 +175,13 @@ def _validate_and_normalize_fields(fields: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _accounts_by_id(session: Session) -> dict[str, Account]:
-    return {account.id: account for account in session.exec(select(Account)).all()}
+def _accounts_by_id(session: Session, user_id: Optional[int] = None) -> dict[str, Account]:
+    return {
+        account.id: account
+        for account in session.exec(
+            scope_query(select(Account), Account.user_id, user_id)
+        ).all()
+    }
 
 
 def _classification_input_for(
@@ -192,15 +203,20 @@ def _classification_input_for(
 def _matching_transactions(
     session: Session,
     compiled: CompiledUserRule,
+    user_id: Optional[int] = None,
 ) -> list[tuple[Transaction, Optional[str]]]:
     """Non-duplicate, non-overridden transactions the rule matches.
 
     Manual overrides are excluded because reclassification skips them — they
     can never be changed by a user rule.
     """
-    accounts = _accounts_by_id(session)
+    accounts = _accounts_by_id(session, user_id=user_id)
     transactions = session.exec(
-        select(Transaction).where(_non_duplicate_clause()).order_by(Transaction.date.desc())
+        scope_query(
+            select(Transaction).where(_non_duplicate_clause()),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.desc())
     ).all()
     matched: list[tuple[Transaction, Optional[str]]] = []
     for tx in transactions:
@@ -213,8 +229,12 @@ def _matching_transactions(
     return matched
 
 
-def count_rule_matches(session: Session, compiled: CompiledUserRule) -> int:
-    return len(_matching_transactions(session, compiled))
+def count_rule_matches(
+    session: Session,
+    compiled: CompiledUserRule,
+    user_id: Optional[int] = None,
+) -> int:
+    return len(_matching_transactions(session, compiled, user_id=user_id))
 
 
 # ---------------------------------------------------------------------------
@@ -222,10 +242,14 @@ def count_rule_matches(session: Session, compiled: CompiledUserRule) -> int:
 # ---------------------------------------------------------------------------
 
 
-def serialize_rule(session: Session, rule: UserClassificationRule) -> dict[str, Any]:
+def serialize_rule(
+    session: Session,
+    rule: UserClassificationRule,
+    user_id: Optional[int] = None,
+) -> dict[str, Any]:
     return {
         **rule.model_dump(mode="json"),
-        "affected_count": count_rule_matches(session, compile_rule(rule)),
+        "affected_count": count_rule_matches(session, compile_rule(rule), user_id=user_id),
     }
 
 
@@ -234,19 +258,31 @@ def serialize_rule(session: Session, rule: UserClassificationRule) -> dict[str, 
 # ---------------------------------------------------------------------------
 
 
-def list_user_classification_rules(session: Session) -> list[dict[str, Any]]:
+def list_user_classification_rules(
+    session: Session,
+    user_id: Optional[int] = None,
+) -> list[dict[str, Any]]:
     rules = session.exec(
-        select(UserClassificationRule).order_by(
+        scope_query(
+            select(UserClassificationRule),
+            UserClassificationRule.user_id,
+            user_id,
+        ).order_by(
             UserClassificationRule.priority.asc(),
             UserClassificationRule.id.asc(),
         )
     ).all()
-    return [serialize_rule(session, rule) for rule in rules]
+    return [serialize_rule(session, rule, user_id=user_id) for rule in rules]
 
 
-def _get_rule(session: Session, rule_id: int) -> UserClassificationRule:
+def _get_rule(
+    session: Session,
+    rule_id: int,
+    user_id: Optional[int] = None,
+) -> UserClassificationRule:
     rule = session.get(UserClassificationRule, rule_id)
-    if rule is None:
+    # Treat a rule owned by another user as not found so ids can't be probed.
+    if rule is None or (user_id is not None and rule.user_id != user_id):
         raise UserRuleNotFoundError(f"user classification rule {rule_id} not found")
     return rule
 
@@ -272,22 +308,24 @@ def _fields_from_rule(rule: UserClassificationRule) -> dict[str, Any]:
 def create_user_classification_rule(
     session: Session,
     fields: dict[str, Any],
+    user_id: Optional[int] = None,
 ) -> dict[str, Any]:
     cleaned = _validate_and_normalize_fields(fields)
     now = datetime.datetime.utcnow()
-    rule = UserClassificationRule(created_at=now, updated_at=now, **cleaned)
+    rule = UserClassificationRule(created_at=now, updated_at=now, user_id=user_id, **cleaned)
     session.add(rule)
     session.commit()
     session.refresh(rule)
-    return serialize_rule(session, rule)
+    return serialize_rule(session, rule, user_id=user_id)
 
 
 def update_user_classification_rule(
     session: Session,
     rule_id: int,
     fields: dict[str, Any],
+    user_id: Optional[int] = None,
 ) -> dict[str, Any]:
-    rule = _get_rule(session, rule_id)
+    rule = _get_rule(session, rule_id, user_id=user_id)
     # Merge incoming fields over the current row, then validate the whole thing
     # so partial updates can't bypass validation.
     merged = _fields_from_rule(rule)
@@ -301,11 +339,15 @@ def update_user_classification_rule(
     session.add(rule)
     session.commit()
     session.refresh(rule)
-    return serialize_rule(session, rule)
+    return serialize_rule(session, rule, user_id=user_id)
 
 
-def delete_user_classification_rule(session: Session, rule_id: int) -> None:
-    rule = _get_rule(session, rule_id)
+def delete_user_classification_rule(
+    session: Session,
+    rule_id: int,
+    user_id: Optional[int] = None,
+) -> None:
+    rule = _get_rule(session, rule_id, user_id=user_id)
     session.delete(rule)
     session.commit()
 
@@ -319,6 +361,7 @@ def _preview_compiled_rule(
     session: Session,
     rule_id: Optional[int],
     fields: dict[str, Any],
+    user_id: Optional[int] = None,
 ) -> tuple[CompiledUserRule, tuple[CompiledUserRule, ...]]:
     """Compile the previewed rule plus the other enabled rules (for 'current').
 
@@ -327,7 +370,7 @@ def _preview_compiled_rule(
     """
     effective_rule_id = rule_id or -1
     if rule_id is not None:
-        persisted = _get_rule(session, rule_id)
+        persisted = _get_rule(session, rule_id, user_id=user_id)
         merged = _fields_from_rule(persisted)
         for key, value in fields.items():
             if key in merged:
@@ -337,7 +380,9 @@ def _preview_compiled_rule(
     preview_rule = UserClassificationRule(id=effective_rule_id, **cleaned)
     compiled = compile_rule(preview_rule)
     other_rules = tuple(
-        r for r in load_compiled_user_rules(session) if r.rule_id != effective_rule_id
+        r
+        for r in load_compiled_user_rules(session, user_id=user_id)
+        if r.rule_id != effective_rule_id
     )
     return compiled, other_rules
 
@@ -346,9 +391,10 @@ def preview_user_classification_rule(
     session: Session,
     fields: dict[str, Any],
     rule_id: Optional[int] = None,
+    user_id: Optional[int] = None,
 ) -> dict[str, Any]:
-    compiled, other_rules = _preview_compiled_rule(session, rule_id, fields)
-    matched = _matching_transactions(session, compiled)
+    compiled, other_rules = _preview_compiled_rule(session, rule_id, fields, user_id=user_id)
+    matched = _matching_transactions(session, compiled, user_id=user_id)
 
     examples: list[dict[str, Any]] = []
     for tx, account_type in matched[:PREVIEW_EXAMPLE_LIMIT]:

@@ -12,6 +12,7 @@ from app.models import (
     FixedCostTransactionMatch,
     Transaction,
 )
+from app.services.scoping import scope_query
 from app.services.transactions import _non_duplicate_clause
 from app.services.fixed_cost_defaults import (
     DEFAULT_FIXED_COST_CATEGORIES,
@@ -156,9 +157,12 @@ def _serialize_fixed_cost_transaction_match(
     }
 
 
-def _sync_default_categories(session: Session) -> None:
+def _sync_default_categories(session: Session, user_id: Optional[int] = None) -> None:
     existing_by_name = {
-        category.name: category for category in session.exec(select(FixedCostCategory)).all()
+        category.name: category
+        for category in session.exec(
+            scope_query(select(FixedCostCategory), FixedCostCategory.user_id, user_id)
+        ).all()
     }
     default_names = {category["name"] for category in DEFAULT_FIXED_COST_CATEGORIES}
     changed = False
@@ -171,6 +175,7 @@ def _sync_default_categories(session: Session) -> None:
                     color=source["color"],
                     sort_order=source["sort_order"],
                     is_default=True,
+                    user_id=user_id,
                 )
             )
             changed = True
@@ -191,7 +196,13 @@ def _sync_default_categories(session: Session) -> None:
         if category.is_default and category.name not in default_names
     ]
     for category in stale_defaults:
-        in_use = session.exec(select(FixedCost).where(FixedCost.category_id == category.id)).first()
+        in_use = session.exec(
+            scope_query(
+                select(FixedCost).where(FixedCost.category_id == category.id),
+                FixedCost.user_id,
+                user_id,
+            )
+        ).first()
         if in_use is None:
             session.delete(category)
         else:
@@ -202,19 +213,36 @@ def _sync_default_categories(session: Session) -> None:
         session.commit()
 
 
-def _custom_category_count(session: Session) -> int:
+def _custom_category_count(session: Session, user_id: Optional[int] = None) -> int:
     return len(
-        session.exec(select(FixedCostCategory).where(FixedCostCategory.is_default.is_(False))).all()
+        session.exec(
+            scope_query(
+                select(FixedCostCategory).where(FixedCostCategory.is_default.is_(False)),
+                FixedCostCategory.user_id,
+                user_id,
+            )
+        ).all()
     )
 
 
-def _categories_by_name(session: Session) -> dict[str, FixedCostCategory]:
-    _sync_default_categories(session)
-    return {category.name: category for category in session.exec(select(FixedCostCategory)).all()}
+def _categories_by_name(
+    session: Session,
+    user_id: Optional[int] = None,
+) -> dict[str, FixedCostCategory]:
+    _sync_default_categories(session, user_id=user_id)
+    return {
+        category.name: category
+        for category in session.exec(
+            scope_query(select(FixedCostCategory), FixedCostCategory.user_id, user_id)
+        ).all()
+    }
 
 
-def list_fixed_cost_templates(session: Session) -> List[Dict[str, Any]]:
-    categories_by_name = _categories_by_name(session)
+def list_fixed_cost_templates(
+    session: Session,
+    user_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    categories_by_name = _categories_by_name(session, user_id=user_id)
     return [
         {
             **template,
@@ -226,10 +254,15 @@ def list_fixed_cost_templates(session: Session) -> List[Dict[str, Any]]:
     ]
 
 
-def list_fixed_cost_categories(session: Session) -> List[Dict[str, Any]]:
-    _sync_default_categories(session)
+def list_fixed_cost_categories(
+    session: Session,
+    user_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    _sync_default_categories(session, user_id=user_id)
     categories = session.exec(
-        select(FixedCostCategory).order_by(
+        scope_query(
+            select(FixedCostCategory), FixedCostCategory.user_id, user_id
+        ).order_by(
             FixedCostCategory.is_default.desc(),
             FixedCostCategory.sort_order,
             FixedCostCategory.name,
@@ -243,19 +276,27 @@ def create_fixed_cost_category(
     name: str,
     color: str = "#64748b",
     sort_order: int = 0,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     name = _validate_description(name)
-    _sync_default_categories(session)
-    existing = session.exec(select(FixedCostCategory).where(FixedCostCategory.name == name)).first()
+    _sync_default_categories(session, user_id=user_id)
+    existing = session.exec(
+        scope_query(
+            select(FixedCostCategory).where(FixedCostCategory.name == name),
+            FixedCostCategory.user_id,
+            user_id,
+        )
+    ).first()
     if existing is not None:
         raise FixedCostValidationError("category already exists")
-    if _custom_category_count(session) >= MAX_CUSTOM_FIXED_COST_CATEGORIES:
+    if _custom_category_count(session, user_id=user_id) >= MAX_CUSTOM_FIXED_COST_CATEGORIES:
         raise FixedCostValidationError("custom category limit reached")
     category = FixedCostCategory(
         name=name,
         color=color,
         sort_order=sort_order,
         is_default=False,
+        user_id=user_id,
     )
     session.add(category)
     session.commit()
@@ -269,9 +310,10 @@ def update_fixed_cost_category(
     name: Optional[str] = None,
     color: Optional[str] = None,
     sort_order: Optional[int] = None,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     category = session.get(FixedCostCategory, category_id)
-    if category is None:
+    if category is None or (user_id is not None and category.user_id != user_id):
         return None
     if name is not None:
         if category.is_default:
@@ -287,13 +329,23 @@ def update_fixed_cost_category(
     return _serialize_category(category)
 
 
-def delete_fixed_cost_category(session: Session, category_id: int) -> bool:
+def delete_fixed_cost_category(
+    session: Session,
+    category_id: int,
+    user_id: Optional[int] = None,
+) -> bool:
     category = session.get(FixedCostCategory, category_id)
-    if category is None:
+    if category is None or (user_id is not None and category.user_id != user_id):
         return False
     if category.is_default:
         raise FixedCostValidationError("default categories cannot be deleted")
-    in_use = session.exec(select(FixedCost).where(FixedCost.category_id == category_id)).first()
+    in_use = session.exec(
+        scope_query(
+            select(FixedCost).where(FixedCost.category_id == category_id),
+            FixedCost.user_id,
+            user_id,
+        )
+    ).first()
     if in_use is not None:
         raise FixedCostValidationError("category has fixed costs")
     session.delete(category)
@@ -304,12 +356,18 @@ def delete_fixed_cost_category(session: Session, category_id: int) -> bool:
 def list_fixed_costs(
     session: Session,
     include_inactive: bool = False,
+    user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    _sync_default_categories(session)
+    _sync_default_categories(session, user_id=user_id)
     categories = {
-        category.id: category for category in session.exec(select(FixedCostCategory)).all()
+        category.id: category
+        for category in session.exec(
+            scope_query(select(FixedCostCategory), FixedCostCategory.user_id, user_id)
+        ).all()
     }
-    query = select(FixedCost).order_by(FixedCost.due_day, FixedCost.description)
+    query = scope_query(select(FixedCost), FixedCost.user_id, user_id).order_by(
+        FixedCost.due_day, FixedCost.description
+    )
     if not include_inactive:
         query = query.where(FixedCost.active.is_(True))
     return [
@@ -325,19 +383,21 @@ def create_fixed_cost(
     description: str,
     amount: Decimal,
     due_day: int,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     description = _validate_description(description)
     _validate_amount(amount)
     _validate_day(due_day)
-    _sync_default_categories(session)
+    _sync_default_categories(session, user_id=user_id)
     category = session.get(FixedCostCategory, category_id)
-    if category is None:
+    if category is None or (user_id is not None and category.user_id != user_id):
         return None
     cost = FixedCost(
         category_id=category_id,
         description=description,
         amount=amount,
         due_day=due_day,
+        user_id=user_id,
     )
     session.add(cost)
     session.commit()
@@ -352,12 +412,13 @@ def create_fixed_cost_from_transaction(
     description: Optional[str] = None,
     amount: Optional[Decimal] = None,
     due_day: Optional[int] = None,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     tx = session.get(Transaction, transaction_id)
-    if tx is None:
+    if tx is None or (user_id is not None and tx.user_id != user_id):
         return None
-    _sync_default_categories(session)
-    categories_by_name = _categories_by_name(session)
+    _sync_default_categories(session, user_id=user_id)
+    categories_by_name = _categories_by_name(session, user_id=user_id)
     fallback_category = _suggest_category_for_transaction(tx, categories_by_name)
     target_category_id = category_id or (fallback_category.id if fallback_category else None)
     if target_category_id is None:
@@ -368,6 +429,7 @@ def create_fixed_cost_from_transaction(
         description=description or tx.description,
         amount=amount or abs(tx.amount),
         due_day=due_day or tx.date.day,
+        user_id=user_id,
     )
 
 
@@ -395,14 +457,15 @@ def update_fixed_cost(
     amount: Optional[Decimal] = None,
     due_day: Optional[int] = None,
     active: Optional[bool] = None,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     cost = session.get(FixedCost, cost_id)
-    if cost is None:
+    if cost is None or (user_id is not None and cost.user_id != user_id):
         return None
     target_category_id = category_id if category_id is not None else cost.category_id
-    _sync_default_categories(session)
+    _sync_default_categories(session, user_id=user_id)
     category = session.get(FixedCostCategory, target_category_id)
-    if category is None:
+    if category is None or (user_id is not None and category.user_id != user_id):
         return None
     if description is not None:
         cost.description = _validate_description(description)
@@ -421,9 +484,9 @@ def update_fixed_cost(
     return _serialize_cost(cost, category)
 
 
-def delete_fixed_cost(session: Session, cost_id: int) -> bool:
+def delete_fixed_cost(session: Session, cost_id: int, user_id: Optional[int] = None) -> bool:
     cost = session.get(FixedCost, cost_id)
-    if cost is None:
+    if cost is None or (user_id is not None and cost.user_id != user_id):
         return False
     matches = session.exec(
         select(FixedCostTransactionMatch).where(FixedCostTransactionMatch.fixed_cost_id == cost_id)
@@ -447,37 +510,58 @@ def _transaction_month(tx: Transaction) -> str:
 def _matches_for_month(
     session: Session,
     year_month: str,
+    user_id: Optional[int] = None,
 ) -> list[FixedCostTransactionMatch]:
     _validate_month(year_month)
     return session.exec(
-        select(FixedCostTransactionMatch).where(FixedCostTransactionMatch.year_month == year_month)
+        scope_query(
+            select(FixedCostTransactionMatch).where(
+                FixedCostTransactionMatch.year_month == year_month
+            ),
+            FixedCostTransactionMatch.user_id,
+            user_id,
+        )
     ).all()
 
 
 def _transactions_by_id(
     session: Session,
     transaction_ids: set[str],
+    user_id: Optional[int] = None,
 ) -> dict[str, Transaction]:
     if not transaction_ids:
         return {}
     return {
         tx.id: tx
-        for tx in session.exec(select(Transaction).where(Transaction.id.in_(transaction_ids))).all()
+        for tx in session.exec(
+            scope_query(
+                select(Transaction).where(Transaction.id.in_(transaction_ids)),
+                Transaction.user_id,
+                user_id,
+            )
+        ).all()
     }
 
 
 def list_fixed_cost_transaction_matches(
     session: Session,
     year_month: str,
+    user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    matches = _matches_for_month(session, year_month)
-    transactions = _transactions_by_id(session, {match.transaction_id for match in matches})
+    matches = _matches_for_month(session, year_month, user_id=user_id)
+    transactions = _transactions_by_id(
+        session, {match.transaction_id for match in matches}, user_id=user_id
+    )
     costs = (
         {
             cost.id: cost
             for cost in session.exec(
-                select(FixedCost).where(
-                    FixedCost.id.in_({match.fixed_cost_id for match in matches})
+                scope_query(
+                    select(FixedCost).where(
+                        FixedCost.id.in_({match.fixed_cost_id for match in matches})
+                    ),
+                    FixedCost.user_id,
+                    user_id,
                 )
             ).all()
         }
@@ -499,10 +583,13 @@ def create_fixed_cost_transaction_match(
     fixed_cost_id: int,
     transaction_id: str,
     year_month: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     cost = session.get(FixedCost, fixed_cost_id)
     tx = session.get(Transaction, transaction_id)
     if cost is None or tx is None:
+        return None
+    if user_id is not None and (cost.user_id != user_id or tx.user_id != user_id):
         return None
 
     target_month = year_month or _transaction_month(tx)
@@ -540,6 +627,7 @@ def create_fixed_cost_transaction_match(
         fixed_cost_id=fixed_cost_id,
         transaction_id=transaction_id,
         year_month=target_month,
+        user_id=user_id,
     )
     session.add(match)
     session.commit()
@@ -547,9 +635,13 @@ def create_fixed_cost_transaction_match(
     return _serialize_fixed_cost_transaction_match(match, cost, tx)
 
 
-def delete_fixed_cost_transaction_match(session: Session, match_id: int) -> bool:
+def delete_fixed_cost_transaction_match(
+    session: Session,
+    match_id: int,
+    user_id: Optional[int] = None,
+) -> bool:
     match = session.get(FixedCostTransactionMatch, match_id)
-    if match is None:
+    if match is None or (user_id is not None and match.user_id != user_id):
         return False
     session.delete(match)
     session.commit()
@@ -596,35 +688,52 @@ def _status_for_cost(
     return "scheduled"
 
 
-def monthly_breakdown(session: Session, year_month: str) -> Dict[str, Any]:
+def monthly_breakdown(
+    session: Session,
+    year_month: str,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     _validate_month(year_month)
     today = date.today()
     first_day, last_day = _month_bounds(year_month)
-    _sync_default_categories(session)
+    _sync_default_categories(session, user_id=user_id)
     costs = session.exec(
-        select(FixedCost)
-        .where(FixedCost.active.is_(True))
-        .order_by(FixedCost.due_day, FixedCost.description)
+        scope_query(
+            select(FixedCost).where(FixedCost.active.is_(True)),
+            FixedCost.user_id,
+            user_id,
+        ).order_by(FixedCost.due_day, FixedCost.description)
     ).all()
     categories = {
-        category.id: category for category in session.exec(select(FixedCostCategory)).all()
+        category.id: category
+        for category in session.exec(
+            scope_query(select(FixedCostCategory), FixedCostCategory.user_id, user_id)
+        ).all()
     }
     overrides = {
         override.fixed_cost_id: override
         for override in session.exec(
-            select(FixedCostOverride).where(FixedCostOverride.year_month == year_month)
+            scope_query(
+                select(FixedCostOverride).where(FixedCostOverride.year_month == year_month),
+                FixedCostOverride.user_id,
+                user_id,
+            )
         ).all()
     }
     month_transactions = session.exec(
-        select(Transaction).where(
-            Transaction.date >= first_day,
-            Transaction.date <= last_day,
-            _non_duplicate_clause(),
+        scope_query(
+            select(Transaction).where(
+                Transaction.date >= first_day,
+                Transaction.date <= last_day,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
         )
     ).all()
-    manual_matches = _matches_for_month(session, year_month)
+    manual_matches = _matches_for_month(session, year_month, user_id=user_id)
     manual_transactions = _transactions_by_id(
-        session, {match.transaction_id for match in manual_matches}
+        session, {match.transaction_id for match in manual_matches}, user_id=user_id
     )
     manual_by_cost: dict[int, tuple[FixedCostTransactionMatch, Transaction]] = {}
     for match in manual_matches:
@@ -761,6 +870,7 @@ def accounted_transaction_ids_for_month(
     session: Session,
     year_month: str,
     today: Optional[date] = None,
+    user_id: Optional[int] = None,
 ) -> set[str]:
     """Transactions already "spoken for" by a fixed cost in ``year_month``.
 
@@ -777,7 +887,7 @@ def accounted_transaction_ids_for_month(
     that table would miss them and let the same transaction reduce the
     available-to-spend twice.
     """
-    breakdown = monthly_breakdown(session, year_month)
+    breakdown = monthly_breakdown(session, year_month, user_id=user_id)
     ids: set[str] = set()
     for entry in breakdown["entries"]:
         matched = entry.get("matched_transaction")
@@ -791,11 +901,12 @@ def set_override(
     cost_id: int,
     year_month: str,
     amount: Decimal,
+    user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     _validate_month(year_month)
     _validate_amount(amount, allow_zero=True)
     cost = session.get(FixedCost, cost_id)
-    if cost is None:
+    if cost is None or (user_id is not None and cost.user_id != user_id):
         return None
     existing = session.exec(
         select(FixedCostOverride).where(
@@ -808,6 +919,7 @@ def set_override(
             fixed_cost_id=cost_id,
             year_month=year_month,
             amount=amount,
+            user_id=user_id,
         )
     else:
         existing.amount = amount
@@ -822,12 +934,21 @@ def set_override(
     }
 
 
-def delete_override(session: Session, cost_id: int, year_month: str) -> bool:
+def delete_override(
+    session: Session,
+    cost_id: int,
+    year_month: str,
+    user_id: Optional[int] = None,
+) -> bool:
     _validate_month(year_month)
     existing = session.exec(
-        select(FixedCostOverride).where(
-            FixedCostOverride.fixed_cost_id == cost_id,
-            FixedCostOverride.year_month == year_month,
+        scope_query(
+            select(FixedCostOverride).where(
+                FixedCostOverride.fixed_cost_id == cost_id,
+                FixedCostOverride.year_month == year_month,
+            ),
+            FixedCostOverride.user_id,
+            user_id,
         )
     ).first()
     if existing is None:

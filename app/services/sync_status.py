@@ -4,6 +4,7 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from app.models import Account, AccountSync, CreditCardBill, Item, Transaction
+from app.services.scoping import scope_query
 from app.services.sync import is_sync_lock_stale, is_sync_running, sync_lock_status
 
 
@@ -30,12 +31,18 @@ def _last_sync_duration_seconds(items: list[Item]) -> Optional[float]:
     return max(duration.total_seconds(), 0)
 
 
-def get_sync_status(session: Session) -> dict[str, Any]:
-    items = list(session.exec(select(Item)).all())
-    accounts = list(session.exec(select(Account)).all())
-    account_syncs = list(session.exec(select(AccountSync)).all())
-    transactions = list(session.exec(select(Transaction)).all())
-    bills = list(session.exec(select(CreditCardBill)).all())
+def get_sync_status(session: Session, user_id: Optional[int] = None) -> dict[str, Any]:
+    items = list(session.exec(scope_query(select(Item), Item.user_id, user_id)).all())
+    accounts = list(session.exec(scope_query(select(Account), Account.user_id, user_id)).all())
+    account_syncs = list(
+        session.exec(scope_query(select(AccountSync), AccountSync.user_id, user_id)).all()
+    )
+    transactions = list(
+        session.exec(scope_query(select(Transaction), Transaction.user_id, user_id)).all()
+    )
+    bills = list(
+        session.exec(scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)).all()
+    )
     accounts_by_id = {account.id: account for account in accounts}
 
     running = any(is_sync_running(item) for item in items)

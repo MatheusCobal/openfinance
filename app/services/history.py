@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from sqlmodel import Session, select
 
@@ -25,6 +25,7 @@ from app.services.transaction_classifier import (
     CompiledUserRule,
     serialize_transaction_classification,
 )
+from app.services.scoping import scope_query
 from app.services.user_classification_rules import load_compiled_user_rules
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
@@ -67,21 +68,26 @@ def _history_transaction_classification(
     }
 
 
-def ignored_transactions_monthly_summary(session: Session):
+def ignored_transactions_monthly_summary(session: Session, user_id: Optional[int] = None):
     today = date.today()
-    ignored_patterns = ignored_description_patterns(session)
+    ignored_patterns = ignored_description_patterns(session, user_id=user_id)
     transactions = session.exec(
-        select(Transaction)
-        .where(Transaction.date <= today, _non_duplicate_clause())
-        .order_by(Transaction.date.desc())
+        scope_query(
+            select(Transaction).where(Transaction.date <= today, _non_duplicate_clause()),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.desc())
     ).all()
     ignored_transactions = [
         tx
         for tx in transactions
         if ignored_patterns and is_ignored_transaction(tx, ignored_patterns)
     ]
-    accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
-    user_rules = load_compiled_user_rules(session)
+    accounts_by_id = {
+        account.id: account
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+    }
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     for tx in ignored_transactions:
@@ -119,7 +125,11 @@ def ignored_transactions_monthly_summary(session: Session):
     }
 
 
-def credit_card_payments_monthly_summary(session: Session, months: int):
+def credit_card_payments_monthly_summary(
+    session: Session,
+    months: int,
+    user_id: Optional[int] = None,
+):
     """Return monthly credit-card invoice payments for the last ``months`` months.
 
     Payments are attributed to the invoice month (the month whose due date is
@@ -136,9 +146,13 @@ def credit_card_payments_monthly_summary(session: Session, months: int):
         session,
         start_date,
         today,
+        user_id=user_id,
     )
-    accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
-    user_rules = load_compiled_user_rules(session)
+    accounts_by_id = {
+        account.id: account
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+    }
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     # Build a per-account due_day map from persisted Pluggy credit data.
     account_due_days: Dict[str, int] = {}
@@ -243,12 +257,17 @@ def _history_card_purchase_transaction(
 def _credit_card_official_bill_totals_by_month(
     session: Session,
     selected_months: set[str],
+    user_id: Optional[int] = None,
 ) -> dict[str, dict[str, Any]]:
-    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES))
+    credit_account_ids = set(
+        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
+    )
     if not credit_account_ids:
         return {}
 
-    bills = session.exec(select(CreditCardBill)).all()
+    bills = session.exec(
+        scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
+    ).all()
     totals_by_month: dict[str, dict[str, Any]] = {}
     for bill in bills:
         if bill.account_id not in credit_account_ids:
@@ -293,9 +312,16 @@ def _credit_card_official_bill_totals_by_month(
 def _credit_card_invoice_snapshot_totals_by_month(
     session: Session,
     selected_months: set[str],
+    user_id: Optional[int] = None,
 ) -> dict[str, dict[str, Any]]:
     snapshots = session.exec(
-        select(CreditCardInvoiceMonth).where(CreditCardInvoiceMonth.year_month.in_(selected_months))
+        scope_query(
+            select(CreditCardInvoiceMonth).where(
+                CreditCardInvoiceMonth.year_month.in_(selected_months)
+            ),
+            CreditCardInvoiceMonth.user_id,
+            user_id,
+        )
     ).all()
     return {
         snapshot.year_month: {
@@ -308,7 +334,11 @@ def _credit_card_invoice_snapshot_totals_by_month(
     }
 
 
-def credit_card_invoice_purchases_monthly_summary(session: Session, months: int):
+def credit_card_invoice_purchases_monthly_summary(
+    session: Session,
+    months: int,
+    user_id: Optional[int] = None,
+):
     """Return invoice history with display totals separated from classifications.
 
     Historical months use Pluggy's official bill as the displayed invoice
@@ -328,21 +358,27 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
     official_bills_by_month = _credit_card_official_bill_totals_by_month(
         session,
         selected_month_set,
+        user_id=user_id,
     )
     invoice_snapshots_by_month = _credit_card_invoice_snapshot_totals_by_month(
         session,
         selected_month_set,
+        user_id=user_id,
     )
-    current_invoice = current_card_invoice_summary(session, today=today)
+    current_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
     current_invoice_total = Decimal(str(current_invoice.get("amount") or 0))
 
     purchases = credit_card_spend_transactions(
         session,
         average_window_start,
         today,
+        user_id=user_id,
     )
-    accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
-    user_rules = load_compiled_user_rules(session)
+    accounts_by_id = {
+        account.id: account
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+    }
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     selected_transactions_by_month: Dict[str, list[dict[str, Any]]] = {
         month: [] for month in selected_months
@@ -531,9 +567,11 @@ def credit_card_invoice_purchases_monthly_summary(session: Session, months: int)
     }
 
 
-def credit_card_payments_history_summary(session: Session):
+def credit_card_payments_history_summary(session: Session, user_id: Optional[int] = None):
     snapshots = session.exec(
-        select(CreditCardInvoiceMonth).order_by(CreditCardInvoiceMonth.year_month.asc())
+        scope_query(
+            select(CreditCardInvoiceMonth), CreditCardInvoiceMonth.user_id, user_id
+        ).order_by(CreditCardInvoiceMonth.year_month.asc())
     ).all()
     total = sum((snapshot.total for snapshot in snapshots), Decimal("0"))
     total_count = sum(snapshot.payment_count for snapshot in snapshots)
@@ -554,20 +592,22 @@ def credit_card_payments_history_summary(session: Session):
     }
 
 
-def bank_income_monthly_summary(session: Session, months: int):
+def bank_income_monthly_summary(session: Session, months: int, user_id: Optional[int] = None):
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
     start_date = date(int(first_year), int(first_month), 1)
-    active_bank_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, active_only=True))
+    active_bank_ids = set(
+        account_ids_by_type(session, BANK_ACCOUNT_TYPES, active_only=True, user_id=user_id)
+    )
     bank_accounts = {
         account.id: account
-        for account in session.exec(select(Account)).all()
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
         if account.id in active_bank_ids
     }
     accounts_by_id = bank_accounts
-    user_rules = load_compiled_user_rules(session)
-    income_transactions = bank_income_transactions(session, start_date, today)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
+    income_transactions = bank_income_transactions(session, start_date, today, user_id=user_id)
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
     for tx in income_transactions:
         month = month_key(tx.date)
@@ -609,9 +649,11 @@ def bank_income_monthly_summary(session: Session, months: int):
     }
 
 
-def bank_income_history_summary(session: Session):
+def bank_income_history_summary(session: Session, user_id: Optional[int] = None):
     snapshots = session.exec(
-        select(BankIncomeMonth).order_by(BankIncomeMonth.year_month.asc())
+        scope_query(select(BankIncomeMonth), BankIncomeMonth.user_id, user_id).order_by(
+            BankIncomeMonth.year_month.asc()
+        )
     ).all()
     total = sum((snapshot.total for snapshot in snapshots), Decimal("0"))
     total_count = sum(snapshot.income_count for snapshot in snapshots)
@@ -632,7 +674,7 @@ def bank_income_history_summary(session: Session):
     }
 
 
-def bank_cashflow_monthly_summary(session: Session, months: int):
+def bank_cashflow_monthly_summary(session: Session, months: int, user_id: Optional[int] = None):
     """Return raw monthly BANK inflows and outflows.
 
     This endpoint backs Historico's "Entradas e saidas" tab.  It is meant to
@@ -646,23 +688,27 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
     start_date = date(int(first_year), int(first_month), 1)
-    active_bank_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, active_only=True))
+    active_bank_ids = set(
+        account_ids_by_type(session, BANK_ACCOUNT_TYPES, active_only=True, user_id=user_id)
+    )
     bank_accounts = {
         account.id: account
-        for account in session.exec(select(Account)).all()
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
         if account.id in active_bank_ids
     }
     accounts_by_id = bank_accounts
-    user_rules = load_compiled_user_rules(session)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
     transactions = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(active_bank_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= today,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.desc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(active_bank_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= today,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.desc())
     ).all()
     bank_transactions = [tx for tx in transactions if tx.account_id in bank_accounts]
 
@@ -721,22 +767,23 @@ def bank_cashflow_monthly_summary(session: Session, months: int):
     }
 
 
-def monthly_balance_summary(session: Session, months: int):
+def monthly_balance_summary(session: Session, months: int, user_id: Optional[int] = None):
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
     start_date = date(int(first_year), int(first_month), 1)
     payment_start_date = shift_month(start_date, -1)
-    income_transactions = bank_income_transactions(session, start_date, today)
-    card_transactions = credit_card_spend_transactions(session, start_date, today)
+    income_transactions = bank_income_transactions(session, start_date, today, user_id=user_id)
+    card_transactions = credit_card_spend_transactions(session, start_date, today, user_id=user_id)
     payment_transactions = credit_card_payment_transactions(
         session,
         payment_start_date,
         today,
+        user_id=user_id,
     )
 
     account_due_days: Dict[str, int] = {}
-    for acct in session.exec(select(Account)).all():
+    for acct in session.exec(scope_query(select(Account), Account.user_id, user_id)).all():
         if acct.type == "CREDIT" and acct.credit_balance_due_date:
             account_due_days[acct.id] = acct.credit_balance_due_date.day
 
@@ -797,9 +844,11 @@ def monthly_balance_summary(session: Session, months: int):
     }
 
 
-def monthly_balance_history_summary(session: Session):
+def monthly_balance_history_summary(session: Session, user_id: Optional[int] = None):
     snapshots = session.exec(
-        select(MonthlyBalanceMonth).order_by(MonthlyBalanceMonth.year_month.asc())
+        scope_query(select(MonthlyBalanceMonth), MonthlyBalanceMonth.user_id, user_id).order_by(
+            MonthlyBalanceMonth.year_month.asc()
+        )
     ).all()
     totals = {
         "income": sum((snapshot.income for snapshot in snapshots), Decimal("0")),

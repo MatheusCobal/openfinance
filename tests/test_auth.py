@@ -63,11 +63,20 @@ class PasswordTest(unittest.TestCase):
 
 
 class AuthSchemaScopeTest(unittest.TestCase):
-    def test_user_id_exists_only_on_the_auth_session_table(self):
+    def test_all_financial_tables_have_user_id(self):
+        expected = {
+            "item", "account", "creditcardbill", "investment", "investmenttransaction",
+            "accountsync", "pluggy_webhook_events", "transaction", "ignoreddescriptionrule",
+            "user_classification_rules", "creditcardinvoicemonth", "bankincomemonth",
+            "bankincomeexclusionrule", "bankcashflowexclusionrule", "monthlybalancemonth",
+            "expectedincome", "expectedincomeoverride", "fixedcostcategory", "fixedcost",
+            "fixedcostoverride", "fixedcosttransactionmatch", "variable_budgets",
+            "sessions",
+        }
         tables_with_user_id = {
             table.name for table in SQLModel.metadata.tables.values() if "user_id" in table.c
         }
-        self.assertEqual(tables_with_user_id, {"sessions"})
+        self.assertEqual(tables_with_user_id, expected)
 
 
 class SessionStoreTest(unittest.TestCase):

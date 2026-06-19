@@ -124,18 +124,38 @@ class TransactionClassifier:
         self.user_rules = user_rules
 
     @classmethod
-    def from_session(cls, session: Session) -> "TransactionClassifier":
+    def from_session(
+        cls,
+        session: Session,
+        user_id: Optional[int] = None,
+    ) -> "TransactionClassifier":
+        from app.services.scoping import scope_query
         from app.services.user_classification_rules import load_compiled_user_rules
 
-        accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
+        accounts_by_id = {
+            account.id: account
+            for account in session.exec(
+                scope_query(select(Account), Account.user_id, user_id)
+            ).all()
+        }
         ignored_patterns = [
             rule.pattern_normalized
-            for rule in session.exec(select(IgnoredDescriptionRule)).all()
+            for rule in session.exec(
+                scope_query(
+                    select(IgnoredDescriptionRule), IgnoredDescriptionRule.user_id, user_id
+                )
+            ).all()
             if rule.pattern_normalized
         ]
-        bank_income_rules = session.exec(select(BankIncomeExclusionRule)).all()
-        bank_cashflow_rules = session.exec(select(BankCashflowExclusionRule)).all()
-        user_rules = load_compiled_user_rules(session)
+        bank_income_rules = session.exec(
+            scope_query(select(BankIncomeExclusionRule), BankIncomeExclusionRule.user_id, user_id)
+        ).all()
+        bank_cashflow_rules = session.exec(
+            scope_query(
+                select(BankCashflowExclusionRule), BankCashflowExclusionRule.user_id, user_id
+            )
+        ).all()
+        user_rules = load_compiled_user_rules(session, user_id=user_id)
         return cls(
             accounts_by_id=accounts_by_id,
             ignored_patterns=ignored_patterns,

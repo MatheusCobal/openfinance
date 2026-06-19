@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Optional
 
 from sqlalchemy import or_
 from sqlmodel import Session, select
@@ -18,6 +19,7 @@ from app.services.classification import (
     TRACKED_ACCOUNT_TYPES,
     TransactionClassifier,
 )
+from app.services.scoping import scope_query
 
 
 _BANK_INVOICE_PAYMENT_DESCRIPTION_PATTERNS = tuple(
@@ -69,12 +71,11 @@ def last_month_keys(count: int, today: date) -> list[str]:
     return [month_key(shift_month(current_month, offset)) for offset in range(-(count - 1), 1)]
 
 
-def ignored_description_patterns(session: Session) -> list[str]:
-    return [
-        rule.pattern_normalized
-        for rule in session.exec(select(IgnoredDescriptionRule)).all()
-        if rule.pattern_normalized
-    ]
+def ignored_description_patterns(session: Session, user_id: Optional[int] = None) -> list[str]:
+    rules = session.exec(
+        scope_query(select(IgnoredDescriptionRule), IgnoredDescriptionRule.user_id, user_id)
+    ).all()
+    return [rule.pattern_normalized for rule in rules if rule.pattern_normalized]
 
 
 def is_ignored_transaction(tx: Transaction, patterns: list[str]) -> bool:
@@ -86,10 +87,11 @@ def filter_ignored_transactions(
     transactions: list[Transaction],
     session: Session,
     include_ignored: bool,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     if include_ignored:
         return transactions
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     return [tx for tx in transactions if not classifier.is_ignored(tx)]
 
 
@@ -97,11 +99,16 @@ def account_ids_by_type(
     session: Session,
     account_types: set[str],
     active_only: bool = True,
+    user_id: Optional[int] = None,
 ) -> list[str]:
-    accounts = session.exec(select(Account)).all()
+    accounts = session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     if not active_only:
         return [a.id for a in accounts if a.type in account_types]
-    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
+    active_item_ids = {
+        item.id
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+        if item.is_active
+    }
     return [
         a.id
         for a in accounts
@@ -113,8 +120,9 @@ def filter_transactions_by_account_type(
     transactions: list[Transaction],
     session: Session,
     account_types: set[str],
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
-    account_ids = set(account_ids_by_type(session, account_types))
+    account_ids = set(account_ids_by_type(session, account_types, user_id=user_id))
     if not account_ids:
         return []
     return [tx for tx in transactions if tx.account_id in account_ids]
@@ -151,17 +159,22 @@ def credit_card_payment_transactions(
     session: Session,
     start_date: date,
     end_date: date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
-    classifier = TransactionClassifier.from_session(session)
-    active_bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    active_bank_account_ids = set(
+        account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id)
+    )
     transactions = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
     classifier_payments = [tx for tx in transactions if classifier.is_invoice_payment(tx)]
     credit_payments = [
@@ -187,14 +200,20 @@ def credit_card_payment_transactions(
 
 def bank_income_exclusion_rules(
     session: Session,
+    user_id: Optional[int] = None,
 ) -> list[BankIncomeExclusionRule]:
-    return session.exec(select(BankIncomeExclusionRule)).all()
+    return session.exec(
+        scope_query(select(BankIncomeExclusionRule), BankIncomeExclusionRule.user_id, user_id)
+    ).all()
 
 
 def bank_cashflow_exclusion_rules(
     session: Session,
+    user_id: Optional[int] = None,
 ) -> list[BankCashflowExclusionRule]:
-    return session.exec(select(BankCashflowExclusionRule)).all()
+    return session.exec(
+        scope_query(select(BankCashflowExclusionRule), BankCashflowExclusionRule.user_id, user_id)
+    ).all()
 
 
 def is_excluded_bank_cashflow_transaction(
@@ -213,11 +232,19 @@ def is_excluded_bank_cashflow_transaction(
 def count_bank_cashflow_exclusion_matches(
     rule: BankCashflowExclusionRule,
     session: Session,
+    user_id: Optional[int] = None,
 ) -> int:
     transactions = filter_transactions_by_account_type(
-        session.exec(select(Transaction).where(_non_duplicate_clause())).all(),
+        session.exec(
+            scope_query(
+                select(Transaction).where(_non_duplicate_clause()),
+                Transaction.user_id,
+                user_id,
+            )
+        ).all(),
         session,
         BANK_ACCOUNT_TYPES,
+        user_id=user_id,
     )
     return sum(1 for tx in transactions if is_excluded_bank_cashflow_transaction(tx, [rule]))
 
@@ -238,8 +265,9 @@ def is_excluded_bank_income_transaction(
 def filter_real_bank_income_transactions(
     transactions: list[Transaction],
     session: Session,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     return [tx for tx in transactions if classifier.is_real_bank_income(tx)]
 
 
@@ -247,21 +275,24 @@ def bank_income_transactions(
     session: Session,
     start_date: date,
     end_date: date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
-    bank_account_ids = account_ids_by_type(session, BANK_ACCOUNT_TYPES)
+    bank_account_ids = account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id)
     if not bank_account_ids:
         return []
     transactions = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(bank_account_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(bank_account_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
-    return filter_real_bank_income_transactions(transactions, session)
+    return filter_real_bank_income_transactions(transactions, session, user_id=user_id)
 
 
 def credit_card_spend_transactions(
@@ -269,23 +300,26 @@ def credit_card_spend_transactions(
     start_date: date,
     end_date: date,
     include_ignored: bool = False,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
-    credit_account_ids = account_ids_by_type(session, SPENDING_ACCOUNT_TYPES)
+    credit_account_ids = account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
     if not credit_account_ids:
         return []
     transactions = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(credit_account_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
     if include_ignored:
         return transactions
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     return [tx for tx in transactions if classifier.is_card_purchase(tx)]
 
 
@@ -294,6 +328,7 @@ def _investment_transactions(
     start_date: date,
     end_date: date,
     direction: str,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     """Internal helper for investment_application_/investment_rescue_ pickers.
 
@@ -301,21 +336,23 @@ def _investment_transactions(
     """
     from app.services.classification import TransactionKind
 
-    classifier = TransactionClassifier.from_session(session)
-    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id))
     if not bank_account_ids:
         return []
     amount_cond = Transaction.amount < 0 if direction == "out" else Transaction.amount > 0
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(bank_account_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            amount_cond,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(bank_account_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                amount_cond,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
     return [tx for tx in rows if classifier.classify(tx).kind == TransactionKind.INVESTMENT_NOISE]
 
@@ -324,32 +361,35 @@ def investment_application_transactions(
     session: Session,
     start_date: date,
     end_date: date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     """Return CDB/investment APPLICATIONS (money going into investments).
 
     Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
     bank_outflow_transactions.
     """
-    return _investment_transactions(session, start_date, end_date, "out")
+    return _investment_transactions(session, start_date, end_date, "out", user_id=user_id)
 
 
 def investment_rescue_transactions(
     session: Session,
     start_date: date,
     end_date: date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     """Return CDB/investment RESCUES (money coming back from investments).
 
     Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
     bank_inflow_transactions.
     """
-    return _investment_transactions(session, start_date, end_date, "in")
+    return _investment_transactions(session, start_date, end_date, "in", user_id=user_id)
 
 
 def bank_inflow_transactions(
     session: Session,
     start_date: date,
     end_date: date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     """Return ALL bank inflow transactions that pass the cashflow filter.
 
@@ -359,20 +399,22 @@ def bank_inflow_transactions(
     hard-coded structural noise (investment_noise / internal_transfer).
     Does NOT apply BankIncomeExclusionRule, so CDB rescues are included.
     """
-    classifier = TransactionClassifier.from_session(session)
-    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id))
     if not bank_account_ids:
         return []
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(bank_account_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            Transaction.amount > 0,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(bank_account_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                Transaction.amount > 0,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
     return [tx for tx in rows if classifier.is_bank_cashflow(tx)]
 
@@ -381,6 +423,7 @@ def bank_outflow_transactions(
     session: Session,
     start_date: date,
     end_date: date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     """Return BANK outflow transactions (PIX, débito) that are not cashflow-excluded
     and are not credit card invoice payments.
@@ -398,19 +441,21 @@ def bank_outflow_transactions(
     )
     from app.categorization import normalize_description
 
-    classifier = TransactionClassifier.from_session(session)
-    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES))
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id))
     if not bank_account_ids:
         return []
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(bank_account_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(bank_account_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
     out: list[Transaction] = []
     for tx in rows:
@@ -435,6 +480,7 @@ def discretionary_spend_transactions(
     start_date: date,
     end_date: date,
     include_ignored: bool = False,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     """Return transactions that count as personal discretionary spending.
 
@@ -449,19 +495,21 @@ def discretionary_spend_transactions(
     """
     from app.services.classification import TransactionKind
 
-    classifier = TransactionClassifier.from_session(session)
-    tracked_account_ids = set(account_ids_by_type(session, TRACKED_ACCOUNT_TYPES))
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    tracked_account_ids = set(account_ids_by_type(session, TRACKED_ACCOUNT_TYPES, user_id=user_id))
     if not tracked_account_ids:
         return []
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id.in_(tracked_account_ids),
-            Transaction.date >= start_date,
-            Transaction.date <= end_date,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(tracked_account_ids),
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
     out: list[Transaction] = []
     for tx in rows:
@@ -483,15 +531,20 @@ def discretionary_spend_transactions(
 def count_bank_income_exclusion_matches(
     rule: BankIncomeExclusionRule,
     session: Session,
+    user_id: Optional[int] = None,
 ) -> int:
-    bank_account_ids = account_ids_by_type(session, BANK_ACCOUNT_TYPES)
+    bank_account_ids = account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id)
     if not bank_account_ids:
         return 0
     transactions = session.exec(
-        select(Transaction).where(
-            Transaction.account_id.in_(bank_account_ids),
-            Transaction.amount > 0,
-            _non_duplicate_clause(),
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(bank_account_ids),
+                Transaction.amount > 0,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
         )
     ).all()
     return sum(1 for tx in transactions if is_excluded_bank_income_transaction(tx, [rule]))

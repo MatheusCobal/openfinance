@@ -23,6 +23,7 @@ def upcoming_months(
     start_year_month: str,
     months: int,
     today: Optional[date] = None,
+    user_id: Optional[int] = None,
 ) -> list[Dict[str, Any]]:
     if not (1 <= months <= 24):
         raise FixedCostValidationError("months must be between 1 and 24")
@@ -30,8 +31,8 @@ def upcoming_months(
     out: list[Dict[str, Any]] = []
     for offset in range(months):
         ym = _shift_year_month(start_year_month, offset)
-        breakdown = monthly_breakdown(session, ym)
-        installments = scheduled_installments_for_month(session, ym, today=today)
+        breakdown = monthly_breakdown(session, ym, user_id=user_id)
+        installments = scheduled_installments_for_month(session, ym, today=today, user_id=user_id)
         breakdown["installments"] = installments
         breakdown["projected_total"] = breakdown["total"] + installments["total"]
         out.append(breakdown)
@@ -42,12 +43,13 @@ def planning_month_summary(
     session: Session,
     year_month: str,
     today: Optional[date] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     today = today if today is not None else date.today()
     first_day, last_day = _month_bounds(year_month)
 
-    income = expected_income_breakdown(session, year_month)
-    fixed_costs = monthly_breakdown(session, year_month)
+    income = expected_income_breakdown(session, year_month, user_id=user_id)
+    fixed_costs = monthly_breakdown(session, year_month, user_id=user_id)
     fixed_cost_accounted_ids = {
         entry["matched_transaction"]["id"]
         for entry in fixed_costs["entries"]
@@ -60,9 +62,10 @@ def planning_month_summary(
         last_day=last_day,
         today=today,
         fixed_cost_accounted_transaction_ids=fixed_cost_accounted_ids,
+        user_id=user_id,
     )
-    planning_invoice = planning_invoice_for_month(session, year_month, today=today)
-    capacity = spending_capacity_summary(session, year_month, today=today)
+    planning_invoice = planning_invoice_for_month(session, year_month, today=today, user_id=user_id)
+    capacity = spending_capacity_summary(session, year_month, today=today, user_id=user_id)
 
     budget_summary = variable_budgets["summary"]
     return {

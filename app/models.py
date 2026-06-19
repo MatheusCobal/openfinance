@@ -8,6 +8,7 @@ from sqlmodel import Field, SQLModel
 
 class Item(SQLModel, table=True):
     id: str = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     connector_id: int
     connector_name: Optional[str] = None
     status: str
@@ -22,6 +23,7 @@ class Item(SQLModel, table=True):
 
 class Account(SQLModel, table=True):
     id: str = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     item_id: str = Field(foreign_key="item.id", index=True)
     name: str
     type: str
@@ -63,6 +65,7 @@ class CreditCardBill(SQLModel, table=True):
     """Pluggy-issued credit card bill (the official invoice for a billing cycle)."""
 
     id: str = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     account_id: str = Field(foreign_key="account.id", index=True)
     due_date: Optional[datetime.date] = Field(default=None, index=True)
     total_amount: Optional[Decimal] = None
@@ -78,6 +81,7 @@ class Investment(SQLModel, table=True):
     """Pluggy-issued investment position (CDB, fund, treasury, equity, …)."""
 
     id: str = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     item_id: str = Field(foreign_key="item.id", index=True)
     name: Optional[str] = None
     type: Optional[str] = Field(default=None, index=True)
@@ -103,6 +107,7 @@ class InvestmentTransaction(SQLModel, table=True):
     """Individual movement on an Investment (BUY / SELL / TAX / TRANSFER)."""
 
     id: str = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     investment_id: str = Field(foreign_key="investment.id", index=True)
     date: Optional[datetime.date] = Field(default=None, index=True)
     trade_date: Optional[datetime.date] = None
@@ -118,6 +123,7 @@ class InvestmentTransaction(SQLModel, table=True):
 
 class AccountSync(SQLModel, table=True):
     account_id: str = Field(foreign_key="account.id", primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     last_synced_at: Optional[datetime.datetime] = None
     last_transaction_date: Optional[datetime.date] = None
     last_error: Optional[str] = None
@@ -128,6 +134,7 @@ class PluggyWebhookEvent(SQLModel, table=True):
     __tablename__: ClassVar[str] = "pluggy_webhook_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     event: str = Field(index=True)
     event_id: Optional[str] = Field(default=None, index=True)
     item_id: Optional[str] = Field(default=None, index=True)
@@ -142,6 +149,7 @@ class PluggyWebhookEvent(SQLModel, table=True):
 
 class Transaction(SQLModel, table=True):
     id: str = Field(primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     account_id: str = Field(foreign_key="account.id", index=True)
     date: datetime.date = Field(index=True)
     amount: Decimal
@@ -178,6 +186,7 @@ class Transaction(SQLModel, table=True):
 
 class IgnoredDescriptionRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     pattern: str
     pattern_normalized: str = Field(unique=True, index=True)
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
@@ -197,6 +206,7 @@ class UserClassificationRule(SQLModel, table=True):
     __tablename__: ClassVar[str] = "user_classification_rules"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     name: str
     enabled: bool = Field(default=True, index=True)
     # Lower priority value = evaluated first = wins on conflicts.
@@ -221,6 +231,7 @@ class UserClassificationRule(SQLModel, table=True):
 
 class CreditCardInvoiceMonth(SQLModel, table=True):
     year_month: str = Field(primary_key=True, index=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     total: Decimal = Decimal("0")
     payment_count: int = 0
     captured_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
@@ -229,6 +240,7 @@ class CreditCardInvoiceMonth(SQLModel, table=True):
 
 class BankIncomeMonth(SQLModel, table=True):
     year_month: str = Field(primary_key=True, index=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     total: Decimal = Decimal("0")
     income_count: int = 0
     captured_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
@@ -237,6 +249,7 @@ class BankIncomeMonth(SQLModel, table=True):
 
 class BankIncomeExclusionRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     pluggy_category: Optional[str] = Field(default=None, index=True)
     pattern: Optional[str] = None
     pattern_normalized: Optional[str] = Field(default=None, index=True)
@@ -245,6 +258,7 @@ class BankIncomeExclusionRule(SQLModel, table=True):
 
 class BankCashflowExclusionRule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     direction: str = Field(default="ALL", index=True)
     pluggy_category: Optional[str] = Field(default=None, index=True)
     pattern: Optional[str] = None
@@ -254,6 +268,7 @@ class BankCashflowExclusionRule(SQLModel, table=True):
 
 class MonthlyBalanceMonth(SQLModel, table=True):
     year_month: str = Field(primary_key=True, index=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     income: Decimal = Decimal("0")
     card_spend: Decimal = Decimal("0")
     invoice_paid: Decimal = Decimal("0")
@@ -268,6 +283,7 @@ class MonthlyBalanceMonth(SQLModel, table=True):
 
 class ExpectedIncome(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     description: str
     amount: Decimal
     expected_day: int
@@ -285,6 +301,7 @@ class ExpectedIncomeOverride(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     expected_income_id: int = Field(foreign_key="expectedincome.id", index=True)
     year_month: str = Field(index=True)
     amount: Decimal
@@ -292,6 +309,7 @@ class ExpectedIncomeOverride(SQLModel, table=True):
 
 class FixedCostCategory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     name: str = Field(unique=True, index=True)
     color: str = "#64748b"
     sort_order: int = 0
@@ -300,6 +318,7 @@ class FixedCostCategory(SQLModel, table=True):
 
 class FixedCost(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     category_id: int = Field(foreign_key="fixedcostcategory.id", index=True)
     description: str
     amount: Decimal
@@ -318,6 +337,7 @@ class FixedCostOverride(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     fixed_cost_id: int = Field(foreign_key="fixedcost.id", index=True)
     year_month: str = Field(index=True)
     amount: Decimal
@@ -337,6 +357,7 @@ class FixedCostTransactionMatch(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     fixed_cost_id: int = Field(foreign_key="fixedcost.id", index=True)
     transaction_id: str = Field(foreign_key="transaction.id", index=True)
     year_month: str = Field(index=True)
@@ -364,6 +385,7 @@ class VariableBudget(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, index=True)
     year_month: str = Field(index=True)
     category: str = Field(index=True)
     target_amount: Decimal

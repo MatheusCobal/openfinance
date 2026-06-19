@@ -15,6 +15,7 @@ from app.services.transaction_classifier import (
     CompiledUserRule,
     serialize_transaction_classification,
 )
+from app.services.scoping import scope_query
 from app.services.user_classification_rules import load_compiled_user_rules
 from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
@@ -28,8 +29,13 @@ from app.services.transactions import (
 )
 
 
-def _accounts_by_id(session: Session) -> dict[str, Account]:
-    return {account.id: account for account in session.exec(select(Account)).all()}
+def _accounts_by_id(session: Session, user_id: Optional[int] = None) -> dict[str, Account]:
+    return {
+        account.id: account
+        for account in session.exec(
+            scope_query(select(Account), Account.user_id, user_id)
+        ).all()
+    }
 
 
 def _classification_fields(
@@ -66,8 +72,11 @@ def _transaction_list_query(
     to_date: Optional[date],
     include_future: bool,
     include_duplicates: bool = False,
+    user_id: Optional[int] = None,
 ):
-    query = select(Transaction).order_by(Transaction.date.desc())
+    query = scope_query(select(Transaction), Transaction.user_id, user_id).order_by(
+        Transaction.date.desc()
+    )
     if not include_duplicates:
         query = query.where(_non_duplicate_clause())
     if account_id is not None:
@@ -85,12 +94,13 @@ def _apply_account_type_filter(
     query,
     account_type: Optional[str],
     session: Session,
+    user_id: Optional[int] = None,
 ):
     normalized_account_type = validate_account_type(account_type)
     if normalized_account_type is None:
         return query, False
 
-    account_ids = account_ids_by_type(session, {normalized_account_type})
+    account_ids = account_ids_by_type(session, {normalized_account_type}, user_id=user_id)
     if not account_ids:
         return query, True
     return query.where(Transaction.account_id.in_(account_ids)), False
@@ -115,6 +125,7 @@ def enriched_transactions(
     include_future: bool = False,
     include_ignored: bool = False,
     include_duplicates: bool = False,
+    user_id: Optional[int] = None,
 ) -> list[Dict[str, Any]]:
     query = _transaction_list_query(
         account_id,
@@ -122,24 +133,26 @@ def enriched_transactions(
         to_date,
         include_future,
         include_duplicates=include_duplicates,
+        user_id=user_id,
     )
     query, should_return_empty = _apply_account_type_filter(
         query,
         account_type,
         session,
+        user_id=user_id,
     )
     if should_return_empty:
         return []
 
     transactions = session.exec(query).all()
-    ignored_patterns = ignored_description_patterns(session)
+    ignored_patterns = ignored_description_patterns(session, user_id=user_id)
     if not include_ignored and ignored_patterns:
         transactions = [
             tx for tx in transactions if not is_ignored_transaction(tx, ignored_patterns)
         ]
 
-    accounts = _accounts_by_id(session)
-    user_rules = load_compiled_user_rules(session)
+    accounts = _accounts_by_id(session, user_id=user_id)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
     rows = []
     for tx in transactions:
         rows.append(
@@ -158,27 +171,32 @@ def upcoming_summary(
     session: Session,
     include_ignored: bool = False,
     today: Optional[date] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     today = today if today is not None else date.today()
     future_txs = session.exec(
-        select(Transaction)
-        .where(Transaction.date > today, _non_duplicate_clause())
-        .order_by(Transaction.date)
+        scope_query(
+            select(Transaction).where(Transaction.date > today, _non_duplicate_clause()),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date)
     ).all()
     future_txs = filter_transactions_by_account_type(
         future_txs,
         session,
         SPENDING_ACCOUNT_TYPES,
+        user_id=user_id,
     )
     future_txs = filter_ignored_transactions(
         future_txs,
         session,
         include_ignored,
+        user_id=user_id,
     )
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
-    accounts = _accounts_by_id(session)
-    user_rules = load_compiled_user_rules(session)
+    accounts = _accounts_by_id(session, user_id=user_id)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
     for tx in future_txs:
         # Exclude credits / refunds / cancellations (amount <= 0) so they
         # don't inflate the scheduled invoice total via abs(amount).
@@ -262,7 +280,7 @@ def upcoming_summary(
     )
 
     vigente_month = _next_calendar_month(today)
-    planning_inv = planning_invoice_for_month(session, vigente_month, today=today)
+    planning_inv = planning_invoice_for_month(session, vigente_month, today=today, user_id=user_id)
     next_invoice = {
         "year_month": vigente_month,
         "amount": planning_inv["amount"],
@@ -314,18 +332,25 @@ def upcoming_summary(
 def monthly_stats_summary(
     session: Session,
     include_ignored: bool = False,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     today = date.today()
     start = date(today.year, today.month, 1)
     txs = session.exec(
-        select(Transaction)
-        .where(Transaction.date >= start, Transaction.date <= today, _non_duplicate_clause())
-        .order_by(Transaction.date.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.date >= start, Transaction.date <= today, _non_duplicate_clause()
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc())
     ).all()
-    txs = filter_transactions_by_account_type(txs, session, SPENDING_ACCOUNT_TYPES)
-    txs = filter_ignored_transactions(txs, session, include_ignored)
-    accounts = _accounts_by_id(session)
-    user_rules = load_compiled_user_rules(session)
+    txs = filter_transactions_by_account_type(
+        txs, session, SPENDING_ACCOUNT_TYPES, user_id=user_id
+    )
+    txs = filter_ignored_transactions(txs, session, include_ignored, user_id=user_id)
+    accounts = _accounts_by_id(session, user_id=user_id)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     totals_by_category: Dict[str, dict[str, Any]] = {}
     totals_by_month: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
@@ -387,6 +412,7 @@ def invoice_summary(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     exclude_transaction_ids: Optional[set[str]] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Single source of truth for credit-card invoice numbers.
 
@@ -407,15 +433,21 @@ def invoice_summary(
     effective_to = to_date if to_date is not None else today
     skip_ids: set[str] = exclude_transaction_ids or set()
 
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     # Restrict to active credit accounts from the start so that deactivated
     # accounts (e.g. after Pluggy re-authentication) never inflate totals or
     # shift last_payment_date via stale duplicate transactions.
-    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES))
+    credit_account_ids = set(
+        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
+    )
     all_up_to = session.exec(
-        select(Transaction).where(
-            Transaction.date <= effective_to,
-            _non_duplicate_clause(),
+        scope_query(
+            select(Transaction).where(
+                Transaction.date <= effective_to,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
         )
     ).all()
 
@@ -535,11 +567,14 @@ def stats_summary(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     include_ignored: bool = False,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     today = date.today()
     effective_to = to_date if to_date is not None else today
 
-    query = select(Transaction).where(_non_duplicate_clause())
+    query = scope_query(
+        select(Transaction).where(_non_duplicate_clause()), Transaction.user_id, user_id
+    )
     if from_date is not None:
         query = query.where(Transaction.date >= from_date)
     query = query.where(Transaction.date <= effective_to)
@@ -548,36 +583,44 @@ def stats_summary(
         past_transactions,
         session,
         SPENDING_ACCOUNT_TYPES,
+        user_id=user_id,
     )
     past_transactions = filter_ignored_transactions(
         past_transactions,
         session,
         include_ignored,
+        user_id=user_id,
     )
 
     future_count = 0
     if to_date is None:
         future_transactions = session.exec(
-            select(Transaction).where(Transaction.date > today, _non_duplicate_clause())
+            scope_query(
+                select(Transaction).where(Transaction.date > today, _non_duplicate_clause()),
+                Transaction.user_id,
+                user_id,
+            )
         ).all()
         future_transactions = filter_transactions_by_account_type(
             future_transactions,
             session,
             SPENDING_ACCOUNT_TYPES,
+            user_id=user_id,
         )
         future_count = len(
             filter_ignored_transactions(
                 future_transactions,
                 session,
                 include_ignored,
+                user_id=user_id,
             )
         )
 
     totals_by_month: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     totals_by_cashflow: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     total_spent = Decimal("0")
-    accounts = _accounts_by_id(session)
-    user_rules = load_compiled_user_rules(session)
+    accounts = _accounts_by_id(session, user_id=user_id)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     for tx in past_transactions:
         classification = _classification_fields(tx, accounts, user_rules)
@@ -596,7 +639,7 @@ def stats_summary(
         {"month": month, "total": float(total)} for month, total in sorted(totals_by_month.items())
     ]
 
-    invoice = invoice_summary(session, from_date=from_date, to_date=to_date)
+    invoice = invoice_summary(session, from_date=from_date, to_date=to_date, user_id=user_id)
 
     return {
         "total_spent": float(total_spent),

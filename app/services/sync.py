@@ -89,13 +89,14 @@ class AccountSyncResult:
     updated_transactions: int = 0
 
 
-def upsert_item(item_id: str, session: Session) -> Item:
+def upsert_item(item_id: str, session: Session, user_id: Optional[int] = None) -> Item:
     data = pluggy.get_item(item_id)
     now = datetime.utcnow()
     item = session.get(Item, item_id)
     if item is None:
         item = Item(
             id=data["id"],
+            user_id=user_id,
             connector_id=data["connector"]["id"],
             connector_name=data["connector"].get("name"),
             status=data["status"],
@@ -105,6 +106,10 @@ def upsert_item(item_id: str, session: Session) -> Item:
         )
         session.add(item)
     else:
+        # Adopt the caller's ownership only when the row isn't already owned, so
+        # a webhook-triggered re-sync (user_id=None) never strips ownership.
+        if user_id is not None and item.user_id is None:
+            item.user_id = user_id
         item.status = data["status"]
         item.connector_name = data["connector"].get("name")
         item.is_active = True
@@ -115,7 +120,12 @@ def upsert_item(item_id: str, session: Session) -> Item:
     return item
 
 
-def upsert_account(raw_account: Dict[str, Any], item_id: str, session: Session) -> None:
+def upsert_account(
+    raw_account: Dict[str, Any],
+    item_id: str,
+    session: Session,
+    user_id: Optional[int] = None,
+) -> None:
     account = session.get(Account, raw_account["id"])
     now = datetime.utcnow()
     values = {
@@ -134,8 +144,10 @@ def upsert_account(raw_account: Dict[str, Any], item_id: str, session: Session) 
     # never wipes a previously-synced value.
     values.update(account_snapshot_values(raw_account))
     if account is None:
-        session.add(Account(id=raw_account["id"], **values))
+        session.add(Account(id=raw_account["id"], user_id=user_id, **values))
         return
+    if user_id is not None:
+        account.user_id = user_id
     for field, value in values.items():
         setattr(account, field, value)
     session.add(account)
@@ -168,6 +180,7 @@ def upsert_transaction(
     session: Session,
     account_type: str = "CREDIT",
     user_rules: tuple = (),
+    user_id: Optional[int] = None,
 ) -> tuple[bool, bool, date]:
     tx_date = date.fromisoformat(raw_tx["date"][:10])
     amount = Decimal(str(raw_tx["amount"]))
@@ -206,10 +219,15 @@ def upsert_transaction(
     classification_values = classification.transaction_values()
     existing = session.get(Transaction, raw_tx["id"])
     if existing is None:
-        session.add(Transaction(id=raw_tx["id"], **values, **classification_values))
+        session.add(
+            Transaction(id=raw_tx["id"], user_id=user_id, **values, **classification_values)
+        )
         return True, False, tx_date
 
     changed = False
+    if user_id is not None and existing.user_id != user_id:
+        existing.user_id = user_id
+        changed = True
     if not existing.is_user_overridden:
         values.update(classification_values)
     for field, value in values.items():
@@ -225,13 +243,20 @@ def tracked_accounts(raw_accounts: list[Dict[str, Any]]) -> list[Dict[str, Any]]
     return [account for account in raw_accounts if account["type"] in TRACKED_ACCOUNT_TYPES]
 
 
-def get_or_create_sync_state(account_id: str, session: Session) -> AccountSync:
+def get_or_create_sync_state(
+    account_id: str,
+    session: Session,
+    user_id: Optional[int] = None,
+) -> AccountSync:
     sync_state = session.get(AccountSync, account_id)
     if sync_state is not None:
+        if user_id is not None and sync_state.user_id is None:
+            sync_state.user_id = user_id
         return sync_state
 
     sync_state = AccountSync(
         account_id=account_id,
+        user_id=user_id,
         last_transaction_date=last_past_transaction_date(account_id, session),
     )
     session.add(sync_state)
@@ -243,12 +268,13 @@ def sync_account_transactions(
     sync_state: AccountSync,
     session: Session,
     account_type: str = "CREDIT",
+    user_id: Optional[int] = None,
 ) -> AccountSyncResult:
     from app.services.user_classification_rules import load_compiled_user_rules
 
     result = AccountSyncResult()
     max_past_tx_date = sync_state.last_transaction_date
-    user_rules = load_compiled_user_rules(session)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
     for raw_tx in pluggy.list_transactions(
         account_id,
         from_date=sync_from_date(sync_state),
@@ -260,6 +286,7 @@ def sync_account_transactions(
             session,
             account_type=account_type,
             user_rules=user_rules,
+            user_id=user_id,
         )
         if is_new:
             result.new_transactions += 1
@@ -315,12 +342,15 @@ def _sync_one_account(
     raw_account: Dict[str, Any],
     item_id: str,
     session: Session,
+    user_id: Optional[int] = None,
 ) -> AccountSyncResult:
     account_id = raw_account["id"]
     account_type = raw_account.get("type", "CREDIT")
-    upsert_account(raw_account, item_id, session)
-    sync_state = get_or_create_sync_state(account_id, session)
-    result = sync_account_transactions(account_id, sync_state, session, account_type=account_type)
+    upsert_account(raw_account, item_id, session, user_id=user_id)
+    sync_state = get_or_create_sync_state(account_id, session, user_id=user_id)
+    result = sync_account_transactions(
+        account_id, sync_state, session, account_type=account_type, user_id=user_id
+    )
     sync_state.last_error = None
     sync_state.last_error_at = None
     session.add(sync_state)
@@ -333,11 +363,16 @@ def _record_account_failure(
     error: str,
     raw_account: Optional[Dict[str, Any]] = None,
     item_id: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> None:
     # Runs after rollback, so the AccountSync row may not exist yet.
     if raw_account is not None and item_id is not None:
-        upsert_account(raw_account, item_id, session)
-    sync_state = session.get(AccountSync, account_id) or AccountSync(account_id=account_id)
+        upsert_account(raw_account, item_id, session, user_id=user_id)
+    sync_state = session.get(AccountSync, account_id) or AccountSync(
+        account_id=account_id, user_id=user_id
+    )
+    if user_id is not None and sync_state.user_id is None:
+        sync_state.user_id = user_id
     sync_state.last_error = error
     sync_state.last_error_at = datetime.utcnow()
     session.add(sync_state)
@@ -345,9 +380,14 @@ def _record_account_failure(
 
 
 def sync_item(item_id: str, session: Session) -> Dict[str, Any]:
+    # Ownership flows from the Item: every child row written during this sync is
+    # attributed to the item's owner. The authenticated route stamps the owner
+    # on register/upsert; webhook-triggered syncs inherit it from the stored row.
+    item = session.get(Item, item_id)
+    owner_id = item.user_id if item is not None else None
     _acquire_sync_lock(item_id, session)
     try:
-        result = _sync_item_locked(item_id, session)
+        result = _sync_item_locked(item_id, session, user_id=owner_id)
     except BaseException as exc:
         # Releases on top-level failure (e.g., list_accounts errored before the
         # per-account loop) so the item doesn't stay locked.

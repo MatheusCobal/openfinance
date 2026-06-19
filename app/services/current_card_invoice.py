@@ -13,6 +13,7 @@ from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
 )
+from app.services.scoping import scope_query
 from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.transactions import _non_duplicate_clause
 
@@ -33,11 +34,20 @@ REFUND_DESCRIPTION_PATTERNS = tuple(
 )
 
 
-def _active_credit_accounts_with_balance(session: Session) -> list[Account]:
-    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
+def _active_credit_accounts_with_balance(
+    session: Session,
+    user_id: Optional[int] = None,
+) -> list[Account]:
+    active_item_ids = {
+        item.id
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+        if item.is_active
+    }
     return [
         account
-        for account in session.exec(select(Account)).all()
+        for account in session.exec(
+            scope_query(select(Account), Account.user_id, user_id)
+        ).all()
         if account.type == "CREDIT"
         and account.is_active
         and account.item_id in active_item_ids
@@ -188,22 +198,25 @@ def _current_invoice_category_transactions(
     account: Account,
     latest_bill: Optional[CreditCardBill],
     today: datetime.date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     from app.services.classification import TransactionClassifier
 
     start = _category_window_start(account, latest_bill, today)
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id == account.id,
-            Transaction.date >= start,
-            Transaction.date <= today,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc(), Transaction.description.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id == account.id,
+                Transaction.date >= start,
+                Transaction.date <= today,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
 
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     latest_bill_id = latest_bill.id if latest_bill is not None else None
     return [
         tx
@@ -219,6 +232,7 @@ def _next_invoice_scheduled_transactions(
     session: Session,
     account: Account,
     today: datetime.date,
+    user_id: Optional[int] = None,
 ) -> list[Transaction]:
     """Return the future installments that compose the next due invoice.
 
@@ -235,22 +249,25 @@ def _next_invoice_scheduled_transactions(
     first_day = datetime.date(year, month, 1)
     last_day = datetime.date(year, month, calendar.monthrange(year, month)[1])
     rows = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.account_id == account.id,
-            Transaction.date >= first_day,
-            Transaction.date <= last_day,
-            _non_duplicate_clause(),
-        )
-        .order_by(Transaction.date.asc(), Transaction.description.asc())
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id == account.id,
+                Transaction.date >= first_day,
+                Transaction.date <= last_day,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        ).order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
-    classifier = TransactionClassifier.from_session(session)
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     return [tx for tx in rows if tx.amount > 0 and classifier.is_card_purchase(tx)]
 
 
 def current_card_invoice_summary(
     session: Session,
     today: Optional[datetime.date] = None,
+    user_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """Return the Dashboard-only adjusted current card invoice summary.
 
@@ -263,14 +280,14 @@ def current_card_invoice_summary(
 
     from app.services.user_classification_rules import load_compiled_user_rules
 
-    user_rules = load_compiled_user_rules(session)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
     cards: list[dict[str, Any]] = []
     raw_purchase_transactions: list[dict[str, Any]] = []
     raw_total = Decimal("0")
     adjusted_total = Decimal("0")
     adjusted_any = False
 
-    for account in _active_credit_accounts_with_balance(session):
+    for account in _active_credit_accounts_with_balance(session, user_id=user_id):
         raw_balance = Decimal(account.balance or 0)
         raw_total += raw_balance
 
@@ -304,8 +321,11 @@ def current_card_invoice_summary(
             account,
             latest,
             today,
+            user_id=user_id,
         )
-        category_transactions.extend(_next_invoice_scheduled_transactions(session, account, today))
+        category_transactions.extend(
+            _next_invoice_scheduled_transactions(session, account, today, user_id=user_id)
+        )
         raw_purchase_transactions.extend(
             _serialize_current_invoice_transaction(tx, user_rules) for tx in category_transactions
         )

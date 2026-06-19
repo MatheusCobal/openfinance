@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, Optional
 
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
@@ -17,6 +17,7 @@ from app.services.invoice_month import (
     DEFAULT_CREDIT_CARD_DUE_DAY,
     invoice_month_from_payment,
 )
+from app.services.scoping import scope_query
 from app.services.transactions import (
     bank_income_transactions,
     credit_card_payment_transactions,
@@ -33,6 +34,7 @@ DEFAULT_MONTHLY_BALANCE_MONTHS = 12
 def refresh_credit_card_invoice_snapshots(
     session: Session,
     months: int = DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
+    user_id: Optional[int] = None,
 ) -> int:
     today = date.today()
     month_keys = last_month_keys(months, today)
@@ -42,10 +44,11 @@ def refresh_credit_card_invoice_snapshots(
         session,
         start_date,
         today,
+        user_id=user_id,
     )
 
     account_due_days: Dict[str, int] = {}
-    for acct in session.exec(select(Account)).all():
+    for acct in session.exec(scope_query(select(Account), Account.user_id, user_id)).all():
         if acct.type == "CREDIT" and acct.credit_balance_due_date:
             account_due_days[acct.id] = acct.credit_balance_due_date.day
 
@@ -59,7 +62,9 @@ def refresh_credit_card_invoice_snapshots(
     now = datetime.utcnow()
     existing_months = {
         snapshot.year_month
-        for snapshot in session.exec(select(CreditCardInvoiceMonth)).all()
+        for snapshot in session.exec(
+            scope_query(select(CreditCardInvoiceMonth), CreditCardInvoiceMonth.user_id, user_id)
+        ).all()
         if snapshot.year_month in month_keys
     }
     for month in month_keys:
@@ -73,6 +78,7 @@ def refresh_credit_card_invoice_snapshots(
             payment_count=len(txs),
             captured_at=now,
             updated_at=now,
+            user_id=user_id,
         )
         statement = statement.on_conflict_do_update(
             index_elements=["year_month"],
@@ -92,12 +98,13 @@ def refresh_credit_card_invoice_snapshots(
 def refresh_bank_income_snapshots(
     session: Session,
     months: int = DEFAULT_MONTHLY_BALANCE_MONTHS,
+    user_id: Optional[int] = None,
 ) -> int:
     today = date.today()
     month_keys = last_month_keys(months, today)
     first_year, first_month = month_keys[0].split("-")
     start_date = date(int(first_year), int(first_month), 1)
-    income_transactions = bank_income_transactions(session, start_date, today)
+    income_transactions = bank_income_transactions(session, start_date, today, user_id=user_id)
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     for tx in income_transactions:
@@ -107,7 +114,9 @@ def refresh_bank_income_snapshots(
     now = datetime.utcnow()
     existing_months = {
         snapshot.year_month
-        for snapshot in session.exec(select(BankIncomeMonth)).all()
+        for snapshot in session.exec(
+            scope_query(select(BankIncomeMonth), BankIncomeMonth.user_id, user_id)
+        ).all()
         if snapshot.year_month in month_keys
     }
     for month in month_keys:
@@ -121,6 +130,7 @@ def refresh_bank_income_snapshots(
             income_count=len(txs),
             captured_at=now,
             updated_at=now,
+            user_id=user_id,
         )
         statement = statement.on_conflict_do_update(
             index_elements=["year_month"],
@@ -140,10 +150,11 @@ def refresh_bank_income_snapshots(
 def refresh_monthly_balance_snapshots(
     session: Session,
     months: int = DEFAULT_MONTHLY_BALANCE_MONTHS,
+    user_id: Optional[int] = None,
 ) -> tuple[int, int, int]:
     """Refresh all three snapshot tables and return (income_count, invoice_count, balance_count)."""
-    refreshed_income_count = refresh_bank_income_snapshots(session, months)
-    refreshed_invoice_count = refresh_credit_card_invoice_snapshots(session, months)
+    refreshed_income_count = refresh_bank_income_snapshots(session, months, user_id=user_id)
+    refreshed_invoice_count = refresh_credit_card_invoice_snapshots(session, months, user_id=user_id)
 
     today = date.today()
     month_keys = last_month_keys(months, today)
@@ -153,6 +164,7 @@ def refresh_monthly_balance_snapshots(
         session,
         start_date,
         today,
+        user_id=user_id,
     )
 
     card_spend_by_month: Dict[str, list[Transaction]] = defaultdict(list)
@@ -161,17 +173,23 @@ def refresh_monthly_balance_snapshots(
 
     income_snapshots = {
         snapshot.year_month: snapshot
-        for snapshot in session.exec(select(BankIncomeMonth)).all()
+        for snapshot in session.exec(
+            scope_query(select(BankIncomeMonth), BankIncomeMonth.user_id, user_id)
+        ).all()
         if snapshot.year_month in month_keys
     }
     invoice_snapshots = {
         snapshot.year_month: snapshot
-        for snapshot in session.exec(select(CreditCardInvoiceMonth)).all()
+        for snapshot in session.exec(
+            scope_query(select(CreditCardInvoiceMonth), CreditCardInvoiceMonth.user_id, user_id)
+        ).all()
         if snapshot.year_month in month_keys
     }
     existing_months = {
         snapshot.year_month
-        for snapshot in session.exec(select(MonthlyBalanceMonth)).all()
+        for snapshot in session.exec(
+            scope_query(select(MonthlyBalanceMonth), MonthlyBalanceMonth.user_id, user_id)
+        ).all()
         if snapshot.year_month in month_keys
     }
 
@@ -205,6 +223,7 @@ def refresh_monthly_balance_snapshots(
             invoice_payment_count=invoice_payment_count,
             captured_at=now,
             updated_at=now,
+            user_id=user_id,
         )
         statement = statement.on_conflict_do_update(
             index_elements=["year_month"],

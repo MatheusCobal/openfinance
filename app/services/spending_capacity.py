@@ -28,11 +28,12 @@ def spending_capacity_summary(
     session: Session,
     year_month: str,
     today: Optional[date] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     first_day, last_day = _month_bounds(year_month)
     today = today if today is not None else date.today()
-    income = expected_income_breakdown(session, year_month)
-    fixed = monthly_breakdown(session, year_month)
+    income = expected_income_breakdown(session, year_month, user_id=user_id)
+    fixed = monthly_breakdown(session, year_month, user_id=user_id)
     # Transactions already accounted for as a fixed cost - manual matches
     # AND auto-detected matches that monthly_breakdown produced above - must
     # NOT also be counted in the discretionary invoice or in the variable
@@ -47,11 +48,12 @@ def spending_capacity_summary(
         from_date=first_day,
         to_date=last_day,
         exclude_transaction_ids=fixed_cost_accounted_ids,
+        user_id=user_id,
     )
 
     # Resolve the planning invoice first so we can use the billing-cycle window
     # for variable budgets (fatura vigente), instead of the calendar month.
-    planning_inv = planning_invoice_for_month(session, year_month, today=today)
+    planning_inv = planning_invoice_for_month(session, year_month, today=today, user_id=user_id)
 
     # Variable budgets must track the *fatura vigente* — the billing cycle that
     # is currently open/forming — rather than the calendar month or a
@@ -71,7 +73,7 @@ def spending_capacity_summary(
     cycle_start_str = planning_inv.get("cycle_start")
     cycle_end_str = planning_inv.get("cycle_end")
     if not (cycle_start_str and cycle_end_str) and year_month == vigente_ym:
-        current_inv = planning_invoice_for_month(session, today_ym, today=today)
+        current_inv = planning_invoice_for_month(session, today_ym, today=today, user_id=user_id)
         cycle_start_str = current_inv.get("cycle_start")
         cycle_end_str = current_inv.get("cycle_end")
     if cycle_start_str and cycle_end_str:
@@ -88,6 +90,7 @@ def spending_capacity_summary(
         last_day=vb_last_day,
         today=today,
         fixed_cost_accounted_transaction_ids=fixed_cost_accounted_ids,
+        user_id=user_id,
     )
 
     expected_income_total = Decimal(str(income["total"]))
@@ -133,17 +136,22 @@ def spending_capacity_summary(
             session,
             first_day,
             min(last_day, today),
+            user_id=user_id,
         )
     received_income_total = sum(
         (tx.amount for tx in received_income_transactions),
         Decimal("0"),
     )
-    bank_inflow_txs = bank_inflow_transactions(session, first_day, min(last_day, today))
+    bank_inflow_txs = bank_inflow_transactions(
+        session, first_day, min(last_day, today), user_id=user_id
+    )
     bank_inflows_total = sum(
         (tx.amount for tx in bank_inflow_txs),
         Decimal("0"),
     )
-    bank_outflow_txs = bank_outflow_transactions(session, first_day, min(last_day, today))
+    bank_outflow_txs = bank_outflow_transactions(
+        session, first_day, min(last_day, today), user_id=user_id
+    )
     bank_outflows_total = sum(
         (abs(tx.amount) for tx in bank_outflow_txs),
         Decimal("0"),
@@ -221,7 +229,9 @@ def spending_capacity_summary(
         future_card_obligation_count = planning_inv.get("transaction_count", 0)
 
         if planning_inv["source"] == "scheduled_installments":
-            raw_installments = scheduled_installments_for_month(session, year_month, today=today)
+            raw_installments = scheduled_installments_for_month(
+                session, year_month, today=today, user_id=user_id
+            )
             non_fixed_items = [
                 item
                 for item in raw_installments["transactions"]
@@ -416,6 +426,7 @@ def spending_capacity_monthly_summary(
     session: Session,
     months: int = 12,
     today: Optional[date] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     if not (1 <= months <= 24):
         raise FixedCostValidationError("months must be between 1 and 24")
@@ -450,7 +461,7 @@ def spending_capacity_monthly_summary(
     }
     for offset in range(months):
         year_month = _shift_year_month(start_month, offset)
-        capacity = spending_capacity_summary(session, year_month, today=today)
+        capacity = spending_capacity_summary(session, year_month, today=today, user_id=user_id)
         row = {
             "year_month": year_month,
             "month": year_month,
