@@ -46,13 +46,34 @@ _TABLES = [
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
     for table in _TABLES:
-        op.add_column(table, sa.Column("user_id", sa.Integer(), nullable=True))
-        op.create_index(f"ix_{table}_user_id", table, ["user_id"], unique=False)
-        op.execute(f"UPDATE {table} SET user_id = 1")  # noqa: S608
+        inspector = sa.inspect(bind)
+        columns = {column["name"] for column in inspector.get_columns(table)}
+        if "user_id" not in columns:
+            op.add_column(table, sa.Column("user_id", sa.Integer(), nullable=True))
+
+        index_name = f"ix_{table}_user_id"
+        indexes = {index["name"] for index in sa.inspect(bind).get_indexes(table)}
+        if index_name not in indexes:
+            op.create_index(index_name, table, ["user_id"], unique=False)
+
+        financial_table = sa.table(table, sa.column("user_id", sa.Integer()))
+        op.execute(
+            financial_table.update()
+            .where(financial_table.c.user_id.is_(None))
+            .values(user_id=1)
+        )
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
     for table in reversed(_TABLES):
-        op.drop_index(f"ix_{table}_user_id", table_name=table)
-        op.drop_column(table, "user_id")
+        index_name = f"ix_{table}_user_id"
+        indexes = {index["name"] for index in sa.inspect(bind).get_indexes(table)}
+        if index_name in indexes:
+            op.drop_index(index_name, table_name=table)
+
+        columns = {column["name"] for column in sa.inspect(bind).get_columns(table)}
+        if "user_id" in columns:
+            op.drop_column(table, "user_id")
