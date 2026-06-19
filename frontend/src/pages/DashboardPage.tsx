@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   Banknote,
@@ -56,7 +56,9 @@ import { formatMoney } from "../lib/money";
 import type { Transaction } from "../types/common";
 import type { InvoiceCategory } from "../types/planejamento";
 
-const RECENT_CARD_PURCHASE_LIMIT = 8;
+const INITIAL_RECENT_CARD_PURCHASE_LIMIT = 8;
+const RECENT_CARD_PURCHASE_INCREMENT = 8;
+const MAX_RECENT_CARD_PURCHASE_LIMIT = 50;
 
 function latestCardPurchases(transactions: Transaction[] = []) {
   return [...transactions]
@@ -69,7 +71,7 @@ function latestCardPurchases(transactions: Transaction[] = []) {
       if (dateOrder !== 0) return dateOrder;
       return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
     })
-    .slice(0, RECENT_CARD_PURCHASE_LIMIT);
+    .slice(0, MAX_RECENT_CARD_PURCHASE_LIMIT);
 }
 
 function transactionDisplayCategory(tx: Transaction) {
@@ -94,7 +96,9 @@ async function loadDashboardData() {
     bankBalance,
     upcoming,
     categories: currentInvoice.categories || [],
-    recentCardPurchases: latestCardPurchases(currentInvoice.raw_purchase_transactions || []),
+    recentCardPurchases: latestCardPurchases(
+      currentInvoice.recent_purchase_transactions || currentInvoice.raw_purchase_transactions || [],
+    ),
   };
 }
 
@@ -103,6 +107,13 @@ export function DashboardPage() {
   const { data, loading, error, run } = useAsync(loadDashboardData, []);
   const [selectedCategory, setSelectedCategory] = useState<InvoiceCategory | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [visibleRecentPurchaseCount, setVisibleRecentPurchaseCount] = useState(
+    INITIAL_RECENT_CARD_PURCHASE_LIMIT,
+  );
+
+  useEffect(() => {
+    setVisibleRecentPurchaseCount(INITIAL_RECENT_CARD_PURCHASE_LIMIT);
+  }, [data?.currentInvoice]);
 
   const connectBank = async () => {
     setConnecting(true);
@@ -525,7 +536,9 @@ export function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-ink-100 bg-surface">
-                      {data.recentCardPurchases.map((tx) => (
+                      {data.recentCardPurchases
+                        .slice(0, visibleRecentPurchaseCount)
+                        .map((tx) => (
                         <tr key={tx.id} className="transition-colors hover:bg-surface-muted">
                           <td className="whitespace-nowrap px-5 py-3.5 text-sm text-ink-500">
                             {formatDayLabel(tx.date)}
@@ -555,6 +568,24 @@ export function DashboardPage() {
                       ))}
                     </tbody>
                   </Table>
+                  {visibleRecentPurchaseCount < data.recentCardPurchases.length ? (
+                    <div className="flex justify-center border-t border-ink-100 bg-surface px-5 py-4">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() =>
+                          setVisibleRecentPurchaseCount((current) =>
+                            Math.min(
+                              current + RECENT_CARD_PURCHASE_INCREMENT,
+                              MAX_RECENT_CARD_PURCHASE_LIMIT,
+                            ),
+                          )
+                        }
+                      >
+                        Ver mais
+                      </Button>
+                    </div>
+                  ) : null}
                 </Card>
               )}
             </section>

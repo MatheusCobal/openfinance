@@ -8,11 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.auth.dependencies import current_scope_user_id
 from app.config import database_settings, get_pluggy_settings
 from app.database import get_session
 from app.models import Account, AccountSync, Item, Transaction
 from app.pluggy_client import PluggyCredentialError, pluggy
 from app.services.database_backup import backup_sqlite_database
+from app.services.scoping import scope_query
 from app.services.sync import (
     SyncAlreadyRunning,
     compute_dedupe_key,
@@ -75,12 +77,20 @@ def connect_token(body: Optional[ConnectTokenRequest] = None):
 
 
 @router.post("/items/{item_id}")
-def register_item(item_id: str, session: Session = Depends(get_session)):
-    return upsert_item(item_id, session)
+def register_item(
+    item_id: str,
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return upsert_item(item_id, session, user_id=user_id)
 
 
 @router.post("/items/{item_id}/sync")
-def sync_item(item_id: str, session: Session = Depends(get_session)):
+def sync_item(
+    item_id: str,
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
     try:
         backup_sqlite_database(database_settings.database_url, f"pluggy-sync-{item_id}")
     except Exception as exc:
@@ -95,8 +105,10 @@ def sync_item(item_id: str, session: Session = Depends(get_session)):
         ) from exc
 
     item = session.get(Item, item_id)
+    if item is not None and user_id is not None and item.user_id != user_id:
+        raise HTTPException(404, f"Item {item_id!r} not found")
     if item is None:
-        item = upsert_item(item_id, session)
+        item = upsert_item(item_id, session, user_id=user_id)
     try:
         return run_sync_item(item.id, session)
     except SyncAlreadyRunning:
@@ -104,16 +116,29 @@ def sync_item(item_id: str, session: Session = Depends(get_session)):
 
 
 @router.get("/items")
-def list_items(session: Session = Depends(get_session)):
-    return session.exec(select(Item)).all()
+def list_items(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
 
 
 @router.get("/sync/health")
-def sync_health(session: Session = Depends(get_session)):
-    items = session.exec(select(Item)).all()
-    accounts_by_id = {account.id: account for account in session.exec(select(Account)).all()}
+def sync_health(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    items = session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+    accounts_by_id = {
+        account.id: account
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+    }
     failed_syncs = session.exec(
-        select(AccountSync).where(AccountSync.last_error.is_not(None))
+        scope_query(
+            select(AccountSync).where(AccountSync.last_error.is_not(None)),
+            AccountSync.user_id,
+            user_id,
+        )
     ).all()
     health = []
     for item in items:
@@ -152,20 +177,31 @@ def sync_health(session: Session = Depends(get_session)):
 
 
 @router.get("/sync/status")
-def sync_status(session: Session = Depends(get_session)):
-    return get_sync_status(session)
+def sync_status(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return get_sync_status(session, user_id=user_id)
 
 
 @router.post("/sync/items/{item_id}/deactivate")
-def deactivate_item(item_id: str, session: Session = Depends(get_session)):
+def deactivate_item(
+    item_id: str,
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
     item = session.get(Item, item_id)
-    if item is None:
+    if item is None or (user_id is not None and item.user_id != user_id):
         raise HTTPException(404, f"Item {item_id!r} not found")
     now = datetime.utcnow()
     item.is_active = False
     item.deactivated_at = now
     session.add(item)
-    accounts = session.exec(select(Account).where(Account.item_id == item_id)).all()
+    accounts = session.exec(
+        scope_query(
+            select(Account).where(Account.item_id == item_id), Account.user_id, user_id
+        )
+    ).all()
     for account in accounts:
         account.is_active = False
         account.deactivated_at = now
@@ -179,17 +215,26 @@ def deactivate_item(item_id: str, session: Session = Depends(get_session)):
 
 
 @router.post("/sync/reconcile-items")
-def reconcile_items(session: Session = Depends(get_session)):
-    return reconcile_active_items(session)
+def reconcile_items(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return reconcile_active_items(session, user_id=user_id)
 
 
 @router.get("/accounts")
-def list_accounts(session: Session = Depends(get_session)):
-    return session.exec(select(Account)).all()
+def list_accounts(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
 
 
 @router.get("/debug/duplicate-transactions")
-def debug_duplicate_transactions(session: Session = Depends(get_session)):
+def debug_duplicate_transactions(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
     """Read-only diagnostic: find transactions that look like re-auth duplicates.
 
     Groups all transactions by their natural key (account_type + description +
@@ -202,14 +247,21 @@ def debug_duplicate_transactions(session: Session = Depends(get_session)):
       - inactive_accounts: list of deactivated accounts still holding transactions
     """
     # --- load accounts and items ---
-    all_accounts: dict[str, Account] = {a.id: a for a in session.exec(select(Account)).all()}
-    active_item_ids = {item.id for item in session.exec(select(Item)).all() if item.is_active}
+    all_accounts: dict[str, Account] = {
+        a.id: a
+        for a in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+    }
+    active_item_ids = {
+        item.id
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+        if item.is_active
+    }
 
     def _is_account_active(account: Account) -> bool:
         return bool(account.is_active and account.item_id in active_item_ids)
 
     # --- load all transactions ---
-    all_txs = session.exec(select(Transaction)).all()
+    all_txs = session.exec(scope_query(select(Transaction), Transaction.user_id, user_id)).all()
 
     # --- group by natural key ---
     by_key: dict[str, list[Transaction]] = defaultdict(list)

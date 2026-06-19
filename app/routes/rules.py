@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from app.auth.dependencies import current_scope_user_id
 from app.database import get_session
 from app.services.rules import (
     RuleCategoryNotFoundError,
@@ -46,20 +47,25 @@ def _handle_rule_error(exc: Exception):
 
 
 @router.get("/bank-income/exclusion-rules")
-def list_bank_income_exclusion_rules(session: Session = Depends(get_session)):
-    return list_bank_income_exclusion_rules_service(session)
+def list_bank_income_exclusion_rules(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return list_bank_income_exclusion_rules_service(session, user_id=user_id)
 
 
 @router.post("/bank-income/exclusion-rules")
 def upsert_bank_income_exclusion_rule(
     body: BankIncomeExclusionRuleUpsert,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
         return upsert_bank_income_exclusion_rule_service(
             session,
             pluggy_category=body.pluggy_category,
             pattern=body.pattern,
+            user_id=user_id,
         )
     except (RuleValidationError, RuleCategoryNotFoundError) as exc:
         _handle_rule_error(exc)
@@ -69,20 +75,25 @@ def upsert_bank_income_exclusion_rule(
 def delete_bank_income_exclusion_rule(
     rule_id: int,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    delete_bank_income_exclusion_rule_service(session, rule_id)
+    delete_bank_income_exclusion_rule_service(session, rule_id, user_id=user_id)
     return None
 
 
 @router.get("/bank-cashflow/exclusion-rules")
-def list_bank_cashflow_exclusion_rules(session: Session = Depends(get_session)):
-    return list_bank_cashflow_exclusion_rules_service(session)
+def list_bank_cashflow_exclusion_rules(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return list_bank_cashflow_exclusion_rules_service(session, user_id=user_id)
 
 
 @router.post("/bank-cashflow/exclusion-rules")
 def upsert_bank_cashflow_exclusion_rule(
     body: BankCashflowExclusionRuleUpsert,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
         return upsert_bank_cashflow_exclusion_rule_service(
@@ -90,6 +101,7 @@ def upsert_bank_cashflow_exclusion_rule(
             direction=body.direction,
             pluggy_category=body.pluggy_category,
             pattern=body.pattern,
+            user_id=user_id,
         )
     except (RuleValidationError, RuleCategoryNotFoundError) as exc:
         _handle_rule_error(exc)
@@ -99,23 +111,28 @@ def upsert_bank_cashflow_exclusion_rule(
 def delete_bank_cashflow_exclusion_rule(
     rule_id: int,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    delete_bank_cashflow_exclusion_rule_service(session, rule_id)
+    delete_bank_cashflow_exclusion_rule_service(session, rule_id, user_id=user_id)
     return None
 
 
 @router.get("/transaction-ignore-rules/description")
-def list_ignored_description_rules(session: Session = Depends(get_session)):
-    return list_ignored_description_rules_service(session)
+def list_ignored_description_rules(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return list_ignored_description_rules_service(session, user_id=user_id)
 
 
 @router.post("/transaction-ignore-rules/description")
 def upsert_ignored_description_rule(
     body: IgnoredDescriptionRuleUpsert,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
-        return upsert_ignored_description_rule_service(session, body.pattern)
+        return upsert_ignored_description_rule_service(session, body.pattern, user_id=user_id)
     except (RuleValidationError, RuleCategoryNotFoundError) as exc:
         _handle_rule_error(exc)
 
@@ -124,6 +141,7 @@ def upsert_ignored_description_rule(
 def delete_ignored_description_rule(
     rule_id: int,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    delete_ignored_description_rule_service(session, rule_id)
+    delete_ignored_description_rule_service(session, rule_id, user_id=user_id)
     return None

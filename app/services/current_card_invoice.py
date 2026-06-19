@@ -283,6 +283,7 @@ def current_card_invoice_summary(
     user_rules = load_compiled_user_rules(session, user_id=user_id)
     cards: list[dict[str, Any]] = []
     raw_purchase_transactions: list[dict[str, Any]] = []
+    recent_purchase_transactions: list[dict[str, Any]] = []
     raw_total = Decimal("0")
     adjusted_total = Decimal("0")
     adjusted_any = False
@@ -316,13 +317,17 @@ def current_card_invoice_summary(
                 }
             )
 
-        category_transactions = _current_invoice_category_transactions(
+        current_transactions = _current_invoice_category_transactions(
             session,
             account,
             latest,
             today,
             user_id=user_id,
         )
+        recent_purchase_transactions.extend(
+            _serialize_current_invoice_transaction(tx, user_rules) for tx in current_transactions
+        )
+        category_transactions = list(current_transactions)
         category_transactions.extend(
             _next_invoice_scheduled_transactions(session, account, today, user_id=user_id)
         )
@@ -438,6 +443,7 @@ def current_card_invoice_summary(
         "category_total": float(category_total),
         "category_count": category_count,
         "raw_purchase_transactions": raw_purchase_transactions,
+        "recent_purchase_transactions": recent_purchase_transactions,
         "legacy_category_breakdown_removed": False,
         "source_detail": {
             "category_basis": "current_purchases_plus_next_invoice_installments",

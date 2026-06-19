@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from app.auth.dependencies import current_scope_user_id
 from app.database import get_session
 from app.routes.common import month_range
 from app.services.budgets import budget_progress_summary
@@ -42,6 +43,7 @@ def budgets_progress(
     year_month: Optional[str] = None,
     include_ignored: bool = False,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     today = date.today()
     year_month, first_day, last_day = month_range(year_month)
@@ -52,6 +54,7 @@ def budgets_progress(
         last_day=last_day,
         today=today,
         include_ignored=include_ignored,
+        user_id=user_id,
     )
 
 
@@ -59,6 +62,7 @@ def budgets_progress(
 def upsert_variable_budget(
     body: VariableBudgetUpsert,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
         goal = upsert_goal(
@@ -66,6 +70,7 @@ def upsert_variable_budget(
             year_month=body.year_month,
             category=body.category,
             target_amount=body.target_amount,
+            user_id=user_id,
         )
     except VariableBudgetValidationError as exc:
         raise HTTPException(400, str(exc))
@@ -87,6 +92,7 @@ class ReplicateBody(BaseModel):
 def replicate_variable_budgets(
     body: ReplicateBody,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
         result = replicate_goals(
@@ -94,6 +100,7 @@ def replicate_variable_budgets(
             source_month=body.source_month,
             months_ahead=body.months_ahead,
             overwrite=body.overwrite,
+            user_id=user_id,
         )
     except VariableBudgetValidationError as exc:
         raise HTTPException(400, str(exc))
@@ -105,9 +112,10 @@ def remove_variable_budget(
     year_month: str,
     category: str,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
-        removed = delete_goal(session, year_month=year_month, category=category)
+        removed = delete_goal(session, year_month=year_month, category=category, user_id=user_id)
     except VariableBudgetValidationError as exc:
         raise HTTPException(400, str(exc))
     if not removed:

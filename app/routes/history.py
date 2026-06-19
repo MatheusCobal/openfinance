@@ -1,6 +1,9 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
+from app.auth.dependencies import current_scope_user_id
 from app.config import database_settings
 from app.database import get_session
 from app.services.history import (
@@ -30,84 +33,103 @@ def _validate_month_window(months: int) -> None:
 
 
 @router.get("/ignored-transactions/monthly")
-def ignored_transactions_monthly(session: Session = Depends(get_session)):
-    return ignored_transactions_monthly_summary(session)
+def ignored_transactions_monthly(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return ignored_transactions_monthly_summary(session, user_id=user_id)
 
 
 @router.get("/credit-card-payments/monthly")
 def credit_card_payments_monthly(
     months: int = DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     _validate_month_window(months)
-    return credit_card_payments_monthly_summary(session, months)
+    return credit_card_payments_monthly_summary(session, months, user_id=user_id)
 
 
 @router.get("/credit-card-invoices/monthly")
 def credit_card_invoices_monthly(
     months: int = DEFAULT_CREDIT_CARD_PAYMENT_MONTHS,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     _validate_month_window(months)
-    return credit_card_invoice_purchases_monthly_summary(session, months)
+    return credit_card_invoice_purchases_monthly_summary(session, months, user_id=user_id)
 
 
 @router.get("/credit-card-payments/history")
-def credit_card_payments_history(session: Session = Depends(get_session)):
-    return credit_card_payments_history_summary(session)
+def credit_card_payments_history(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return credit_card_payments_history_summary(session, user_id=user_id)
 
 
 @router.get("/bank-income/monthly", deprecated=True)
 def bank_income_monthly(
     months: int = 12,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     # Deprecated for the Historico UI in 11-B. Kept for compatibility and for
     # shared backend income diagnostics; Entradas e Saidas uses /bank-cashflow.
     _validate_month_window(months)
-    return bank_income_monthly_summary(session, months)
+    return bank_income_monthly_summary(session, months, user_id=user_id)
 
 
 @router.get("/bank-income/history", deprecated=True)
-def bank_income_history(session: Session = Depends(get_session)):
+def bank_income_history(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
     # Deprecated for the Historico UI in 11-B; retained as a read-only
     # snapshot compatibility endpoint.
-    return bank_income_history_summary(session)
+    return bank_income_history_summary(session, user_id=user_id)
 
 
 @router.get("/bank-cashflow/monthly")
 def bank_cashflow_monthly(
     months: int = 12,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     _validate_month_window(months)
-    return bank_cashflow_monthly_summary(session, months)
+    return bank_cashflow_monthly_summary(session, months, user_id=user_id)
 
 
 @router.get("/monthly-balance")
 def monthly_balance(
     months: int = DEFAULT_MONTHLY_BALANCE_MONTHS,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     _validate_month_window(months)
-    return monthly_balance_summary(session, months)
+    return monthly_balance_summary(session, months, user_id=user_id)
 
 
 @router.get("/monthly-balance/history")
-def monthly_balance_history(session: Session = Depends(get_session)):
-    return monthly_balance_history_summary(session)
+def monthly_balance_history(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return monthly_balance_history_summary(session, user_id=user_id)
 
 
 @router.post("/history/snapshots/refresh")
 def refresh_history_snapshots(
     months: int = DEFAULT_MONTHLY_BALANCE_MONTHS,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     _validate_month_window(months)
     backup_sqlite_database(database_settings.database_url, "snapshot-refresh")
     bank_income, credit_card_invoice, monthly_balance = refresh_monthly_balance_snapshots(
         session,
         months,
+        user_id=user_id,
     )
     return {
         "status": "ok",

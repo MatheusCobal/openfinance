@@ -413,11 +413,13 @@ def _deactivate_accounts(item_id: str, keep_ids: set, session: Session) -> int:
     return count
 
 
-def reconcile_active_items(session: Session) -> Dict[str, Any]:
+def reconcile_active_items(session: Session, user_id: Optional[int] = None) -> Dict[str, Any]:
     """Compare local Items against Pluggy and deactivate any that are gone."""
+    from app.services.scoping import scope_query
+
     remote_items = pluggy.list_items()
     remote_ids = {item["id"] for item in remote_items}
-    local_items = session.exec(select(Item)).all()
+    local_items = session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
     now = datetime.utcnow()
     deactivated_items = 0
     deactivated_accounts = 0
@@ -442,12 +444,16 @@ def reconcile_active_items(session: Session) -> Dict[str, Any]:
     }
 
 
-def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
+def _sync_item_locked(
+    item_id: str,
+    session: Session,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     from app.services.user_classification_rules import load_compiled_user_rules
 
     raw_accounts = pluggy.list_accounts(item_id)
     accounts_to_sync = tracked_accounts(raw_accounts)
-    user_rules = load_compiled_user_rules(session)
+    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     new_transactions = 0
     updated_transactions = 0
@@ -463,7 +469,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         account_id = raw_account["id"]
         account_type = raw_account["type"]
         try:
-            account_result = _sync_one_account(raw_account, item_id, session)
+            account_result = _sync_one_account(raw_account, item_id, session, user_id=user_id)
             session.commit()
         except Exception as exc:
             session.rollback()
@@ -474,6 +480,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
                 error,
                 raw_account=raw_account,
                 item_id=item_id,
+                user_id=user_id,
             )
             failed_accounts.append({"account_id": account_id, "error": error})
             continue
@@ -488,7 +495,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
         # the account's transaction sync, which already committed above.
         if account_type == "CREDIT":
             try:
-                bill_outcome = sync_credit_card_bills(session, account_id)
+                bill_outcome = sync_credit_card_bills(session, account_id, user_id=user_id)
                 session.commit()
             except Exception as exc:  # noqa: BLE001 — keep the item sync alive
                 session.rollback()
@@ -523,6 +530,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
                                 session,
                                 account_type=account_type,
                                 user_rules=user_rules,
+                                user_id=user_id,
                             )
                             if is_new:
                                 bill_transactions_new += 1
@@ -548,7 +556,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
     investments_upserted = 0
     investment_transactions_upserted = 0
     try:
-        inv_outcome = sync_investments(session, item_id)
+        inv_outcome = sync_investments(session, item_id, user_id=user_id)
         session.commit()
     except Exception as exc:  # noqa: BLE001
         session.rollback()
@@ -568,7 +576,7 @@ def _sync_item_locked(item_id: str, session: Session) -> Dict[str, Any]:
     # Snapshots aggregate from the DB, so partial failures still produce
     # meaningful numbers — just for the accounts that succeeded.
     refreshed_income_months, refreshed_invoice_months, refreshed_balance_months = (
-        refresh_monthly_balance_snapshots(session)
+        refresh_monthly_balance_snapshots(session, user_id=user_id)
     )
     return {
         "tracked_accounts": len(accounts_to_sync),

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from app.auth.dependencies import current_scope_user_id
 from app.database import get_session
 from app.models import Account
 from app.pluggy_client import pluggy
@@ -44,6 +45,7 @@ def list_transactions(
     include_future: bool = False,
     include_ignored: bool = False,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
         return enriched_transactions(
@@ -54,6 +56,7 @@ def list_transactions(
             to_date=to_date,
             include_future=include_future,
             include_ignored=include_ignored,
+            user_id=user_id,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -87,6 +90,7 @@ def override_transaction_classification(
     transaction_id: str,
     payload: ClassificationOverridePayload,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
         tx = apply_manual_classification(
@@ -95,6 +99,7 @@ def override_transaction_classification(
             internal_category=payload.internal_category,
             cashflow_type=payload.cashflow_type,
             ignored_from_totals=payload.ignored_from_totals,
+            user_id=user_id,
         )
     except LookupError as exc:
         raise HTTPException(404, str(exc))
@@ -107,9 +112,10 @@ def override_transaction_classification(
 def reset_transaction_classification(
     transaction_id: str,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
-        tx = reset_manual_classification(session, transaction_id)
+        tx = reset_manual_classification(session, transaction_id, user_id=user_id)
     except LookupError as exc:
         raise HTTPException(404, str(exc))
     return _classification_response(tx, session)
@@ -153,17 +159,21 @@ class ClassificationRuleUpdate(BaseModel):
 
 
 @router.get("/transactions/classification-rules")
-def list_classification_rules(session: Session = Depends(get_session)):
-    return list_user_classification_rules(session)
+def list_classification_rules(
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    return list_user_classification_rules(session, user_id=user_id)
 
 
 @router.post("/transactions/classification-rules")
 def create_classification_rule(
     payload: ClassificationRuleCreate,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
-        return create_user_classification_rule(session, payload.model_dump())
+        return create_user_classification_rule(session, payload.model_dump(), user_id=user_id)
     except UserRuleValidationError as exc:
         raise HTTPException(400, str(exc))
 
@@ -172,9 +182,10 @@ def create_classification_rule(
 def preview_new_classification_rule(
     payload: ClassificationRuleCreate,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
-        return preview_user_classification_rule(session, payload.model_dump())
+        return preview_user_classification_rule(session, payload.model_dump(), user_id=user_id)
     except UserRuleValidationError as exc:
         raise HTTPException(400, str(exc))
 
@@ -184,12 +195,14 @@ def preview_existing_classification_rule(
     rule_id: int,
     payload: ClassificationRuleUpdate,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
         return preview_user_classification_rule(
             session,
             payload.model_dump(exclude_unset=True),
             rule_id=rule_id,
+            user_id=user_id,
         )
     except UserRuleNotFoundError as exc:
         raise HTTPException(404, str(exc))
@@ -202,11 +215,12 @@ def update_classification_rule(
     rule_id: int,
     payload: ClassificationRuleUpdate,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     # Only forward fields the client actually sent so partial updates work.
     provided = payload.model_dump(exclude_unset=True)
     try:
-        return update_user_classification_rule(session, rule_id, provided)
+        return update_user_classification_rule(session, rule_id, provided, user_id=user_id)
     except UserRuleNotFoundError as exc:
         raise HTTPException(404, str(exc))
     except UserRuleValidationError as exc:
@@ -217,9 +231,10 @@ def update_classification_rule(
 def delete_classification_rule(
     rule_id: int,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     try:
-        delete_user_classification_rule(session, rule_id)
+        delete_user_classification_rule(session, rule_id, user_id=user_id)
     except UserRuleNotFoundError as exc:
         raise HTTPException(404, str(exc))
     return None
@@ -229,16 +244,18 @@ def delete_classification_rule(
 def upcoming(
     include_ignored: bool = False,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    return upcoming_summary(session, include_ignored=include_ignored)
+    return upcoming_summary(session, include_ignored=include_ignored, user_id=user_id)
 
 
 @router.get("/stats/monthly")
 def stats_monthly(
     include_ignored: bool = False,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    return monthly_stats_summary(session, include_ignored=include_ignored)
+    return monthly_stats_summary(session, include_ignored=include_ignored, user_id=user_id)
 
 
 @router.get("/stats")
@@ -247,19 +264,25 @@ def stats(
     to_date: Optional[date] = None,
     include_ignored: bool = False,
     session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
 ):
     return stats_summary(
         session,
         from_date=from_date,
         to_date=to_date,
         include_ignored=include_ignored,
+        user_id=user_id,
     )
 
 
 @router.post("/accounts/{account_id}/refresh-balance")
-def refresh_balance(account_id: str, session: Session = Depends(get_session)):
+def refresh_balance(
+    account_id: str,
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
     account = session.get(Account, account_id)
-    if account is None:
+    if account is None or (user_id is not None and account.user_id != user_id):
         raise HTTPException(404, f"account {account_id} not found")
     try:
         data = pluggy.get_account_balance(account_id)

@@ -377,6 +377,10 @@ class CurrentCardInvoiceTest(unittest.TestCase):
             {tx["id"] for tx in summary["raw_purchase_transactions"]},
             {"current-purchase", "next-invoice-installment"},
         )
+        self.assertEqual(
+            [tx["id"] for tx in summary["recent_purchase_transactions"]],
+            ["current-purchase"],
+        )
 
     def test_future_planning_month_can_still_use_scheduled_installments(self):
         with Session(self.engine) as session:

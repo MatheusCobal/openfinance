@@ -6,8 +6,10 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlmodel import Session, desc, select
 
+from app.auth.dependencies import current_scope_user_id
 from app.database import engine, get_session
 from app.models import Account, Item, PluggyWebhookEvent
+from app.services.scoping import scope_query
 from app.services.sync import SyncAlreadyRunning, sync_item as run_sync_item
 
 logger = logging.getLogger("openfinance")
@@ -97,11 +99,25 @@ async def pluggy_webhook(
 
 
 @router.get("/sync/webhook-events")
-def recent_webhook_events(limit: int = 25, session: Session = Depends(get_session)):
+def recent_webhook_events(
+    limit: int = 25,
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
     limit = max(1, min(limit, 100))
-    events = session.exec(
-        select(PluggyWebhookEvent).order_by(desc(PluggyWebhookEvent.received_at)).limit(limit)
-    ).all()
+    query = select(PluggyWebhookEvent).order_by(desc(PluggyWebhookEvent.received_at))
+    if user_id is not None:
+        # Webhook rows are recorded without a user (the webhook is secret-gated,
+        # not session-gated), so scope this diagnostic list to events for items
+        # the current user owns rather than by the event's own user_id.
+        owned_item_ids = {
+            item_id
+            for (item_id,) in session.exec(
+                scope_query(select(Item.id), Item.user_id, user_id)
+            ).all()
+        }
+        query = query.where(PluggyWebhookEvent.item_id.in_(owned_item_ids))
+    events = session.exec(query.limit(limit)).all()
     return [
         {
             "id": event.id,
