@@ -7,7 +7,6 @@ import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PlanejamentoPage } from "./pages/PlanejamentoPage";
 import { ProximosPage } from "./pages/ProximosPage";
-import { RegrasPage } from "./pages/RegrasPage";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -22,7 +21,6 @@ export const router = createBrowserRouter([
           { path: "/planejamento", element: <PlanejamentoPage /> },
           { path: "/historico", element: <HistoricoPage /> },
           { path: "/proximos", element: <ProximosPage /> },
-          { path: "/regras", element: <RegrasPage /> },
           { path: "*", element: <NotFoundPage /> },
         ],
       },

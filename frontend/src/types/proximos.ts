@@ -18,6 +18,8 @@ export interface UpcomingMonth {
   invoice_source?: string;
   invoice_source_label?: string;
   is_current_invoice?: boolean;
+  identified_total?: number;
+  unreconciled_amount?: number;
   transactions?: Transaction[];
   categories?: UpcomingCategory[];
 }

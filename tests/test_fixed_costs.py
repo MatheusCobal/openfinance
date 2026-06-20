@@ -309,6 +309,171 @@ class FixedCostsTest(unittest.TestCase):
         resp = self.client.delete(f"/fixed-costs/matches/{match['id']}")
         self.assertEqual(resp.status_code, 404)
 
+    def test_vigente_match_candidates_include_current_bank_and_invoice_credit(self):
+        from app.services.fixed_costs import list_fixed_cost_match_candidates
+
+        with Session(self.engine) as session:
+            credit = session.get(Account, "credit-1")
+            credit.balance = Decimal("1200")
+            credit.credit_balance_due_date = date(2026, 6, 8)
+            session.add(credit)
+            session.add(Account(id="bank-1", item_id="item-1", name="Conta", type="BANK"))
+            session.add_all(
+                [
+                    Transaction(
+                        id="credit-current",
+                        account_id="credit-1",
+                        date=date(2026, 6, 12),
+                        amount=Decimal("200"),
+                        description="Academia mensal",
+                        category="Fitness",
+                    ),
+                    Transaction(
+                        id="credit-scheduled",
+                        account_id="credit-1",
+                        date=date(2026, 7, 6),
+                        amount=Decimal("300"),
+                        description="Parcela curso 02/06",
+                        category="Education",
+                    ),
+                    Transaction(
+                        id="bank-current",
+                        account_id="bank-1",
+                        date=date(2026, 6, 15),
+                        amount=Decimal("-500"),
+                        description="PIX para familia",
+                        category="Transfer",
+                    ),
+                    Transaction(
+                        id="bank-income",
+                        account_id="bank-1",
+                        date=date(2026, 6, 15),
+                        amount=Decimal("500"),
+                        description="Recebimento",
+                        category="Transfer",
+                    ),
+                ]
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            candidates = list_fixed_cost_match_candidates(
+                session,
+                "2026-07",
+                today=date(2026, 6, 20),
+            )
+
+        by_id = {candidate["id"]: candidate for candidate in candidates}
+        self.assertEqual(
+            set(by_id),
+            {"credit-current", "credit-scheduled", "bank-current"},
+        )
+        self.assertEqual(by_id["bank-current"]["account_type"], "BANK")
+        self.assertEqual(by_id["credit-current"]["account_type"], "CREDIT")
+
+    def test_vigente_bank_payment_can_link_to_next_month_reference(self):
+        from app.services.fixed_costs import (
+            create_fixed_cost_transaction_match,
+            monthly_breakdown,
+        )
+
+        with Session(self.engine) as session:
+            session.add(Account(id="bank-1", item_id="item-1", name="Conta", type="BANK"))
+            session.add(
+                Transaction(
+                    id="bank-academia-june",
+                    account_id="bank-1",
+                    date=date(2026, 6, 18),
+                    amount=Decimal("-200"),
+                    description="Pagamento Academia",
+                    category="Transfer",
+                )
+            )
+            session.commit()
+
+        category = next(
+            item
+            for item in self.client.get("/fixed-cost-categories").json()
+            if item["name"] == "Academia"
+        )
+        cost = self.client.post(
+            "/fixed-costs",
+            json={
+                "category_id": category["id"],
+                "description": "Academia",
+                "amount": 200,
+                "due_day": 25,
+            },
+        ).json()
+
+        with Session(self.engine) as session:
+            match = create_fixed_cost_transaction_match(
+                session,
+                cost["id"],
+                "bank-academia-june",
+                year_month="2026-07",
+                today=date(2026, 6, 20),
+            )
+            breakdown = monthly_breakdown(
+                session,
+                "2026-07",
+                today=date(2026, 6, 20),
+            )
+
+        entry = next(item for item in breakdown["entries"] if item["fixed_cost_id"] == cost["id"])
+        self.assertEqual(match["year_month"], "2026-07")
+        self.assertEqual(entry["match_source"], "manual")
+        self.assertEqual(entry["matched_transaction"]["id"], "bank-academia-june")
+
+    def test_vigente_auto_match_does_not_reuse_one_payment(self):
+        from app.services.fixed_costs import monthly_breakdown
+
+        with Session(self.engine) as session:
+            session.add(Account(id="bank-1", item_id="item-1", name="Conta", type="BANK"))
+            session.add(
+                Transaction(
+                    id="single-academia-payment",
+                    account_id="bank-1",
+                    date=date(2026, 6, 18),
+                    amount=Decimal("-200"),
+                    description="Pagamento Academia",
+                    category="Transfer",
+                )
+            )
+            session.commit()
+
+        category = next(
+            item
+            for item in self.client.get("/fixed-cost-categories").json()
+            if item["name"] == "Academia"
+        )
+        for description in ("Academia titular", "Academia dependente"):
+            self.client.post(
+                "/fixed-costs",
+                json={
+                    "category_id": category["id"],
+                    "description": description,
+                    "amount": 200,
+                    "due_day": 25,
+                },
+            )
+
+        with Session(self.engine) as session:
+            breakdown = monthly_breakdown(
+                session,
+                "2026-07",
+                today=date(2026, 6, 20),
+            )
+
+        auto_matches = [
+            item for item in breakdown["entries"] if item["match_source"] == "auto"
+        ]
+        self.assertEqual(len(auto_matches), 1)
+        self.assertEqual(
+            auto_matches[0]["matched_transaction"]["id"],
+            "single-academia-payment",
+        )
+
     def test_create_fixed_cost_from_transaction_uses_resolved_category(self):
         with Session(self.engine) as session:
             session.add(
@@ -1530,6 +1695,52 @@ class CurrentMonthOpenInvoiceCycleTest(unittest.TestCase):
 
     def tearDown(self):
         app.dependency_overrides.clear()
+
+    def test_future_month_variable_budget_uses_selected_calendar_month(self):
+        """A future month's variable goal must not borrow the open invoice cycle."""
+        from app.services.planning import planning_month_summary
+        from app.services.variable_budgets import upsert_goal
+
+        with Session(self.engine) as session:
+            upsert_goal(session, "2026-07", "Alimentação", 1500)
+            session.add(
+                Transaction(
+                    id="tx-current-cycle-variable",
+                    account_id="credit-1",
+                    date=date(2026, 6, 10),
+                    amount=Decimal("900"),
+                    description="Compra no ciclo atual",
+                    category="Groceries",
+                    status="PENDING",
+                    bill_id=None,
+                )
+            )
+            session.add(
+                Transaction(
+                    id="tx-july-variable",
+                    account_id="credit-1",
+                    date=date(2026, 7, 10),
+                    amount=Decimal("100"),
+                    description="Compra de julho",
+                    category="Groceries",
+                    status="PENDING",
+                    bill_id=None,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            planning = planning_month_summary(
+                session,
+                "2026-07",
+                today=date(2026, 6, 19),
+            )
+
+        capacity = planning["raw"]["spending_capacity"]
+        self.assertEqual(planning["variable_budgets"]["remaining"], 1400.0)
+        self.assertEqual(capacity["variable_budget_consumed"], 100.0)
+        self.assertEqual(capacity["variable_budget_remaining"], 1400.0)
+        self.assertEqual(capacity["variable_budget_uncommitted"], 1400.0)
 
     # ── 1. bill_id-null in cycle are counted ──────────────────────────────────
 

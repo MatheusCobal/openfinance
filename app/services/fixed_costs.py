@@ -6,12 +6,14 @@ from sqlmodel import Session, select
 
 from app.categorization import normalize_description
 from app.models import (
+    Account,
     FixedCost,
     FixedCostCategory,
     FixedCostOverride,
     FixedCostTransactionMatch,
     Transaction,
 )
+from app.services.classification import TransactionClassifier, TransactionKind
 from app.services.scoping import scope_query
 from app.services.transactions import _non_duplicate_clause
 from app.services.fixed_cost_defaults import (
@@ -130,9 +132,15 @@ def _serialize_cost(cost: FixedCost, category: FixedCostCategory) -> Dict[str, A
     }
 
 
-def _serialize_transaction_match(tx: Transaction) -> Dict[str, Any]:
+def _serialize_transaction_match(
+    tx: Transaction,
+    account: Optional[Account] = None,
+) -> Dict[str, Any]:
     return {
         "id": tx.id,
+        "account_id": tx.account_id,
+        "account_name": account.name if account is not None else None,
+        "account_type": account.type if account is not None else None,
         "date": tx.date.isoformat(),
         "amount": float(tx.amount),
         "amount_abs": float(abs(tx.amount)),
@@ -543,6 +551,128 @@ def _transactions_by_id(
     }
 
 
+def _eligible_fixed_cost_transaction(
+    classifier: TransactionClassifier,
+    tx: Transaction,
+) -> bool:
+    classification = classifier.classify(tx)
+    if classification.kind == TransactionKind.CARD_PURCHASE:
+        return True
+    return (
+        classification.account_type == "BANK"
+        and tx.amount < 0
+        and classification.kind
+        not in {
+            TransactionKind.INVOICE_PAYMENT,
+            TransactionKind.INVESTMENT_NOISE,
+            TransactionKind.IGNORED,
+        }
+    )
+
+
+def _fixed_cost_match_candidate_transactions(
+    session: Session,
+    year_month: str,
+    today: Optional[date] = None,
+    user_id: Optional[int] = None,
+) -> list[Transaction]:
+    """Return semantically valid payments for a fixed-cost reference month.
+
+    The default planning month is the invoice due next calendar month. For
+    that vigente month, CREDIT candidates come from the same transaction set
+    used by the Dashboard current invoice, while BANK candidates are real
+    outflows made in the current calendar month. Other reference months keep
+    their calendar-month window.
+    """
+    _validate_month(year_month)
+    today = today if today is not None else date.today()
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    vigente_month = _shift_year_month(today.strftime("%Y-%m"), 1)
+
+    if year_month == vigente_month:
+        from app.services.current_card_invoice import current_card_invoice_summary
+        from app.services.transactions import account_ids_by_type
+
+        current_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
+        credit_ids = {
+            row["id"]
+            for row in current_invoice.get("raw_purchase_transactions", [])
+            if row.get("id")
+        }
+        credit_transactions = list(
+            _transactions_by_id(session, credit_ids, user_id=user_id).values()
+        )
+        bank_account_ids = account_ids_by_type(session, {"BANK"}, user_id=user_id)
+        bank_transactions = (
+            session.exec(
+                scope_query(
+                    select(Transaction).where(
+                        Transaction.account_id.in_(bank_account_ids),
+                        Transaction.date >= today.replace(day=1),
+                        Transaction.date <= today,
+                        _non_duplicate_clause(),
+                    ),
+                    Transaction.user_id,
+                    user_id,
+                )
+            ).all()
+            if bank_account_ids
+            else []
+        )
+        transactions = credit_transactions + bank_transactions
+    else:
+        first_day, last_day = _month_bounds(year_month)
+        transactions = session.exec(
+            scope_query(
+                select(Transaction).where(
+                    Transaction.date >= first_day,
+                    Transaction.date <= last_day,
+                    _non_duplicate_clause(),
+                ),
+                Transaction.user_id,
+                user_id,
+            )
+        ).all()
+
+    unique = {tx.id: tx for tx in transactions if _eligible_fixed_cost_transaction(classifier, tx)}
+    return sorted(unique.values(), key=lambda tx: (tx.date, tx.description, tx.id), reverse=True)
+
+
+def list_fixed_cost_match_candidates(
+    session: Session,
+    year_month: str,
+    today: Optional[date] = None,
+    user_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    candidates = _fixed_cost_match_candidate_transactions(
+        session,
+        year_month,
+        today=today,
+        user_id=user_id,
+    )
+    already_matched_ids = {
+        match.transaction_id
+        for match in session.exec(
+            scope_query(
+                select(FixedCostTransactionMatch),
+                FixedCostTransactionMatch.user_id,
+                user_id,
+            )
+        ).all()
+    }
+    accounts = {
+        account.id: account
+        for account in session.exec(
+            scope_query(select(Account), Account.user_id, user_id)
+        ).all()
+    }
+    return [
+        _serialize_transaction_match(tx, accounts.get(tx.account_id))
+        for tx in candidates
+        if tx.id not in already_matched_ids
+    ]
+
+
 def list_fixed_cost_transaction_matches(
     session: Session,
     year_month: str,
@@ -583,6 +713,7 @@ def create_fixed_cost_transaction_match(
     fixed_cost_id: int,
     transaction_id: str,
     year_month: Optional[str] = None,
+    today: Optional[date] = None,
     user_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     cost = session.get(FixedCost, fixed_cost_id)
@@ -594,8 +725,6 @@ def create_fixed_cost_transaction_match(
 
     target_month = year_month or _transaction_month(tx)
     _validate_month(target_month)
-    if _transaction_month(tx) != target_month:
-        raise FixedCostValidationError("transaction date must be in year_month")
 
     existing_for_transaction = session.exec(
         select(FixedCostTransactionMatch).where(
@@ -622,6 +751,20 @@ def create_fixed_cost_transaction_match(
     ).first()
     if existing_for_cost_month is not None:
         raise FixedCostValidationError("fixed cost already matched for this month")
+
+    candidate_ids = {
+        candidate.id
+        for candidate in _fixed_cost_match_candidate_transactions(
+            session,
+            target_month,
+            today=today,
+            user_id=user_id,
+        )
+    }
+    if tx.id not in candidate_ids:
+        raise FixedCostValidationError(
+            "transaction is not an eligible payment for the reference month"
+        )
 
     match = FixedCostTransactionMatch(
         fixed_cost_id=fixed_cost_id,
@@ -691,11 +834,11 @@ def _status_for_cost(
 def monthly_breakdown(
     session: Session,
     year_month: str,
+    today: Optional[date] = None,
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     _validate_month(year_month)
-    today = date.today()
-    first_day, last_day = _month_bounds(year_month)
+    today = today if today is not None else date.today()
     _sync_default_categories(session, user_id=user_id)
     costs = session.exec(
         scope_query(
@@ -720,17 +863,6 @@ def monthly_breakdown(
             )
         ).all()
     }
-    month_transactions = session.exec(
-        scope_query(
-            select(Transaction).where(
-                Transaction.date >= first_day,
-                Transaction.date <= last_day,
-                _non_duplicate_clause(),
-            ),
-            Transaction.user_id,
-            user_id,
-        )
-    ).all()
     manual_matches = _matches_for_month(session, year_month, user_id=user_id)
     manual_transactions = _transactions_by_id(
         session, {match.transaction_id for match in manual_matches}, user_id=user_id
@@ -742,8 +874,16 @@ def monthly_breakdown(
             manual_by_cost[match.fixed_cost_id] = (match, tx)
     manual_transaction_ids = set(manual_transactions.keys())
     auto_match_transactions = [
-        tx for tx in month_transactions if tx.id not in manual_transaction_ids
+        tx
+        for tx in _fixed_cost_match_candidate_transactions(
+            session,
+            year_month,
+            today=today,
+            user_id=user_id,
+        )
+        if tx.id not in manual_transaction_ids
     ]
+    auto_matched_transaction_ids: set[str] = set()
 
     entries = []
     category_totals: dict[int, Decimal] = {}
@@ -770,9 +910,17 @@ def monthly_breakdown(
             match_source = "manual"
         else:
             matched_transaction = _find_matching_transaction(
-                cost, effective_amount, auto_match_transactions
+                cost,
+                effective_amount,
+                [
+                    tx
+                    for tx in auto_match_transactions
+                    if tx.id not in auto_matched_transaction_ids
+                ],
             )
             match_source = "auto" if matched_transaction is not None else None
+            if matched_transaction is not None:
+                auto_matched_transaction_ids.add(matched_transaction.id)
         status = _status_for_cost(due_date, matched_transaction, today)
 
         # Plan-vs-actual fields. When a transaction is matched the bill is
@@ -887,7 +1035,7 @@ def accounted_transaction_ids_for_month(
     that table would miss them and let the same transaction reduce the
     available-to-spend twice.
     """
-    breakdown = monthly_breakdown(session, year_month, user_id=user_id)
+    breakdown = monthly_breakdown(session, year_month, today=today, user_id=user_id)
     ids: set[str] = set()
     for entry in breakdown["entries"]:
         matched = entry.get("matched_transaction")

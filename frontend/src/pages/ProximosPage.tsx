@@ -23,15 +23,14 @@ import type { UpcomingMonth } from "../types/proximos";
 function monthSubtitle(month: UpcomingMonth) {
   if (month.is_current_invoice) {
     const label = invoiceSourceLabel(month.invoice_source, month.invoice_source_label || "Fatura vigente");
-    const scheduledCount = month.scheduled_count ?? month.count ?? 0;
-    return `${label} · ${pluralParcelas(scheduledCount)}`;
+    return `${label} · ${pluralParcelas(month.count || 0)}`;
   }
   return pluralParcelas(month.count || 0);
 }
 
 function transactionList(transactions: UpcomingMonth["transactions"]) {
   if (!transactions?.length) {
-    return <p className="px-5 py-6 text-sm text-ink-500">Sem parcelas detalhadas.</p>;
+    return <p className="px-5 py-6 text-sm text-ink-500">Sem lançamentos detalhados.</p>;
   }
   return (
     <ul className="divide-y divide-ink-100">

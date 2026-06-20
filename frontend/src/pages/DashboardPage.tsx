@@ -539,33 +539,33 @@ export function DashboardPage() {
                       {data.recentCardPurchases
                         .slice(0, visibleRecentPurchaseCount)
                         .map((tx) => (
-                        <tr key={tx.id} className="transition-colors hover:bg-surface-muted">
-                          <td className="whitespace-nowrap px-5 py-3.5 text-sm text-ink-500">
-                            {formatDayLabel(tx.date)}
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <p className="max-w-[34rem] truncate text-sm font-medium text-ink-900">
-                              {tx.description}
-                            </p>
-                            {tx.installment_number && tx.total_installments ? (
-                              <p className="mt-0.5 text-xs text-ink-500">
-                                Parcela {tx.installment_number} de {tx.total_installments}
+                          <tr key={tx.id} className="transition-colors hover:bg-surface-muted">
+                            <td className="whitespace-nowrap px-5 py-3.5 text-sm text-ink-500">
+                              {formatDayLabel(tx.date)}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <p className="max-w-[34rem] truncate text-sm font-medium text-ink-900">
+                                {tx.description}
                               </p>
-                            ) : null}
-                          </td>
-                          <td className="px-5 py-3.5 text-sm text-ink-600">
-                            {transactionDisplayCategory(tx) || "Sem categoria"}
-                            {classificationSourceLabel(tx.classification_source) ? (
-                              <span className="block text-xs text-ink-400">
-                                {classificationSourceLabel(tx.classification_source)}
-                              </span>
-                            ) : null}
-                          </td>
-                          <td className="whitespace-nowrap px-5 py-3.5 text-right text-sm font-semibold tabular text-ink-900">
-                            {formatMoney(tx.amount)}
-                          </td>
-                        </tr>
-                      ))}
+                              {tx.installment_number && tx.total_installments ? (
+                                <p className="mt-0.5 text-xs text-ink-500">
+                                  Parcela {tx.installment_number} de {tx.total_installments}
+                                </p>
+                              ) : null}
+                            </td>
+                            <td className="px-5 py-3.5 text-sm text-ink-600">
+                              {transactionDisplayCategory(tx) || "Sem categoria"}
+                              {classificationSourceLabel(tx.classification_source) ? (
+                                <span className="block text-xs text-ink-400">
+                                  {classificationSourceLabel(tx.classification_source)}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-3.5 text-right text-sm font-semibold tabular text-ink-900">
+                              {formatMoney(tx.amount)}
+                            </td>
+                          </tr>
+                        ))}
                     </tbody>
                   </Table>
                   {visibleRecentPurchaseCount < data.recentCardPurchases.length ? (

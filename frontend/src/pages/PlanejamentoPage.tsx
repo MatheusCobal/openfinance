@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, ChevronDown, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
+import { AlertCircle, Banknote, Bell, Calendar, CalendarClock, Check, ChevronDown, Clock, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
@@ -17,7 +17,7 @@ import {
   listFixedCostCategories,
   listFixedCosts,
   listFixedCostTemplates,
-  listTransactionsForMonth,
+  listFixedCostMatchCandidates,
   setFixedCostOverride,
   replicateVariableBudgets,
   setVariableBudget,
@@ -51,7 +51,6 @@ import {
   formatMonthLong,
   formatMonthShort,
   getDefaultPlanningMonth,
-  monthDateRange,
   monthWindow,
 } from "../lib/dates";
 import {
@@ -78,6 +77,22 @@ import type {
 } from "../types/planejamento";
 
 type PlanningTab = "overview" | "custos" | "variaveis" | "receita";
+
+type FixedVariant = "agenda" | "grid" | "waterfall" | "command";
+
+const FIXED_VARIANTS: Array<{ key: FixedVariant; label: string }> = [
+  { key: "agenda", label: "Agenda" },
+  { key: "grid", label: "Grade" },
+  { key: "waterfall", label: "Cascata" },
+  { key: "command", label: "Painel" },
+];
+
+const FIXED_VARIANT_STORAGE_KEY = "planning.fixedVariant";
+
+function storedFixedVariant(): FixedVariant {
+  const saved = typeof window !== "undefined" ? window.localStorage.getItem(FIXED_VARIANT_STORAGE_KEY) : null;
+  return FIXED_VARIANTS.some((v) => v.key === saved) ? (saved as FixedVariant) : "agenda";
+}
 
 const PLANNING_MONTH_WINDOW_SIZE = 12;
 
@@ -736,6 +751,183 @@ function dayBadgeTone(status: string): "positive" | "danger" | "warning" | "neut
   return "neutral";
 }
 
+/** BRL without decimals — for chart axes and compact labels. */
+const currencyCompact = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  maximumFractionDigits: 0,
+});
+const formatMoney0 = (value: unknown) => currencyCompact.format(asMoneyNumber(value));
+
+interface FixedCatGroup {
+  name: string;
+  color: string;
+  total: number;
+  paid: number;
+  count: number;
+  items: FixedCostMonthEntry[];
+}
+
+/** Group month entries by category, with paid totals derived from `isPaid`. */
+function groupByCategory(
+  entries: FixedCostMonthEntry[],
+  isPaid: (entry: FixedCostMonthEntry) => boolean,
+): FixedCatGroup[] {
+  const map = new Map<string, FixedCatGroup>();
+  for (const entry of entries) {
+    const name = entry.category_name;
+    const group =
+      map.get(name) ||
+      ({
+        name,
+        color: categoryColor(entry.category_name, entry.category_color),
+        total: 0,
+        paid: 0,
+        count: 0,
+        items: [],
+      } as FixedCatGroup);
+    const amount = Number(entry.amount || 0);
+    group.total += amount;
+    if (isPaid(entry)) group.paid += amount;
+    group.count += 1;
+    group.items.push(entry);
+    map.set(name, group);
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+/**
+ * Shared "live paid" state for the fixed-cost concept variants: a local paid
+ * set (seeded from the API status, like Concept A), a one-tick `mounted` flag
+ * to trigger the bar/donut entry animations, and effective-status helpers.
+ * The toggle is local-only — same as Concept A, where "paid" reflects matched
+ * payments rather than a write-back.
+ */
+function useFixedPaid(entries: FixedCostMonthEntry[]) {
+  const seed = () =>
+    new Set(entries.filter((e) => e.status === "paid").map((e) => e.fixed_cost_id));
+  const [paidIds, setPaidIds] = useState<Set<number>>(seed);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setPaidIds(seed());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 120);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const toggle = (id: number) =>
+    setPaidIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const isPaid = (entry: FixedCostMonthEntry) => paidIds.has(entry.fixed_cost_id);
+  const effStatus = (entry: FixedCostMonthEntry): string => {
+    if (paidIds.has(entry.fixed_cost_id)) return "paid";
+    if (entry.status === "paid") return "scheduled";
+    return entry.status || "scheduled";
+  };
+
+  return { paidIds, mounted, toggle, isPaid, effStatus };
+}
+
+/** Thin horizontal bar with a mount-triggered fill animation. */
+function AnimatedBar({
+  value,
+  color,
+  on,
+  delay = 0,
+  height = 6,
+}: {
+  value: number;
+  color: string;
+  on: boolean;
+  delay?: number;
+  height?: number;
+}) {
+  const clamped = Math.max(0, Math.min(100, value));
+  return (
+    <div className="w-full overflow-hidden rounded-full bg-ink-100" style={{ height }}>
+      <div
+        className="h-full rounded-full"
+        style={{
+          width: on ? `${clamped}%` : 0,
+          background: color,
+          transition: "width 0.9s cubic-bezier(0.22,1,0.36,1)",
+          transitionDelay: `${delay}ms`,
+        }}
+      />
+    </div>
+  );
+}
+
+/** Animated SVG donut driven by category segments. */
+function Donut({
+  segments,
+  size = 210,
+  thickness = 24,
+  on,
+  children,
+}: {
+  segments: Array<{ value: number; color: string; label: string }>;
+  size?: number;
+  thickness?: number;
+  on: boolean;
+  children?: React.ReactNode;
+}) {
+  const radius = (size - thickness) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const total = segments.reduce((sum, s) => sum + s.value, 0) || 1;
+  let offset = 0;
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="rgba(15,23,42,0.06)"
+          strokeWidth={thickness}
+        />
+        {segments.map((s, i) => {
+          const len = (s.value / total) * circumference;
+          const dash = on ? len : 0;
+          const arc = (
+            <circle
+              key={s.label}
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={thickness}
+              strokeLinecap="round"
+              strokeDasharray={`${dash} ${circumference}`}
+              strokeDashoffset={-offset}
+              style={{
+                transition: "stroke-dasharray 1.1s cubic-bezier(0.22,1,0.36,1)",
+                transitionDelay: `${i * 90}ms`,
+              }}
+            />
+          );
+          offset += len;
+          return arc;
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Concept A — "Agenda do mês". Dark cockpit hero (total + live paid bar +
  * month calendar) over a payment timeline with a "hoje" divider, live paid
@@ -837,8 +1029,7 @@ function FixedCostsAgenda({
   const openPicker = async (item: FixedCostMonthEntry) => {
     setLoadingPicker(true);
     try {
-      const { fromDate, toDate } = monthDateRange(selectedMonth);
-      const data = await listTransactionsForMonth(fromDate, toDate);
+      const data = await listFixedCostMatchCandidates(selectedMonth);
       const costTokens = tokenSet(item.description);
       const tolerance = Math.max(Number(item.amount) * 0.15, 10);
       const scored = data
@@ -1171,7 +1362,9 @@ function FixedCostsAgenda({
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-xs text-ink-800">{tx.description}</p>
                                 <p className="text-[11px] text-ink-400">
-                                  {tx.pluggy_category || tx.category || ""}
+                                  {[tx.account_type, tx.account_name, tx.pluggy_category || tx.category]
+                                    .filter(Boolean)
+                                    .join(" · ")}
                                 </p>
                               </div>
                               <span className="shrink-0 text-xs font-semibold tabular text-ink-800">
@@ -1199,6 +1392,510 @@ function FixedCostsAgenda({
               );
             })}
           </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Shared empty state for the fixed-cost concept variants. */
+function FixedCostsEmpty() {
+  return (
+    <EmptyState
+      icon={<Wallet className="size-5" aria-hidden="true" />}
+      title="Nenhum custo fixo ativo neste mês."
+      detail="Cadastre os compromissos recorrentes na seção abaixo para acompanhar o plano."
+    />
+  );
+}
+
+/**
+ * Concept B — "Compromissos". Summary cards + category filter chips over a
+ * grid of subscription-style cards with a live "pago" toggle per card.
+ */
+function FixedCostsGrid({
+  fixed,
+  expectedIncome,
+}: {
+  fixed: FixedCostsMonth;
+  expectedIncome: number;
+}) {
+  const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
+  const { paidIds, toggle, isPaid, effStatus } = useFixedPaid(entries);
+  const [filter, setFilter] = useState("Todas");
+
+  const total = Number(fixed.total || 0);
+  const paidSum = entries.filter(isPaid).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  // isPaid is derived from paidIds; depend on paidIds to keep the memo stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groups = useMemo(() => groupByCategory(entries, isPaid), [entries, paidIds]);
+  const cats = ["Todas", ...groups.map((g) => g.name)];
+  const shown = filter === "Todas" ? entries : entries.filter((e) => e.category_name === filter);
+  const incomeShare = expectedIncome > 0 ? (total / expectedIncome) * 100 : 0;
+
+  if (!entries.length) return <FixedCostsEmpty />;
+
+  const summary = [
+    {
+      label: "Total no mês",
+      value: total,
+      sub: expectedIncome > 0 ? `${percent(incomeShare)} da receita` : "compromissos recorrentes",
+      cls: "bg-primary-50 text-primary-600",
+      icon: <Wallet className="size-4" aria-hidden="true" />,
+    },
+    {
+      label: "Já pago",
+      value: paidSum,
+      sub: `${paidIds.size} de ${entries.length} contas`,
+      cls: "bg-positive-50 text-positive-600",
+      icon: <Check className="size-4" strokeWidth={3} aria-hidden="true" />,
+    },
+    {
+      label: "A pagar",
+      value: Math.max(total - paidSum, 0),
+      sub: `${entries.length - paidIds.size} pendentes`,
+      cls: "bg-warning-50 text-warning-600",
+      icon: <Clock className="size-4" aria-hidden="true" />,
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-600">
+          Custos fixos · {formatMonthLong(fixed.year_month)}
+        </p>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight text-ink-900">
+          {entries.length} compromissos recorrentes
+        </h2>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {summary.map((s) => (
+          <div key={s.label} className="rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-medium text-ink-500">{s.label}</p>
+                <p className="mt-1.5 text-2xl font-bold tabular tracking-tight text-ink-900">
+                  {formatMoney(s.value)}
+                </p>
+              </div>
+              <span className={classNames("inline-flex size-9 items-center justify-center rounded-control", s.cls)}>
+                {s.icon}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-ink-500">{s.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {cats.map((cat) => {
+          const active = filter === cat;
+          const color = cat === "Todas" ? "#475569" : categoryColor(cat);
+          return (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setFilter(cat)}
+              className={classNames(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                active
+                  ? "border-ink-900 bg-ink-900 text-white"
+                  : "border-ink-200 bg-surface text-ink-600 hover:border-ink-300",
+              )}
+            >
+              {cat !== "Todas" ? (
+                <span className="size-2 rounded-full" style={{ background: active ? "#fff" : color }} />
+              ) : null}
+              {cat}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {shown.map((item) => {
+          const status = effStatus(item);
+          const paid = status === "paid";
+          const color = categoryColor(item.category_name, item.category_color);
+          return (
+            <div
+              key={`${item.fixed_cost_id}-${item.due_date}`}
+              className="group flex flex-col rounded-card border border-ink-200/70 bg-surface p-4 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift"
+            >
+              <div className="flex items-start justify-between">
+                <CatAvatar category={item.category_name} color={color} size={44} radius={13} />
+                {entryStatusPill(status)}
+              </div>
+              <p className="mt-3 truncate text-sm font-semibold text-ink-900">{item.description}</p>
+              <p className="truncate text-xs font-medium" style={{ color }}>
+                {item.category_name}
+              </p>
+              <p className="mt-3 text-2xl font-bold tabular tracking-tight text-ink-900">
+                {formatMoney(item.amount)}
+              </p>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-ink-500">
+                <Calendar className="size-3.5 text-ink-400" aria-hidden="true" />
+                vence dia {item.due_day}
+              </div>
+              <button
+                type="button"
+                onClick={() => toggle(item.fixed_cost_id)}
+                className={classNames(
+                  "mt-4 inline-flex items-center justify-center gap-1.5 rounded-control border px-3 py-1.5 text-xs font-semibold transition-all duration-200",
+                  paid
+                    ? "border-positive-200 bg-positive-50 text-positive-700"
+                    : "border-ink-200 bg-surface text-ink-700 hover:border-positive-300 hover:bg-positive-50/40",
+                )}
+              >
+                {paid ? (
+                  <Check className="size-3.5" strokeWidth={3} aria-hidden="true" />
+                ) : (
+                  <Banknote className="size-3.5" aria-hidden="true" />
+                )}
+                {paid ? "Pago" : "Marcar pago"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Concept C — "Cascata da receita". A waterfall from expected income down
+ * through each category to the month's leftover, plus ranked category cards.
+ */
+function FixedCostsWaterfall({
+  fixed,
+  expectedIncome,
+}: {
+  fixed: FixedCostsMonth;
+  expectedIncome: number;
+}) {
+  const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
+  const { paidIds, mounted, isPaid } = useFixedPaid(entries);
+  const total = Number(fixed.total || 0);
+  // isPaid is derived from paidIds; depend on paidIds to keep the memo stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groups = useMemo(() => groupByCategory(entries, isPaid), [entries, paidIds]);
+
+  if (!entries.length) return <FixedCostsEmpty />;
+
+  if (expectedIncome <= 0) {
+    return (
+      <EmptyState
+        icon={<AlertCircle className="size-5" aria-hidden="true" />}
+        title="Sem receita esperada para este mês."
+        detail="A cascata mostra como a receita se divide entre os custos fixos. Cadastre a receita esperada na aba Receita para visualizá-la."
+      />
+    );
+  }
+
+  const income = expectedIncome;
+  const remaining = income - total;
+  const chartH = 250;
+  const scale = chartH / income;
+
+  let running = income;
+  const steps: Array<{
+    key: string;
+    label: string;
+    value: number;
+    kind: "pos" | "drop";
+    color?: string;
+    before?: number;
+    after?: number;
+  }> = [{ key: "rec", label: "Receita", value: income, kind: "pos" }];
+  for (const g of groups) {
+    const before = running;
+    running -= g.total;
+    steps.push({ key: g.name, label: g.name, value: g.total, kind: "drop", color: g.color, before, after: running });
+  }
+  steps.push({ key: "rem", label: "Sobra p/ o mês", value: Math.max(remaining, 0), kind: "pos" });
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-600">
+            Custos fixos · {formatMonthLong(fixed.year_month)}
+          </p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-ink-900">
+            Para onde a receita escorre
+          </h2>
+          <p className="mt-0.5 text-sm text-ink-500">
+            Da receita esperada, os fixos consomem {percent((total / income) * 100)} antes de
+            qualquer gasto do dia a dia.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-medium text-ink-500">Sobra após fixos</p>
+          <p
+            className={classNames(
+              "text-2xl font-bold tabular",
+              remaining < 0 ? "text-danger-600" : "text-positive-600",
+            )}
+          >
+            {formatMoney(remaining)}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-card border border-ink-200/70 bg-surface p-6 shadow-card">
+        <div className="relative flex items-end gap-3" style={{ height: chartH }}>
+          {[0.25, 0.5, 0.75, 1].map((g) => (
+            <div
+              key={g}
+              className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-ink-100"
+              style={{ bottom: chartH * g }}
+            >
+              <span className="absolute -top-2 right-0 bg-surface pl-1 text-[10px] tabular text-ink-300">
+                {formatMoney0(income * g)}
+              </span>
+            </div>
+          ))}
+          {steps.map((s, i) => {
+            const h = Math.max(0, s.value * scale);
+            const bottom = s.kind === "drop" ? Math.max(0, (s.after ?? 0) * scale) : 0;
+            const color = s.kind === "pos" ? (s.key === "rec" ? "#0ea5e9" : "#10b981") : s.color;
+            return (
+              <div key={s.key} className="group relative flex h-full flex-1 flex-col items-center justify-end">
+                {s.kind === "drop" ? (
+                  <span
+                    className="pointer-events-none absolute left-[-12px] right-1/2 border-t border-ink-200"
+                    style={{ bottom: (s.before ?? 0) * scale }}
+                  />
+                ) : null}
+                <span
+                  className="absolute text-[11px] font-bold tabular text-ink-700"
+                  style={{ bottom: bottom + h + 2 }}
+                >
+                  {s.kind === "drop" ? "–" : ""}
+                  {formatMoney0(s.value)}
+                </span>
+                <div className="relative w-full" style={{ height: chartH }}>
+                  <div
+                    className="absolute left-1/2 w-[68%] -translate-x-1/2 rounded-t-md"
+                    style={{
+                      bottom,
+                      height: mounted ? h : 0,
+                      background: color,
+                      opacity: s.kind === "drop" ? 0.92 : 1,
+                      transition: "height 0.9s cubic-bezier(0.22,1,0.36,1)",
+                      transitionDelay: `${i * 80}ms`,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-3 flex gap-3 border-t border-ink-100 pt-3">
+          {steps.map((s) => (
+            <div key={s.key} className="flex flex-1 items-center justify-center gap-1.5 text-center">
+              {s.kind === "drop" ? (
+                <span className="size-2 shrink-0 rounded-full" style={{ background: s.color }} />
+              ) : null}
+              <span
+                className={classNames(
+                  "text-[11px] font-medium leading-tight",
+                  s.kind === "pos" ? "text-ink-700" : "text-ink-500",
+                )}
+              >
+                {s.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {groups.map((g, i) => {
+          const share = total > 0 ? (g.total / total) * 100 : 0;
+          const paidPct = g.total > 0 ? (g.paid / g.total) * 100 : 0;
+          return (
+            <div key={g.name} className="rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="size-2.5 rounded-[4px]" style={{ background: g.color }} />
+                  <p className="text-sm font-semibold text-ink-900">{g.name}</p>
+                  <span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10px] font-medium text-ink-500">
+                    {g.count} {g.count === 1 ? "conta" : "contas"}
+                  </span>
+                </div>
+                <p className="text-sm font-bold tabular text-ink-900">{formatMoney(g.total)}</p>
+              </div>
+              <div className="mt-3">
+                <AnimatedBar value={paidPct} color={g.color} on={mounted} delay={200 + i * 60} height={6} />
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[11px] text-ink-500">
+                <span>{percent(share)} dos fixos</span>
+                <span className="tabular">
+                  {formatMoney(g.paid)} pago · {formatMoney(g.total - g.paid)} a pagar
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Concept D — "Painel de comando". Category donut + legend alongside a paid
+ * progress block and the next upcoming payments.
+ */
+function FixedCostsCommand({
+  fixed,
+  expectedIncome,
+}: {
+  fixed: FixedCostsMonth;
+  expectedIncome: number;
+}) {
+  const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
+  const { paidIds, mounted, isPaid } = useFixedPaid(entries);
+  const total = Number(fixed.total || 0);
+  const paidSum = entries.filter(isPaid).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const overdueSum = entries
+    .filter((e) => e.status === "overdue")
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  // isPaid is derived from paidIds; depend on paidIds to keep the memo stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groups = useMemo(() => groupByCategory(entries, isPaid), [entries, paidIds]);
+  const segments = groups.map((g) => ({ value: g.total, color: g.color, label: g.name }));
+  const upcoming = [...entries]
+    .filter((e) => e.status !== "paid")
+    .sort((a, b) => a.due_day - b.due_day)
+    .slice(0, 4);
+  const incomeShare = expectedIncome > 0 ? (total / expectedIncome) * 100 : 0;
+
+  if (!entries.length) return <FixedCostsEmpty />;
+
+  const kpis: Array<[string, number, "positive" | "warning" | "danger"]> = [
+    ["Pago", paidSum, "positive"],
+    ["A pagar", Math.max(total - paidSum, 0), "warning"],
+    ["Vencido", overdueSum, "danger"],
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-600">
+            Custos fixos · {formatMonthLong(fixed.year_month)}
+          </p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-ink-900">Painel de comando</h2>
+        </div>
+        {expectedIncome > 0 ? (
+          <Badge tone="primary">{percent(incomeShare)} da receita</Badge>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="rounded-card border border-ink-200/70 bg-surface p-6 shadow-card">
+          <div className="flex justify-center">
+            <Donut segments={segments} size={210} thickness={24} on={mounted}>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Total fixo</p>
+              <p className="text-2xl font-bold tabular tracking-tight text-ink-900">{formatMoney(total)}</p>
+              <p className="mt-0.5 text-[11px] text-ink-500">{entries.length} contas</p>
+            </Donut>
+          </div>
+          <div className="mt-5 space-y-2.5">
+            {groups.map((g) => (
+              <div key={g.name} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2 text-ink-600">
+                  <span className="size-2.5 rounded-[4px]" style={{ background: g.color }} />
+                  {g.name}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-xs tabular text-ink-400">
+                    {percent(total > 0 ? (g.total / total) * 100 : 0)}
+                  </span>
+                  <span className="font-semibold tabular text-ink-900">{formatMoney(g.total)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-5">
+          <div className="rounded-card border border-ink-200/70 bg-surface p-5 shadow-card">
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-sm font-semibold text-ink-900">Progresso do mês</h3>
+              <span className="text-xs text-ink-500">
+                {formatMoney(paidSum)} de {formatMoney(total)} quitado
+              </span>
+            </div>
+            <div className="mt-3">
+              <AnimatedBar
+                value={total > 0 ? (paidSum / total) * 100 : 0}
+                color="#10b981"
+                on={mounted}
+                delay={250}
+                height={10}
+              />
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {kpis.map(([label, value, tone]) => (
+                <div key={label} className="rounded-control bg-surface-muted p-3">
+                  <p className="text-[11px] font-medium text-ink-500">{label}</p>
+                  <p
+                    className={classNames(
+                      "mt-0.5 text-base font-bold tabular",
+                      tone === "positive"
+                        ? "text-positive-700"
+                        : tone === "warning"
+                          ? "text-warning-700"
+                          : "text-danger-600",
+                    )}
+                  >
+                    {formatMoney(value)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex-1 rounded-card border border-ink-200/70 bg-surface p-5 shadow-card">
+            <div className="mb-3 flex items-center gap-2">
+              <Bell className="size-4 text-ink-400" aria-hidden="true" />
+              <h3 className="text-sm font-semibold text-ink-900">Próximos vencimentos</h3>
+            </div>
+            {upcoming.length ? (
+              <ul className="space-y-1">
+                {upcoming.map((item) => {
+                  const color = categoryColor(item.category_name, item.category_color);
+                  return (
+                    <li
+                      key={`${item.fixed_cost_id}-${item.due_date}`}
+                      className="flex items-center gap-3 rounded-control px-2 py-2 transition-colors hover:bg-surface-muted"
+                    >
+                      <DayBadge day={item.due_day} tone={dayBadgeTone(item.status || "scheduled")} size={36} />
+                      <CatAvatar category={item.category_name} color={color} size={34} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-ink-900">{item.description}</p>
+                        <p className="truncate text-xs" style={{ color }}>
+                          {item.category_name}
+                        </p>
+                      </div>
+                      <div className="hidden sm:block">{entryStatusPill(item.status)}</div>
+                      <p className="w-20 shrink-0 text-right text-sm font-bold tabular text-ink-900">
+                        {formatMoney(item.amount)}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="py-6 text-center text-xs text-ink-400">
+                Todas as contas do mês já estão quitadas.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -2026,6 +2723,7 @@ function IncomePlanning({
 export function PlanejamentoPage() {
   const [selectedMonth, setSelectedMonth] = useState(getDefaultPlanningMonth());
   const [activeTab, setActiveTab] = useState<PlanningTab>(() => selectedTabFromLocation());
+  const [fixedVariant, setFixedVariant] = useState<FixedVariant>(() => storedFixedVariant());
   const [showInactiveCosts, setShowInactiveCosts] = useState(false);
   const [showInactiveIncome, setShowInactiveIncome] = useState(false);
   const months = useMemo(() => monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE + 1), []);
@@ -2040,6 +2738,10 @@ export function PlanejamentoPage() {
     else url.searchParams.set("tab", activeTab);
     window.history.replaceState({}, "", url);
   }, [activeTab]);
+
+  useEffect(() => {
+    window.localStorage.setItem(FIXED_VARIANT_STORAGE_KEY, fixedVariant);
+  }, [fixedVariant]);
 
   return (
     <>
@@ -2088,12 +2790,58 @@ export function PlanejamentoPage() {
 
               {activeTab === "custos" ? (
                 <div className="space-y-6">
-                  <FixedCostsAgenda
-                    fixed={data.fixedMonth}
-                    expectedIncome={data.capacity.expected_income_total || 0}
-                    selectedMonth={selectedMonth}
-                    onReload={run}
-                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-ink-500">Visualização</span>
+                    <div className="inline-flex rounded-control border border-ink-200 bg-surface p-0.5 shadow-card">
+                      {FIXED_VARIANTS.map((v) => {
+                        const active = fixedVariant === v.key;
+                        return (
+                          <button
+                            key={v.key}
+                            type="button"
+                            onClick={() => setFixedVariant(v.key)}
+                            aria-pressed={active}
+                            className={classNames(
+                              "rounded-[0.5rem] px-3 py-1.5 text-xs font-semibold transition-colors",
+                              active
+                                ? "bg-ink-900 text-white"
+                                : "text-ink-600 hover:bg-surface-muted hover:text-ink-900",
+                            )}
+                          >
+                            {v.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {fixedVariant === "agenda" ? (
+                    <FixedCostsAgenda
+                      fixed={data.fixedMonth}
+                      expectedIncome={data.capacity.expected_income_total || 0}
+                      selectedMonth={selectedMonth}
+                      onReload={run}
+                    />
+                  ) : null}
+                  {fixedVariant === "grid" ? (
+                    <FixedCostsGrid
+                      fixed={data.fixedMonth}
+                      expectedIncome={data.capacity.expected_income_total || 0}
+                    />
+                  ) : null}
+                  {fixedVariant === "waterfall" ? (
+                    <FixedCostsWaterfall
+                      fixed={data.fixedMonth}
+                      expectedIncome={data.capacity.expected_income_total || 0}
+                    />
+                  ) : null}
+                  {fixedVariant === "command" ? (
+                    <FixedCostsCommand
+                      fixed={data.fixedMonth}
+                      expectedIncome={data.capacity.expected_income_total || 0}
+                    />
+                  ) : null}
+
                   <CostsBase
                     data={data}
                     showInactive={showInactiveCosts}

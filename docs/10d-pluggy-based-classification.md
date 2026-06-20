@@ -109,8 +109,6 @@ Each result stores:
 
 - `pluggy_rule`: direct raw Pluggy category/type mapping.
 - `system_rule`: deterministic fallback by description or amount/account type.
-- `user_rule`: user-defined persistent rule applied after manual overrides and
-  before the default Pluggy/system/fallback rules.
 - `manual_override`: per-transaction manual override with highest priority.
 - `fallback`: explicit low-confidence fallback to `Outros`.
 - `unclassified`: reserved for future review queues.
@@ -227,7 +225,11 @@ per CREDIT account. PIX, transfers, card payments and investments never enter
 "Classificação das compras"; bank movements stay in the Receitas / Entradas e
 saídas views. No fix was needed — validated by `CreditPurchaseScopeTest`.
 
-## 10D-D — User-defined classification rules
+## 10D-D — User-defined classification rules (removed)
+
+This historical section documents a feature removed on 2026-06-20. The
+`/regras` UI, classification-rule API, runtime integration, script and table
+are no longer part of the application.
 
 10D-D adds persistent user rules for automatic classification, for examples
 like "always classify merchant X as Y", "description containing X as Y" or
@@ -415,4 +417,4 @@ in 10D-F.
 
 The legacy `category`, `categoryrule`, `descriptioncategoryrule`, `budget` and
 `budgetoverride` tables were removed in migration `e2f4a6b8c9d0`. Fixed-cost
-categories and `user_classification_rules` remain active.
+categories remain active.

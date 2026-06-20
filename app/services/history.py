@@ -21,12 +21,8 @@ from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
 )
-from app.services.transaction_classifier import (
-    CompiledUserRule,
-    serialize_transaction_classification,
-)
+from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.scoping import scope_query
-from app.services.user_classification_rules import load_compiled_user_rules
 from app.services.transactions import (
     BANK_ACCOUNT_TYPES,
     SPENDING_ACCOUNT_TYPES,
@@ -46,22 +42,19 @@ from app.services.transactions import (
 def _classification_fields(
     tx: Transaction,
     accounts_by_id: Dict[str, Account],
-    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict:
     account = accounts_by_id.get(tx.account_id)
     return serialize_transaction_classification(
         tx,
         account_type=account.type if account is not None else None,
-        user_rules=user_rules,
     )
 
 
 def _history_transaction_classification(
     tx: Transaction,
     accounts_by_id: Dict[str, Account],
-    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict:
-    classification = _classification_fields(tx, accounts_by_id, user_rules)
+    classification = _classification_fields(tx, accounts_by_id)
     return {
         "pluggy_category": classification["pluggy_raw_category"],
         **classification,
@@ -87,8 +80,6 @@ def ignored_transactions_monthly_summary(session: Session, user_id: Optional[int
         account.id: account
         for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
-
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     for tx in ignored_transactions:
         by_month[tx.date.strftime("%Y-%m")].append(tx)
@@ -111,7 +102,7 @@ def ignored_transactions_monthly_summary(session: Session, user_id: Optional[int
                         "amount": float(tx.amount),
                         "amount_abs": float(abs(tx.amount)),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
+                        **_history_transaction_classification(tx, accounts_by_id),
                     }
                     for tx in txs
                 ],
@@ -152,8 +143,6 @@ def credit_card_payments_monthly_summary(
         account.id: account
         for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
-
     # Build a per-account due_day map from persisted Pluggy credit data.
     account_due_days: Dict[str, int] = {}
     for acct in accounts_by_id.values():
@@ -191,7 +180,7 @@ def credit_card_payments_monthly_summary(
                         "amount": float(tx.amount),
                         "amount_abs": float(abs(tx.amount)),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
+                        **_history_transaction_classification(tx, accounts_by_id),
                         "invoice_month": tx_invoice_month[tx.id],
                     }
                     for tx in txs
@@ -227,9 +216,8 @@ def _month_keys_ending_at(end_month: date, count: int) -> list[str]:
 def _history_card_purchase_transaction(
     tx: Transaction,
     accounts_by_id: Dict[str, Account],
-    user_rules: tuple[CompiledUserRule, ...],
 ) -> dict[str, Any]:
-    classification = _history_transaction_classification(tx, accounts_by_id, user_rules)
+    classification = _history_transaction_classification(tx, accounts_by_id)
     account = accounts_by_id.get(tx.account_id)
     effective_category = resolve_credit_internal_category(
         tx,
@@ -378,8 +366,6 @@ def credit_card_invoice_purchases_monthly_summary(
         account.id: account
         for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
-
     selected_transactions_by_month: Dict[str, list[dict[str, Any]]] = {
         month: [] for month in selected_months
     }
@@ -390,7 +376,7 @@ def credit_card_invoice_purchases_monthly_summary(
     first_purchase_month: date | None = None
 
     for tx in purchases:
-        serialized = _history_card_purchase_transaction(tx, accounts_by_id, user_rules)
+        serialized = _history_card_purchase_transaction(tx, accounts_by_id)
         if serialized.get("ignored_from_totals") or serialized.get("cashflow_type") != "expense":
             continue
 
@@ -606,7 +592,6 @@ def bank_income_monthly_summary(session: Session, months: int, user_id: Optional
         if account.id in active_bank_ids
     }
     accounts_by_id = bank_accounts
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
     income_transactions = bank_income_transactions(session, start_date, today, user_id=user_id)
     by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
     for tx in income_transactions:
@@ -634,7 +619,7 @@ def bank_income_monthly_summary(session: Session, months: int, user_id: Optional
                         "date": tx.date.isoformat(),
                         "amount": float(tx.amount),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
+                        **_history_transaction_classification(tx, accounts_by_id),
                     }
                     for tx in txs
                 ],
@@ -697,7 +682,6 @@ def bank_cashflow_monthly_summary(session: Session, months: int, user_id: Option
         if account.id in active_bank_ids
     }
     accounts_by_id = bank_accounts
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
     transactions = session.exec(
         scope_query(
             select(Transaction).where(
@@ -750,7 +734,7 @@ def bank_cashflow_monthly_summary(session: Session, months: int, user_id: Option
                         "date": tx.date.isoformat(),
                         "amount": float(tx.amount),
                         "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id, user_rules),
+                        **_history_transaction_classification(tx, accounts_by_id),
                     }
                     for tx in txs
                 ],

@@ -17,7 +17,7 @@ from app.database import get_session
 from app.main import app
 
 
-INTERNAL_ROUTES = ("/dashboard", "/planejamento", "/historico", "/proximos", "/regras")
+INTERNAL_ROUTES = ("/dashboard", "/planejamento", "/historico", "/proximos")
 
 
 def make_settings(
@@ -129,7 +129,6 @@ class PageSmokeTest(unittest.TestCase):
                 self.assertNotIn("planejamento.js", response.text)
                 self.assertNotIn("historico.js", response.text)
                 self.assertNotIn("proximos.js", response.text)
-                self.assertNotIn("regras.js", response.text)
 
     def test_internal_routes_are_protected_when_auth_is_active(self):
         with self._use_auth(require_auth=True), self._session(False):
@@ -219,6 +218,13 @@ class PageSmokeTest(unittest.TestCase):
         ):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 404, path)
+
+    def test_removed_classification_rules_routes_return_404(self):
+        self.assertEqual(self.client.get("/regras").status_code, 404)
+        self.assertEqual(
+            self.client.get("/transactions/classification-rules").status_code,
+            404,
+        )
 
 
 class ConnectTokenEndpointTest(unittest.TestCase):
@@ -334,7 +340,6 @@ class ReactSourceContractTest(unittest.TestCase):
             "planejamento.html",
             "historico.html",
             "proximos.html",
-            "regras.html",
         ):
             self.assertNotIn(name, pages)
         self.assertIn("react_app()", pages)
@@ -350,8 +355,6 @@ class ReactSourceContractTest(unittest.TestCase):
             "historico.js",
             "proximos.html",
             "proximos.js",
-            "regras.html",
-            "regras.js",
             "planning_common.js",
             "styles.css",
         ):

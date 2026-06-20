@@ -11,12 +11,8 @@ from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
 )
-from app.services.transaction_classifier import (
-    CompiledUserRule,
-    serialize_transaction_classification,
-)
+from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.scoping import scope_query
-from app.services.user_classification_rules import load_compiled_user_rules
 from app.services.transactions import (
     SPENDING_ACCOUNT_TYPES,
     TRACKED_ACCOUNT_TYPES,
@@ -41,13 +37,11 @@ def _accounts_by_id(session: Session, user_id: Optional[int] = None) -> dict[str
 def _classification_fields(
     tx: Transaction,
     accounts_by_id: dict[str, Account],
-    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict[str, Any]:
     account = accounts_by_id.get(tx.account_id)
     return serialize_transaction_classification(
         tx,
         account_type=account.type if account is not None else None,
-        user_rules=user_rules,
     )
 
 
@@ -55,9 +49,8 @@ def _serialize_transaction_row(
     tx: Transaction,
     accounts_by_id: dict[str, Account],
     ignored: bool = False,
-    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> dict[str, Any]:
-    classification = _classification_fields(tx, accounts_by_id, user_rules)
+    classification = _classification_fields(tx, accounts_by_id)
     return {
         **tx.model_dump(mode="json"),
         "pluggy_category": classification["pluggy_raw_category"],
@@ -152,7 +145,6 @@ def enriched_transactions(
         ]
 
     accounts = _accounts_by_id(session, user_id=user_id)
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
     rows = []
     for tx in transactions:
         rows.append(
@@ -160,7 +152,6 @@ def enriched_transactions(
                 tx,
                 accounts,
                 ignored=is_ignored_transaction(tx, ignored_patterns),
-                user_rules=user_rules,
             )
         )
 
@@ -196,7 +187,6 @@ def upcoming_summary(
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     accounts = _accounts_by_id(session, user_id=user_id)
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
     for tx in future_txs:
         # Exclude credits / refunds / cancellations (amount <= 0) so they
         # don't inflate the scheduled invoice total via abs(amount).
@@ -211,7 +201,7 @@ def upcoming_summary(
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
         serialized_transactions = []
         for tx in txs:
-            classification = _classification_fields(tx, accounts, user_rules)
+            classification = _classification_fields(tx, accounts)
             effective_category = resolve_credit_internal_category(
                 tx,
                 account_type="CREDIT",
@@ -278,16 +268,28 @@ def upcoming_summary(
         _next_calendar_month,
         planning_invoice_for_month,
     )
+    from app.services.current_card_invoice import current_card_invoice_summary
 
     vigente_month = _next_calendar_month(today)
     planning_inv = planning_invoice_for_month(session, vigente_month, today=today, user_id=user_id)
-    next_invoice = {
-        "year_month": vigente_month,
-        "amount": planning_inv["amount"],
-        "source": planning_inv["source"],
-        "source_label": planning_inv["source_label"],
-        "is_estimated": planning_inv["is_estimated"],
-    }
+    dashboard_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
+    has_dashboard_invoice = dashboard_invoice.get("account_count", 0) > 0
+    if has_dashboard_invoice:
+        next_invoice = {
+            "year_month": vigente_month,
+            "amount": dashboard_invoice["amount"],
+            "source": "dashboard_current_invoice",
+            "source_label": dashboard_invoice["source_label"],
+            "is_estimated": True,
+        }
+    else:
+        next_invoice = {
+            "year_month": vigente_month,
+            "amount": planning_inv["amount"],
+            "source": planning_inv["source"],
+            "source_label": planning_inv["source_label"],
+            "is_estimated": planning_inv["is_estimated"],
+        }
 
     next_invoice_amount = Decimal(str(next_invoice["amount"] or 0))
     vigente_row = next(
@@ -302,27 +304,55 @@ def upcoming_summary(
         vigente_row["invoice_source"] = next_invoice["source"]
         vigente_row["invoice_source_label"] = next_invoice["source_label"]
         vigente_row["is_current_invoice"] = True
+        if has_dashboard_invoice:
+            vigente_row["count"] = dashboard_invoice["category_count"]
+            vigente_row["categories"] = dashboard_invoice["categories"]
+            vigente_row["transactions"] = dashboard_invoice["raw_purchase_transactions"]
+            vigente_row["identified_total"] = dashboard_invoice["reconciliation"][
+                "identified_category_total"
+            ]
+            vigente_row["unreconciled_amount"] = dashboard_invoice["reconciliation"][
+                "unreconciled_amount"
+            ]
     elif next_invoice_amount > 0:
         months_out.append(
             {
                 "month": vigente_month,
                 "total": float(next_invoice_amount),
-                "count": planning_inv.get("transaction_count", 0),
+                "count": (
+                    dashboard_invoice["category_count"]
+                    if has_dashboard_invoice
+                    else planning_inv.get("transaction_count", 0)
+                ),
                 "scheduled_total": 0.0,
                 "scheduled_count": 0,
                 "invoice_total": float(next_invoice_amount),
                 "invoice_source": next_invoice["source"],
                 "invoice_source_label": next_invoice["source_label"],
                 "is_current_invoice": True,
-                "categories": [],
-                "transactions": [],
+                "categories": dashboard_invoice["categories"] if has_dashboard_invoice else [],
+                "transactions": (
+                    dashboard_invoice["raw_purchase_transactions"]
+                    if has_dashboard_invoice
+                    else []
+                ),
+                "identified_total": (
+                    dashboard_invoice["reconciliation"]["identified_category_total"]
+                    if has_dashboard_invoice
+                    else 0.0
+                ),
+                "unreconciled_amount": (
+                    dashboard_invoice["reconciliation"]["unreconciled_amount"]
+                    if has_dashboard_invoice
+                    else 0.0
+                ),
                 "legacy_category_breakdown_removed": False,
             }
         )
         months_out.sort(key=lambda month: month["month"])
 
     return {
-        "total_count": len(future_txs),
+        "total_count": sum(month["count"] for month in months_out),
         "months": months_out,
         "next_invoice": next_invoice,
         "legacy_category_breakdown_removed": False,
@@ -350,12 +380,11 @@ def monthly_stats_summary(
     )
     txs = filter_ignored_transactions(txs, session, include_ignored, user_id=user_id)
     accounts = _accounts_by_id(session, user_id=user_id)
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     totals_by_category: Dict[str, dict[str, Any]] = {}
     totals_by_month: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for tx in txs:
-        classification = _classification_fields(tx, accounts, user_rules)
+        classification = _classification_fields(tx, accounts)
         if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
             continue
         # Negative rows on CREDIT are refunds/cancellations, not spending —
@@ -620,10 +649,9 @@ def stats_summary(
     totals_by_cashflow: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     total_spent = Decimal("0")
     accounts = _accounts_by_id(session, user_id=user_id)
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     for tx in past_transactions:
-        classification = _classification_fields(tx, accounts, user_rules)
+        classification = _classification_fields(tx, accounts)
         if classification["ignored_from_totals"] or classification["cashflow_type"] != "expense":
             continue
         # Negative rows on CREDIT are refunds/cancellations, not spending —

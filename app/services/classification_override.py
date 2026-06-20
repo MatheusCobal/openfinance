@@ -99,12 +99,7 @@ def reset_manual_classification(
     transaction_id: str,
     user_id: Optional[int] = None,
 ) -> Transaction:
-    """Drop the manual override and re-apply the automatic classification.
-
-    The automatic path includes 10D-D user rules, so after a reset the
-    transaction follows: user rule > Pluggy rule > system rule > fallback.
-    """
-    from app.services.user_classification_rules import load_compiled_user_rules
+    """Drop the manual override and re-apply the automatic classification."""
 
     tx = _get_transaction(session, transaction_id, user_id=user_id)
     account = session.get(Account, tx.account_id)
@@ -115,7 +110,6 @@ def reset_manual_classification(
     result = classify_transaction(
         tx,
         account_type=account.type if account is not None else None,
-        user_rules=load_compiled_user_rules(session, user_id=user_id),
     )
     for field, value in result.transaction_values().items():
         setattr(tx, field, value)

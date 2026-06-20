@@ -70,11 +70,6 @@ def orcamento():
     return RedirectResponse(url="/planejamento", status_code=307)
 
 
-@router.get("/regras", include_in_schema=False)
-def regras():
-    return react_app()
-
-
 @router.get("/health")
 def health():
     return {"status": "ok"}

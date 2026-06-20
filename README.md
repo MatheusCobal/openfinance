@@ -34,10 +34,6 @@ Tela de planejamento e controle mensal. Visão mensal futura com:
 - Categorias abaixo das faturas
 - Histórico de receitas bancárias
 
-### Regras (`/regras`)
-- Tela temporária: regras antigas de categorização foram removidas na 10D-A
-- Regras de exclusão de receitas bancárias e fluxo de caixa ficam no Histórico
-
 ### Sync Pluggy
 - Sincronização de dados via API Pluggy preservada no backend
 - Webhooks opcionais para sync automático após refresh diário
@@ -54,7 +50,6 @@ GET /dashboard     → resumo executivo
 GET /planejamento  → tela de planejamento e controle
 GET /proximos      → tela Próximos
 GET /historico     → tela Histórico
-GET /regras        → tela Regras
 GET /health        → health check
 
 GET /custos-fixos  → redirect legado para /planejamento
@@ -145,7 +140,7 @@ openfinance/
     │   └── react/             build Vite gerado, gitignored
     └── docs/                  documentação auxiliar e backlog
 ├── frontend/                  app interna React/Vite/TypeScript/Tailwind
-│   ├── src/pages/             Dashboard, Planejamento, Histórico, Próximos, Regras
+│   ├── src/pages/             Dashboard, Planejamento, Histórico e Próximos
 │   ├── src/api/               cliente fetch tipado por domínio
 │   ├── src/components/        shell, UI e gráficos
 │   └── vite.config.ts         build para app/static/react
@@ -180,7 +175,7 @@ npm run lint
 npm run build
 ```
 
-O build Vite é gerado em `app/static/react/` com `base=/static/react/`. O FastAPI serve esse `index.html` para `/dashboard`, `/planejamento`, `/historico`, `/proximos` e `/regras`; `/` continua servindo a landing pública estática. Antes de um build local existir, as rotas internas usam `frontend/index.html` apenas como fallback de desenvolvimento/teste.
+O build Vite é gerado em `app/static/react/` com `base=/static/react/`. O FastAPI serve esse `index.html` para `/dashboard`, `/planejamento`, `/historico` e `/proximos`; `/` continua servindo a landing pública estática. Antes de um build local existir, as rotas internas usam `frontend/index.html` apenas como fallback de desenvolvimento/teste.
 
 ---
 
@@ -580,7 +575,7 @@ Os testes cobrem:
 - Planejamento mensal
 - Próximos gastos e faturas futuras
 - Histórico e faturas do cartão
-- Regras de categorização e exclusão
+- Regras de exclusão bancária
 - Sync Pluggy e webhooks
 - Custos fixos e receitas esperadas
 - Lifecycle de itens e contas
@@ -645,7 +640,7 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 
 - `/dashboard` foi reintroduzida como resumo executivo e é o destino de `/`
 - `/planejamento` segue como tela de planejamento e controle mensal
-- A navegação mantém Dashboard, Planejamento, Próximos, Histórico e Regras
+- A navegação mantém Dashboard, Planejamento, Próximos e Histórico
 - As rotas `/custos-fixos` e `/orcamento` foram mantidas apenas como redirects legados
 - O projeto passou a usar Alembic para migrações de schema
 - `seed_dev.py` foi removido do projeto

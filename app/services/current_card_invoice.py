@@ -165,12 +165,10 @@ def _category_window_start(
 
 def _serialize_current_invoice_transaction(
     tx: Transaction,
-    user_rules: tuple = (),
 ) -> dict[str, Any]:
     classification = serialize_transaction_classification(
         tx,
         account_type="CREDIT",
-        user_rules=user_rules,
     )
     effective_category = resolve_credit_internal_category(
         tx,
@@ -278,9 +276,6 @@ def current_card_invoice_summary(
     """
     today = today if today is not None else datetime.date.today()
 
-    from app.services.user_classification_rules import load_compiled_user_rules
-
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
     cards: list[dict[str, Any]] = []
     raw_purchase_transactions: list[dict[str, Any]] = []
     recent_purchase_transactions: list[dict[str, Any]] = []
@@ -325,14 +320,14 @@ def current_card_invoice_summary(
             user_id=user_id,
         )
         recent_purchase_transactions.extend(
-            _serialize_current_invoice_transaction(tx, user_rules) for tx in current_transactions
+            _serialize_current_invoice_transaction(tx) for tx in current_transactions
         )
         category_transactions = list(current_transactions)
         category_transactions.extend(
             _next_invoice_scheduled_transactions(session, account, today, user_id=user_id)
         )
         raw_purchase_transactions.extend(
-            _serialize_current_invoice_transaction(tx, user_rules) for tx in category_transactions
+            _serialize_current_invoice_transaction(tx) for tx in category_transactions
         )
 
         adjusted_total += adjusted_balance

@@ -3,7 +3,6 @@ export const INTERNAL_ROUTES = [
   "/planejamento",
   "/historico",
   "/proximos",
-  "/regras",
 ] as const;
 
 export const MAX_CUSTOM_CATEGORIES = 5;

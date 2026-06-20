@@ -31,7 +31,7 @@ def upcoming_months(
     out: list[Dict[str, Any]] = []
     for offset in range(months):
         ym = _shift_year_month(start_year_month, offset)
-        breakdown = monthly_breakdown(session, ym, user_id=user_id)
+        breakdown = monthly_breakdown(session, ym, today=today, user_id=user_id)
         installments = scheduled_installments_for_month(session, ym, today=today, user_id=user_id)
         breakdown["installments"] = installments
         breakdown["projected_total"] = breakdown["total"] + installments["total"]
@@ -49,7 +49,7 @@ def planning_month_summary(
     first_day, last_day = _month_bounds(year_month)
 
     income = expected_income_breakdown(session, year_month, user_id=user_id)
-    fixed_costs = monthly_breakdown(session, year_month, user_id=user_id)
+    fixed_costs = monthly_breakdown(session, year_month, today=today, user_id=user_id)
     fixed_cost_accounted_ids = {
         entry["matched_transaction"]["id"]
         for entry in fixed_costs["entries"]

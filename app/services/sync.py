@@ -179,7 +179,6 @@ def upsert_transaction(
     account_id: str,
     session: Session,
     account_type: str = "CREDIT",
-    user_rules: tuple = (),
     user_id: Optional[int] = None,
 ) -> tuple[bool, bool, date]:
     tx_date = date.fromisoformat(raw_tx["date"][:10])
@@ -214,7 +213,6 @@ def upsert_transaction(
     classification = classify_pluggy_payload(
         raw_tx,
         account_type=account_type,
-        user_rules=user_rules,
     )
     classification_values = classification.transaction_values()
     existing = session.get(Transaction, raw_tx["id"])
@@ -270,11 +268,8 @@ def sync_account_transactions(
     account_type: str = "CREDIT",
     user_id: Optional[int] = None,
 ) -> AccountSyncResult:
-    from app.services.user_classification_rules import load_compiled_user_rules
-
     result = AccountSyncResult()
     max_past_tx_date = sync_state.last_transaction_date
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
     for raw_tx in pluggy.list_transactions(
         account_id,
         from_date=sync_from_date(sync_state),
@@ -285,7 +280,6 @@ def sync_account_transactions(
             account_id,
             session,
             account_type=account_type,
-            user_rules=user_rules,
             user_id=user_id,
         )
         if is_new:
@@ -449,11 +443,8 @@ def _sync_item_locked(
     session: Session,
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    from app.services.user_classification_rules import load_compiled_user_rules
-
     raw_accounts = pluggy.list_accounts(item_id)
     accounts_to_sync = tracked_accounts(raw_accounts)
-    user_rules = load_compiled_user_rules(session, user_id=user_id)
 
     new_transactions = 0
     updated_transactions = 0
@@ -529,7 +520,6 @@ def _sync_item_locked(
                                 account_id,
                                 session,
                                 account_type=account_type,
-                                user_rules=user_rules,
                                 user_id=user_id,
                             )
                             if is_new:

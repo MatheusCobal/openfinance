@@ -67,7 +67,7 @@ class AuthSchemaScopeTest(unittest.TestCase):
         expected = {
             "item", "account", "creditcardbill", "investment", "investmenttransaction",
             "accountsync", "pluggy_webhook_events", "transaction", "ignoreddescriptionrule",
-            "user_classification_rules", "creditcardinvoicemonth", "bankincomemonth",
+            "creditcardinvoicemonth", "bankincomemonth",
             "bankincomeexclusionrule", "bankcashflowexclusionrule", "monthlybalancemonth",
             "expectedincome", "expectedincomeoverride", "fixedcostcategory", "fixedcost",
             "fixedcostoverride", "fixedcosttransactionmatch", "variable_budgets",

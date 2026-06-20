@@ -566,16 +566,16 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
             )
             _add_card_transaction(
                 session,
-                tx_id="user-rule-jun",
+                tx_id="shopping-jun",
                 transaction_date=datetime.date(2026, 6, 12),
                 amount=Decimal("30.00"),
                 description="Pet rule",
                 category="Shopping",
                 internal_category="Pet",
                 cashflow_type="expense",
-                classification_source="user_rule",
+                classification_source="pluggy_rule",
                 classification_confidence="high",
-                classification_rule_key="user_rule:1",
+                classification_rule_key="pluggy_raw_category:Shopping",
             )
             _add_card_transaction(
                 session,
@@ -662,7 +662,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(june["total"], 170.0, places=2)
         self.assertEqual(june["count"], 3)
         tx_ids = {tx["id"] for tx in june["transactions"]}
-        self.assertEqual({"food-jun", "manual-jun", "user-rule-jun"}, tx_ids)
+        self.assertEqual({"food-jun", "manual-jun", "shopping-jun"}, tx_ids)
         self.assertNotIn("payment-jun", tx_ids)
         self.assertNotIn("transfer-jun", tx_ids)
         self.assertNotIn("refund-jun", tx_ids)
@@ -689,7 +689,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         )
         self.assertEqual(
             by_category["Outros"]["transactions"][0]["classification_source"],
-            "user_rule",
+            "pluggy_rule",
         )
         self.assertEqual(
             by_category["Outros"]["transactions"][0]["internal_category"],

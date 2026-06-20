@@ -18,6 +18,7 @@ from app.services.fixed_costs import (
     delete_fixed_cost_transaction_match,
     delete_override,
     list_fixed_cost_categories,
+    list_fixed_cost_match_candidates,
     list_fixed_costs,
     list_fixed_cost_transaction_matches,
     list_fixed_cost_templates,
@@ -261,6 +262,18 @@ def list_transaction_matches_route(
 ):
     try:
         return list_fixed_cost_transaction_matches(session, year_month, user_id=user_id)
+    except FixedCostValidationError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/fixed-costs/match-candidates")
+def list_transaction_match_candidates_route(
+    year_month: str,
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
+    try:
+        return list_fixed_cost_match_candidates(session, year_month, user_id=user_id)
     except FixedCostValidationError as exc:
         raise HTTPException(400, str(exc))
 

@@ -23,7 +23,6 @@ CASHFLOW_TYPES = {
 CLASSIFICATION_SOURCES = {
     "pluggy_rule",
     "system_rule",
-    "user_rule",
     "manual_override",
     "fallback",
     "unclassified",
@@ -71,52 +70,6 @@ IGNORED_CASHFLOW_TYPES = {
 }
 
 
-AMOUNT_SIGNS = {"positive", "negative", "any"}
-ACCOUNT_TYPE_SCOPES = {"CREDIT", "BANK", "ALL"}
-
-
-@dataclass(frozen=True)
-class CompiledUserRule:
-    """DB-free, matchable form of a UserClassificationRule (10D-D).
-
-    The service layer loads UserClassificationRule rows and compiles them into
-    these (normalizing match fields, resolving ignored_from_totals). The
-    classifier stays free of any database dependency.
-    """
-
-    rule_id: int
-    priority: int
-    account_type_scope: str  # CREDIT | BANK | ALL
-    # Pluggy matchers are pre-normalized for exact comparison.
-    match_pluggy_category: Optional[str]
-    match_pluggy_subcategory: Optional[str]
-    match_pluggy_type: Optional[str]
-    # Free-text matchers are pre-normalized for "contains".
-    match_merchant: Optional[str]
-    match_description: Optional[str]
-    match_amount_sign: str  # positive | negative | any
-    target_internal_category: str
-    target_cashflow_type: str
-    ignored_from_totals: bool
-
-    @property
-    def rule_key(self) -> str:
-        return f"user_rule:{self.rule_id}"
-
-    def has_any_criterion(self) -> bool:
-        return any(
-            (
-                self.match_pluggy_category,
-                self.match_pluggy_subcategory,
-                self.match_pluggy_type,
-                self.match_merchant,
-                self.match_description,
-                self.match_amount_sign != "any",
-                self.account_type_scope != "ALL",
-            )
-        )
-
-
 @dataclass(frozen=True)
 class ClassificationInput:
     pluggy_raw_category: Optional[str] = None
@@ -127,8 +80,6 @@ class ClassificationInput:
     amount: Optional[Decimal] = None
     account_type: Optional[str] = None
     is_user_overridden: bool = False
-    # 10D-D: user-defined rules, already ordered by priority (lowest first).
-    user_rules: tuple["CompiledUserRule", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -203,10 +154,6 @@ _CATEGORY_RULES: dict[str, _Rule] = {
     "pet": _Rule("Pet", "expense"),
     "pet supplies and vet": _Rule("Pet", "expense"),
     "digital services": _Rule("Assinaturas", "expense"),
-    "telecommunications": _Rule("Assinaturas", "expense"),
-    "services": _Rule("Assinaturas", "expense"),
-    "internet": _Rule("Assinaturas", "expense"),
-    "mobile": _Rule("Assinaturas", "expense"),
     "wellness and fitness": _Rule("Beleza / Cuidados pessoais", "expense"),
     "wellness": _Rule("Beleza / Cuidados pessoais", "expense"),
     "gyms and fitness centers": _Rule("Beleza / Cuidados pessoais", "expense"),
@@ -346,64 +293,6 @@ def is_supported_internal_category(value: Optional[str]) -> bool:
     return text in INTERNAL_CATEGORIES or normalized in LEGACY_INTERNAL_CATEGORY_ALIASES
 
 
-def _user_rule_matches(data: ClassificationInput, rule: "CompiledUserRule") -> bool:
-    # A rule with no criteria must never match everything (defensive — the
-    # service layer already rejects such rules at creation time).
-    if not rule.has_any_criterion():
-        return False
-
-    if rule.account_type_scope != "ALL":
-        if (data.account_type or "").upper() != rule.account_type_scope:
-            return False
-
-    if rule.match_amount_sign != "any":
-        if data.amount is None:
-            return False
-        amount = Decimal(data.amount)
-        if rule.match_amount_sign == "positive" and not amount > 0:
-            return False
-        if rule.match_amount_sign == "negative" and not amount < 0:
-            return False
-
-    if rule.match_pluggy_category is not None:
-        if normalize_pluggy_value(data.pluggy_raw_category) != rule.match_pluggy_category:
-            return False
-    if rule.match_pluggy_subcategory is not None:
-        if normalize_pluggy_value(data.pluggy_raw_subcategory) != rule.match_pluggy_subcategory:
-            return False
-    if rule.match_pluggy_type is not None:
-        if normalize_pluggy_value(data.pluggy_raw_type) != rule.match_pluggy_type:
-            return False
-
-    if rule.match_merchant is not None:
-        if rule.match_merchant not in normalize_description(data.pluggy_merchant or ""):
-            return False
-    if rule.match_description is not None:
-        if rule.match_description not in normalize_description(data.description or ""):
-            return False
-
-    return True
-
-
-def match_user_rule(data: ClassificationInput) -> Optional[ClassificationResult]:
-    """Return the first matching user rule's result, or None.
-
-    Rules are expected ordered by ascending priority (lowest value first),
-    so the first match is the highest-priority one.
-    """
-    for rule in data.user_rules:
-        if _user_rule_matches(data, rule):
-            return ClassificationResult(
-                internal_category=normalize_internal_category(rule.target_internal_category),
-                cashflow_type=rule.target_cashflow_type,
-                source="user_rule",
-                confidence="high",
-                matched_rule=rule.rule_key,
-                ignored_from_totals=rule.ignored_from_totals,
-            )
-    return None
-
-
 def classify_input(data: ClassificationInput) -> ClassificationResult:
     if data.is_user_overridden:
         # 10D-B does not create manual overrides. Preserve the source contract
@@ -416,12 +305,6 @@ def classify_input(data: ClassificationInput) -> ClassificationResult:
             matched_rule="manual_override:reserved",
             ignored_from_totals=False,
         )
-
-    # 10D-D: user-defined rules take precedence over the default Pluggy rules,
-    # but never over a manual per-transaction override (handled above).
-    user_result = match_user_rule(data)
-    if user_result is not None:
-        return user_result
 
     for field_name, raw_value in (
         ("pluggy_raw_category", data.pluggy_raw_category),
@@ -478,7 +361,6 @@ def classify_input(data: ClassificationInput) -> ClassificationResult:
 def classify_transaction(
     tx: Transaction,
     account_type: Optional[str] = None,
-    user_rules: tuple["CompiledUserRule", ...] = (),
 ) -> ClassificationResult:
     raw_category = tx.pluggy_raw_category if tx.pluggy_raw_category is not None else tx.category
     return classify_input(
@@ -491,7 +373,6 @@ def classify_transaction(
             amount=Decimal(tx.amount),
             account_type=account_type,
             is_user_overridden=bool(tx.is_user_overridden),
-            user_rules=user_rules,
         )
     )
 
@@ -499,7 +380,6 @@ def classify_transaction(
 def classify_pluggy_payload(
     raw_tx: dict[str, Any],
     account_type: Optional[str] = None,
-    user_rules: tuple["CompiledUserRule", ...] = (),
 ) -> ClassificationResult:
     raw_category = _first_present(raw_tx, "category", "categoryName")
     raw_subcategory = _first_present(raw_tx, "subcategory", "subCategory", "subcategoryName")
@@ -515,7 +395,6 @@ def classify_pluggy_payload(
             description=raw_tx.get("description"),
             amount=Decimal(str(amount)) if amount is not None else None,
             account_type=account_type,
-            user_rules=user_rules,
         )
     )
 
@@ -537,7 +416,6 @@ def classification_payload_fields(raw_tx: dict[str, Any]) -> dict[str, Optional[
 def serialize_transaction_classification(
     tx: Transaction,
     account_type: Optional[str] = None,
-    user_rules: tuple["CompiledUserRule", ...] = (),
 ) -> dict[str, Any]:
     if (
         tx.internal_category
@@ -547,7 +425,7 @@ def serialize_transaction_classification(
     ):
         return _persisted_transaction_classification(tx)
 
-    result = classify_transaction(tx, account_type=account_type, user_rules=user_rules)
+    result = classify_transaction(tx, account_type=account_type)
     values = result.transaction_values()
     return {
         "pluggy_raw_category": tx.pluggy_raw_category or tx.category,

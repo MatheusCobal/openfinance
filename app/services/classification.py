@@ -13,7 +13,7 @@ from app.models import (
     IgnoredDescriptionRule,
     Transaction,
 )
-from app.services.transaction_classifier import CompiledUserRule, classify_transaction
+from app.services.transaction_classifier import classify_transaction
 
 
 TRACKED_ACCOUNT_TYPES = {"CREDIT", "BANK"}
@@ -113,15 +113,11 @@ class TransactionClassifier:
         ignored_patterns: list[str],
         bank_income_rules: list[BankIncomeExclusionRule],
         bank_cashflow_rules: list[BankCashflowExclusionRule],
-        user_rules: tuple[CompiledUserRule, ...] = (),
     ):
         self.accounts_by_id = accounts_by_id
         self.ignored_patterns = ignored_patterns
         self.bank_income_rules = bank_income_rules
         self.bank_cashflow_rules = bank_cashflow_rules
-        # 10D-D: user rules influence the on-the-fly cashflow type used for
-        # structural decisions on transactions without persisted fields.
-        self.user_rules = user_rules
 
     @classmethod
     def from_session(
@@ -130,7 +126,6 @@ class TransactionClassifier:
         user_id: Optional[int] = None,
     ) -> "TransactionClassifier":
         from app.services.scoping import scope_query
-        from app.services.user_classification_rules import load_compiled_user_rules
 
         accounts_by_id = {
             account.id: account
@@ -155,13 +150,11 @@ class TransactionClassifier:
                 select(BankCashflowExclusionRule), BankCashflowExclusionRule.user_id, user_id
             )
         ).all()
-        user_rules = load_compiled_user_rules(session, user_id=user_id)
         return cls(
             accounts_by_id=accounts_by_id,
             ignored_patterns=ignored_patterns,
             bank_income_rules=bank_income_rules,
             bank_cashflow_rules=bank_cashflow_rules,
-            user_rules=user_rules,
         )
 
     def classify(self, tx: Transaction) -> TransactionClassification:
@@ -177,8 +170,8 @@ class TransactionClassifier:
             )
 
         if account_type == "CREDIT":
-            classified_cashflow_type = _cashflow_type(tx, account_type, self.user_rules)
-            classification_ignored = _ignored_from_totals(tx, account_type, self.user_rules)
+            classified_cashflow_type = _cashflow_type(tx, account_type)
+            classification_ignored = _ignored_from_totals(tx, account_type)
             if ignored or classification_ignored:
                 return TransactionClassification(
                     kind=TransactionKind.IGNORED,
@@ -255,7 +248,7 @@ class TransactionClassifier:
         ignored: bool,
         account_type: Optional[str],
     ) -> TransactionClassification:
-        classified_cashflow_type = _cashflow_type(tx, account_type, self.user_rules)
+        classified_cashflow_type = _cashflow_type(tx, account_type)
         bank_income_excluded = tx.amount > 0 and (
             self._matches_bank_income_exclusion(tx)
             or classified_cashflow_type in NON_INCOME_CASHFLOW_TYPES
@@ -319,7 +312,7 @@ class TransactionClassifier:
         tx: Transaction,
         account_type: Optional[str],
     ) -> bool:
-        if _cashflow_type(tx, account_type, self.user_rules) == "credit_card_payment":
+        if _cashflow_type(tx, account_type) == "credit_card_payment":
             return True
         if account_type is not None and account_type != "CREDIT":
             return False
@@ -371,7 +364,7 @@ class TransactionClassifier:
         tx: Transaction,
         account_type: Optional[str] = None,
     ) -> bool:
-        if _cashflow_type(tx, account_type, self.user_rules) == "investment":
+        if _cashflow_type(tx, account_type) == "investment":
             return True
         if _pluggy_category(tx) in INVESTMENT_NOISE_CATEGORIES:
             return True
@@ -387,7 +380,7 @@ class TransactionClassifier:
         tx: Transaction,
         account_type: Optional[str] = None,
     ) -> bool:
-        if _cashflow_type(tx, account_type, self.user_rules) == "transfer":
+        if _cashflow_type(tx, account_type) == "transfer":
             return True
         return _pluggy_category(tx) in INTERNAL_TRANSFER_CATEGORIES
 
@@ -426,26 +419,16 @@ def _pluggy_category(tx: Transaction) -> Optional[str]:
 def _cashflow_type(
     tx: Transaction,
     account_type: Optional[str] = None,
-    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> Optional[str]:
     if tx.cashflow_type:
         return tx.cashflow_type
-    return classify_transaction(
-        tx,
-        account_type=account_type,
-        user_rules=user_rules,
-    ).cashflow_type
+    return classify_transaction(tx, account_type=account_type).cashflow_type
 
 
 def _ignored_from_totals(
     tx: Transaction,
     account_type: Optional[str] = None,
-    user_rules: tuple[CompiledUserRule, ...] = (),
 ) -> bool:
     if tx.internal_category and tx.cashflow_type and tx.classification_source:
         return bool(tx.ignored_from_totals)
-    return classify_transaction(
-        tx,
-        account_type=account_type,
-        user_rules=user_rules,
-    ).ignored_from_totals
+    return classify_transaction(tx, account_type=account_type).ignored_from_totals

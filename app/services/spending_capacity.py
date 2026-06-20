@@ -33,7 +33,7 @@ def spending_capacity_summary(
     first_day, last_day = _month_bounds(year_month)
     today = today if today is not None else date.today()
     income = expected_income_breakdown(session, year_month, user_id=user_id)
-    fixed = monthly_breakdown(session, year_month, user_id=user_id)
+    fixed = monthly_breakdown(session, year_month, today=today, user_id=user_id)
     # Transactions already accounted for as a fixed cost - manual matches
     # AND auto-detected matches that monthly_breakdown produced above - must
     # NOT also be counted in the discretionary invoice or in the variable
@@ -51,31 +51,18 @@ def spending_capacity_summary(
         user_id=user_id,
     )
 
-    # Resolve the planning invoice first so we can use the billing-cycle window
-    # for variable budgets (fatura vigente), instead of the calendar month.
+    # Resolve the planning invoice first so the current month can reuse its
+    # billing-cycle window when calculating variable spending.
     planning_inv = planning_invoice_for_month(session, year_month, today=today, user_id=user_id)
 
-    # Variable budgets must track the *fatura vigente* — the billing cycle that
-    # is currently open/forming — rather than the calendar month or a
-    # closed/official bill.
-    #
-    # The planning invoice exposes that cycle window directly for the current
-    # month (``open_invoice``) and for a vigente future month whose card has a
-    # ``credit_balance_close_date`` (``active_open_invoice_transactions``).
-    # When the card has no close date, the vigente future month resolves to a
-    # balance-based source (``dashboard_current_invoice`` /
-    # ``account_balance_*``) that carries no cycle window — but the invoice
-    # forming *now* is simply the current month's open invoice, so we borrow
-    # the current month's cycle window. Months further out, past months, and
-    # anything without an open cycle keep the calendar-month window unchanged.
+    # The current month follows the open invoice cycle so its variable spend
+    # matches the invoice forming now. Future planning months remain bound to
+    # the selected calendar month: borrowing the current invoice cycle there
+    # makes the Plano summary and the Variaveis tab calculate different
+    # remaining amounts for the same month.
     today_ym = today.strftime("%Y-%m")
-    vigente_ym = _shift_year_month(today_ym, 1)
-    cycle_start_str = planning_inv.get("cycle_start")
-    cycle_end_str = planning_inv.get("cycle_end")
-    if not (cycle_start_str and cycle_end_str) and year_month == vigente_ym:
-        current_inv = planning_invoice_for_month(session, today_ym, today=today, user_id=user_id)
-        cycle_start_str = current_inv.get("cycle_start")
-        cycle_end_str = current_inv.get("cycle_end")
+    cycle_start_str = planning_inv.get("cycle_start") if year_month == today_ym else None
+    cycle_end_str = planning_inv.get("cycle_end") if year_month == today_ym else None
     if cycle_start_str and cycle_end_str:
         vb_first_day = date.fromisoformat(cycle_start_str)
         vb_last_day = date.fromisoformat(cycle_end_str)

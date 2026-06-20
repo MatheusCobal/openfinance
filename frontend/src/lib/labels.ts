@@ -20,7 +20,6 @@ const CASHFLOW_TYPE_LABELS: Record<string, string> = {
 const CLASSIFICATION_SOURCE_LABELS: Record<string, string> = {
   pluggy_rule: "Classificação automática",
   system_rule: "Regra do sistema",
-  user_rule: "Regra personalizada",
   manual_override: "Ajuste manual",
   fallback: "Classificação padrão",
   unclassified: "Sem classificação",

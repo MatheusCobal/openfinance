@@ -551,6 +551,17 @@ class CurrentCardInvoiceTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             self._seed_vigente_scenario(session)
+            session.add(
+                Transaction(
+                    id="current-purchase-jun",
+                    account_id="credit-1",
+                    date=date(2026, 6, 9),
+                    amount=Decimal("100.00"),
+                    description="Compra atual",
+                    category="Groceries",
+                )
+            )
+            session.commit()
 
         with Session(self.engine) as session:
             summary = upcoming_summary(session, today=date(2026, 6, 10))
@@ -570,6 +581,17 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(summary["months"][0]["invoice_source"], "dashboard_current_invoice")
         self.assertTrue(summary["months"][0]["is_current_invoice"])
         self.assertEqual(summary["months"][0]["categories"][0]["name"], "Lazer / Viagem")
+        self.assertEqual(summary["months"][0]["count"], 2)
+        self.assertEqual(summary["months"][0]["scheduled_count"], 1)
+        self.assertEqual(
+            {tx["id"] for tx in summary["months"][0]["transactions"]},
+            {"current-purchase-jun", "future-installment-jul"},
+        )
+        self.assertAlmostEqual(
+            sum(category["total"] for category in summary["months"][0]["categories"]),
+            summary["months"][0]["total"],
+            places=2,
+        )
 
     def test_vigente_spending_capacity_uses_dashboard_invoice(self):
         """Spending capacity for the vigente month subtracts the Dashboard

@@ -91,9 +91,9 @@ export function deleteFixedCostOverride(id: number, yearMonth: string) {
   return apiDelete(`/fixed-costs/${id}/overrides/${yearMonth}`);
 }
 
-export function listTransactionsForMonth(fromDate: string, toDate: string) {
+export function listFixedCostMatchCandidates(yearMonth: string) {
   return apiGet<Transaction[]>(
-    `/transactions?account_type=ALL&from_date=${fromDate}&to_date=${toDate}&include_future=true&include_ignored=true`,
+    `/fixed-costs/match-candidates?year_month=${encodeURIComponent(yearMonth)}`,
   );
 }
 
