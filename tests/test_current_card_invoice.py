@@ -382,6 +382,29 @@ class CurrentCardInvoiceTest(unittest.TestCase):
             ["current-purchase"],
         )
 
+    def test_no_unreconciled_bucket_without_identified_transactions(self):
+        # A card can report a balance while no detailed purchases have synced
+        # yet. The breakdown must stay empty instead of showing a lone
+        # "Não conciliado" figure backed by zero transactions.
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, balance=Decimal("1000"))
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = current_card_invoice_summary(session, today=date(2026, 6, 8))
+
+        self.assertEqual(summary["categories"], [])
+        self.assertEqual(summary["category_count"], 0)
+        self.assertNotIn(
+            "account_balance_reconciliation",
+            {category.get("source") for category in summary["categories"]},
+        )
+        # Headline amount stays correct and the gap is still reported as
+        # diagnostic metadata, just not as a phantom category.
+        self.assertEqual(summary["amount"], 1000.0)
+        self.assertEqual(summary["reconciliation"]["unreconciled_amount"], 1000.0)
+
     def test_future_planning_month_can_still_use_scheduled_installments(self):
         with Session(self.engine) as session:
             self._add_item(session)

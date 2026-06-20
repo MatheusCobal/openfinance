@@ -31,6 +31,9 @@ openfinance.db
 # Local backup files — backups live in the openfinance_backups Docker volume
 backups/
 
+# Tests — not needed in the image (Dockerfile does not COPY tests/)
+tests/
+
 # Coverage and test artifacts
 htmlcov/
 .coverage

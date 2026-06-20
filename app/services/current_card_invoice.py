@@ -393,7 +393,12 @@ def current_card_invoice_summary(
 
     identified_category_total = category_total
     unreconciled_amount = adjusted_total - identified_category_total
-    if unreconciled_amount > Decimal("0.005"):
+    # The "Não conciliado" bucket is a plug that makes the visible categories
+    # add up to the bank-reported balance. It only makes sense next to a real
+    # breakdown: with no identified purchases there is nothing to reconcile, so
+    # showing it would surface a balance backed by zero transactions and an
+    # empty detail view. Leave the breakdown empty in that case.
+    if category_count > 0 and unreconciled_amount > Decimal("0.005"):
         categories_by_name["Não conciliado"] = {
             "id": "unreconciled",
             "name": "Não conciliado",
