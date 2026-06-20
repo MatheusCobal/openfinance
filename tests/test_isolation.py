@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.security as security
 from app.auth import sessions as auth_sessions
@@ -22,7 +22,11 @@ from app.auth.passwords import hash_password
 from app.auth.sessions import SESSION_COOKIE_NAME, create_session
 from app.database import get_session
 from app.main import app
-from app.models import Account, ExpectedIncome, Item, Transaction, User
+from app.models import Account, BankIncomeMonth, ExpectedIncome, Item, Transaction, User
+from app.services.fixed_costs import list_fixed_cost_categories
+from app.services.rules import upsert_ignored_description_rule
+from app.services.snapshots import refresh_bank_income_snapshots
+from app.services.variable_budgets import upsert_goal
 
 
 def _settings():
@@ -157,6 +161,109 @@ class IsolationTest(unittest.TestCase):
         self._as(self.token_a)
         still_there = self.client.get("/expected-income").json()
         self.assertEqual(len(still_there), 1)
+
+    def test_user_scoped_unique_financial_settings_can_coexist(self):
+        with Session(self.engine) as db:
+            categories_a = list_fixed_cost_categories(db, user_id=self.user_a)
+            categories_b = list_fixed_cost_categories(db, user_id=self.user_b)
+            self.assertEqual(len(categories_a), len(categories_b))
+            self.assertTrue(categories_a)
+
+            goal_a = upsert_goal(db, "2026-07", "Alimentação", 500, user_id=self.user_a)
+            goal_b = upsert_goal(db, "2026-07", "Alimentação", 700, user_id=self.user_b)
+            self.assertNotEqual(goal_a.id, goal_b.id)
+
+            rule_a = upsert_ignored_description_rule(db, "Transferência", user_id=self.user_a)
+            rule_b = upsert_ignored_description_rule(db, "Transferência", user_id=self.user_b)
+            self.assertNotEqual(rule_a["id"], rule_b["id"])
+
+    def test_snapshot_refresh_keeps_each_users_month_separate(self):
+        today = datetime.date(2026, 6, 19)
+        tx_a = Transaction(
+            id="snapshot-income-a",
+            user_id=self.user_a,
+            account_id="acc-a",
+            date=today,
+            amount=Decimal("100"),
+            description="Income A",
+        )
+        tx_b = Transaction(
+            id="snapshot-income-b",
+            user_id=self.user_b,
+            account_id="acc-b",
+            date=today,
+            amount=Decimal("999"),
+            description="Income B",
+        )
+
+        with (
+            patch("app.services.snapshots.date") as mocked_date,
+            patch(
+                "app.services.snapshots.bank_income_transactions",
+                side_effect=[[tx_a], [tx_b]],
+            ),
+            Session(self.engine) as db,
+        ):
+            mocked_date.today.return_value = today
+            mocked_date.side_effect = lambda *args, **kwargs: datetime.date(*args, **kwargs)
+            refresh_bank_income_snapshots(db, months=1, user_id=self.user_a)
+            refresh_bank_income_snapshots(db, months=1, user_id=self.user_b)
+
+            rows = db.exec(
+                select(BankIncomeMonth)
+                .where(BankIncomeMonth.year_month == "2026-06")
+                .order_by(BankIncomeMonth.user_id)
+            ).all()
+
+        self.assertEqual([(row.user_id, float(row.total)) for row in rows], [(1, 100.0), (2, 999.0)])
+
+    def test_connect_token_derives_tenant_from_authenticated_user(self):
+        self._as(self.token_a)
+        with patch(
+            "app.routes.sync.pluggy.create_connect_token",
+            return_value="connect-token",
+        ) as create_token:
+            response = self.client.post("/connect-token", json={})
+
+        self.assertEqual(response.status_code, 200)
+        create_token.assert_called_once_with(
+            client_user_id=f"openfinance-user-{self.user_a}",
+            item_id=None,
+        )
+
+        spoofed = self.client.post(
+            "/connect-token",
+            json={"clientUserId": f"openfinance-user-{self.user_b}"},
+        )
+        self.assertEqual(spoofed.status_code, 400)
+
+    def test_user_cannot_update_or_register_another_users_pluggy_item(self):
+        self._as(self.token_b)
+
+        update_token = self.client.post("/connect-token", json={"itemId": "item-a"})
+        self.assertEqual(update_token.status_code, 404)
+
+        with patch("app.routes.sync.upsert_item") as upsert:
+            register = self.client.post("/items/item-a")
+        self.assertEqual(register.status_code, 404)
+        upsert.assert_not_called()
+
+    def test_register_rejects_remote_item_owned_by_different_pluggy_user(self):
+        self._as(self.token_a)
+        with patch(
+            "app.services.sync.pluggy.get_item",
+            return_value={
+                "id": "remote-item",
+                "clientUserId": f"openfinance-user-{self.user_b}",
+                "connector": {"id": 1, "name": "Bank"},
+                "status": "UPDATED",
+            },
+        ), patch("app.routes.sync.backup_sqlite_database"):
+            response = self.client.post("/items/remote-item")
+            sync_response = self.client.post("/items/remote-item/sync")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(sync_response.status_code, 404)
 
 
 if __name__ == "__main__":

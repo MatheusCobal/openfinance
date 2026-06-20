@@ -23,6 +23,10 @@ from app.models import (
 )
 
 
+def _snapshot(session: Session, model, year_month: str):
+    return session.exec(select(model).where(model.year_month == year_month)).first()
+
+
 def next_month(value: date) -> date:
     if value.month == 12:
         return date(value.year + 1, 1, 1)
@@ -378,9 +382,9 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertGreaterEqual(payload["refreshed"]["monthly_balance"], 1)
 
         with Session(self.engine) as session:
-            bank_income = session.get(BankIncomeMonth, self.current_month)
-            invoice = session.get(CreditCardInvoiceMonth, self.current_month)
-            balance = session.get(MonthlyBalanceMonth, self.current_month)
+            bank_income = _snapshot(session, BankIncomeMonth, self.current_month)
+            invoice = _snapshot(session, CreditCardInvoiceMonth, self.current_month)
+            balance = _snapshot(session, MonthlyBalanceMonth, self.current_month)
 
         self.assertIsNotNone(bank_income)
         self.assertIsNotNone(invoice)

@@ -10,6 +10,7 @@ services:
     environment:
       # Always override DATABASE_URL with the persistent volume path.
       DATABASE_URL: sqlite:////data/openfinance.db
+      TZ: America/Sao_Paulo
     volumes:
       - openfinance_data:/data
       - openfinance_backups:/app/backups

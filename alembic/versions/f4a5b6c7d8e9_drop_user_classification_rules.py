@@ -1,7 +1,7 @@
 """drop user classification rules
 
 Revision ID: f4a5b6c7d8e9
-Revises: c1d2e3f4a5b6
+Revises: d8e9f0a1b2c3
 Create Date: 2026-06-20 00:00:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f4a5b6c7d8e9"
-down_revision: Union[str, Sequence[str], None] = "c1d2e3f4a5b6"
+down_revision: Union[str, Sequence[str], None] = "d8e9f0a1b2c3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

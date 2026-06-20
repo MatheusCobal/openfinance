@@ -2,6 +2,13 @@
 import type { DependencyList } from "react";
 import { useCallback, useEffect, useState } from "react";
 
+function asyncErrorMessage(error: unknown): string {
+  if (error instanceof TypeError && ["Failed to fetch", "Load failed"].includes(error.message)) {
+    return "Não foi possível conectar ao servidor.";
+  }
+  return error instanceof Error ? error.message : "Erro inesperado";
+}
+
 export function useAsync<T>(
   loader: () => Promise<T>,
   deps: DependencyList = [],
@@ -11,7 +18,7 @@ export function useAsync<T>(
   const [loading, setLoading] = useState(immediate);
   const [error, setError] = useState<string | null>(null);
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (): Promise<T | null> => {
     setLoading(true);
     setError(null);
     try {
@@ -19,9 +26,8 @@ export function useAsync<T>(
       setData(result);
       return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Erro inesperado";
-      setError(message);
-      throw err;
+      setError(asyncErrorMessage(err));
+      return null;
     } finally {
       setLoading(false);
     }

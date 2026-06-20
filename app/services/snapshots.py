@@ -1,9 +1,8 @@
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Type
 
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from app.models import (
@@ -29,6 +28,51 @@ from app.services.transactions import (
 
 DEFAULT_CREDIT_CARD_PAYMENT_MONTHS = 12
 DEFAULT_MONTHLY_BALANCE_MONTHS = 12
+
+
+def _snapshot_for_month(
+    session: Session,
+    model: Type,
+    year_month: str,
+    user_id: Optional[int],
+):
+    query = select(model).where(model.year_month == year_month)
+    if user_id is not None:
+        return session.exec(query.where(model.user_id == user_id)).first()
+
+    rows = session.exec(query).all()
+    unowned = next((row for row in rows if row.user_id is None), None)
+    if unowned is not None:
+        return unowned
+    if len(rows) <= 1:
+        return rows[0] if rows else None
+    raise RuntimeError(
+        "snapshot refresh with authentication disabled found multiple user-owned rows"
+    )
+
+
+def _upsert_snapshot(
+    session: Session,
+    model: Type,
+    year_month: str,
+    user_id: Optional[int],
+    now: datetime,
+    values: Dict[str, Any],
+) -> None:
+    snapshot = _snapshot_for_month(session, model, year_month, user_id)
+    if snapshot is None:
+        snapshot = model(
+            year_month=year_month,
+            user_id=user_id,
+            captured_at=now,
+            updated_at=now,
+            **values,
+        )
+    else:
+        for field, value in values.items():
+            setattr(snapshot, field, value)
+        snapshot.updated_at = now
+    session.add(snapshot)
 
 
 def refresh_credit_card_invoice_snapshots(
@@ -72,23 +116,17 @@ def refresh_credit_card_invoice_snapshots(
         if not txs and month not in existing_months:
             continue
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
-        statement = sqlite_insert(CreditCardInvoiceMonth).values(
-            year_month=month,
-            total=month_total,
-            payment_count=len(txs),
-            captured_at=now,
-            updated_at=now,
-            user_id=user_id,
-        )
-        statement = statement.on_conflict_do_update(
-            index_elements=["year_month"],
-            set_={
+        _upsert_snapshot(
+            session,
+            CreditCardInvoiceMonth,
+            month,
+            user_id,
+            now,
+            {
                 "total": month_total,
                 "payment_count": len(txs),
-                "updated_at": now,
             },
         )
-        session.execute(statement)
         refreshed_count += 1
 
     session.commit()
@@ -124,23 +162,17 @@ def refresh_bank_income_snapshots(
         if not txs and month not in existing_months:
             continue
         month_total = sum((tx.amount for tx in txs), Decimal("0"))
-        statement = sqlite_insert(BankIncomeMonth).values(
-            year_month=month,
-            total=month_total,
-            income_count=len(txs),
-            captured_at=now,
-            updated_at=now,
-            user_id=user_id,
-        )
-        statement = statement.on_conflict_do_update(
-            index_elements=["year_month"],
-            set_={
+        _upsert_snapshot(
+            session,
+            BankIncomeMonth,
+            month,
+            user_id,
+            now,
+            {
                 "total": month_total,
                 "income_count": len(txs),
-                "updated_at": now,
             },
         )
-        session.execute(statement)
         refreshed_count += 1
 
     session.commit()
@@ -211,23 +243,13 @@ def refresh_monthly_balance_snapshots(
 
         net_by_purchase_month = income - card_spend
         net_cashflow = income - invoice_paid
-        statement = sqlite_insert(MonthlyBalanceMonth).values(
-            year_month=month,
-            income=income,
-            card_spend=card_spend,
-            invoice_paid=invoice_paid,
-            net_by_purchase_month=net_by_purchase_month,
-            net_cashflow=net_cashflow,
-            income_count=income_transaction_count,
-            card_spend_count=card_spend_count,
-            invoice_payment_count=invoice_payment_count,
-            captured_at=now,
-            updated_at=now,
-            user_id=user_id,
-        )
-        statement = statement.on_conflict_do_update(
-            index_elements=["year_month"],
-            set_={
+        _upsert_snapshot(
+            session,
+            MonthlyBalanceMonth,
+            month,
+            user_id,
+            now,
+            {
                 "income": income,
                 "card_spend": card_spend,
                 "invoice_paid": invoice_paid,
@@ -236,10 +258,8 @@ def refresh_monthly_balance_snapshots(
                 "income_count": income_transaction_count,
                 "card_spend_count": card_spend_count,
                 "invoice_payment_count": invoice_payment_count,
-                "updated_at": now,
             },
         )
-        session.execute(statement)
         refreshed_count += 1
 
     session.commit()

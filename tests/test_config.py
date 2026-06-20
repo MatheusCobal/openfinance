@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from app.config import (
@@ -15,6 +16,17 @@ from app.pluggy_client import PluggyClient, PluggyCredentialError
 
 
 class SettingsTest(unittest.TestCase):
+    def test_container_runtime_uses_sao_paulo_timezone(self):
+        project_root = Path(__file__).resolve().parents[1]
+        dockerfile = (project_root / "Dockerfile").read_text()
+        compose = (project_root / "docker-compose.yml").read_text()
+        production_compose = (project_root / "docker-compose.prod.yml").read_text()
+
+        self.assertIn("ENV TZ=America/Sao_Paulo", dockerfile)
+        self.assertIn("tzdata", dockerfile)
+        self.assertIn("TZ: America/Sao_Paulo", compose)
+        self.assertIn("TZ: America/Sao_Paulo", production_compose)
+
     def test_database_settings_load_without_pluggy_credentials(self):
         with patch.dict(os.environ, {}, clear=True):
             settings = Settings(_env_file=None)

@@ -185,15 +185,32 @@ class Transaction(SQLModel, table=True):
 
 
 class IgnoredDescriptionRule(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "pattern_normalized",
+            name="uq_ignoreddescriptionrule_user_pattern",
+        ),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, index=True)
     pattern: str
-    pattern_normalized: str = Field(unique=True, index=True)
+    pattern_normalized: str = Field(index=True)
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
 class CreditCardInvoiceMonth(SQLModel, table=True):
-    year_month: str = Field(primary_key=True, index=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "year_month",
+            name="uq_creditcardinvoicemonth_user_month",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    year_month: str = Field(index=True)
     user_id: Optional[int] = Field(default=None, index=True)
     total: Decimal = Decimal("0")
     payment_count: int = 0
@@ -202,7 +219,16 @@ class CreditCardInvoiceMonth(SQLModel, table=True):
 
 
 class BankIncomeMonth(SQLModel, table=True):
-    year_month: str = Field(primary_key=True, index=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "year_month",
+            name="uq_bankincomemonth_user_month",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    year_month: str = Field(index=True)
     user_id: Optional[int] = Field(default=None, index=True)
     total: Decimal = Decimal("0")
     income_count: int = 0
@@ -230,7 +256,16 @@ class BankCashflowExclusionRule(SQLModel, table=True):
 
 
 class MonthlyBalanceMonth(SQLModel, table=True):
-    year_month: str = Field(primary_key=True, index=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "year_month",
+            name="uq_monthlybalancemonth_user_month",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    year_month: str = Field(index=True)
     user_id: Optional[int] = Field(default=None, index=True)
     income: Decimal = Decimal("0")
     card_spend: Decimal = Decimal("0")
@@ -271,9 +306,17 @@ class ExpectedIncomeOverride(SQLModel, table=True):
 
 
 class FixedCostCategory(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "name",
+            name="uq_fixedcostcategory_user_name",
+        ),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, index=True)
-    name: str = Field(unique=True, index=True)
+    name: str = Field(index=True)
     color: str = "#64748b"
     sort_order: int = 0
     is_default: bool = Field(default=False, index=True)
@@ -341,9 +384,10 @@ class VariableBudget(SQLModel, table=True):
     __tablename__: ClassVar[str] = "variable_budgets"
     __table_args__ = (
         UniqueConstraint(
+            "user_id",
             "year_month",
             "category",
-            name="uq_variablebudget_month_category",
+            name="uq_variablebudget_user_month_category",
         ),
     )
 

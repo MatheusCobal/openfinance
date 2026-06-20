@@ -16,10 +16,12 @@ from app.pluggy_client import PluggyCredentialError, pluggy
 from app.services.database_backup import backup_sqlite_database
 from app.services.scoping import scope_query
 from app.services.sync import (
+    ItemOwnershipError,
     SyncAlreadyRunning,
     compute_dedupe_key,
     is_sync_running,
     reconcile_active_items,
+    pluggy_client_user_id,
     sync_item as run_sync_item,
     sync_lock_status,
     upsert_item,
@@ -37,8 +39,21 @@ class ConnectTokenRequest(BaseModel):
 
 
 @router.post("/connect-token")
-def connect_token(body: Optional[ConnectTokenRequest] = None):
+def connect_token(
+    body: Optional[ConnectTokenRequest] = None,
+    session: Session = Depends(get_session),
+    user_id: Optional[int] = Depends(current_scope_user_id),
+):
     body = body or ConnectTokenRequest()
+    client_user_id = body.clientUserId
+    if user_id is not None:
+        client_user_id = pluggy_client_user_id(user_id)
+        if body.clientUserId is not None and body.clientUserId != client_user_id:
+            raise HTTPException(400, "clientUserId is managed by the server")
+        if body.itemId is not None:
+            item = session.get(Item, body.itemId)
+            if item is None or item.user_id != user_id:
+                raise HTTPException(404, f"Item {body.itemId!r} not found")
     # Log enough to diagnose credential/environment problems without leaking secrets.
     settings = get_pluggy_settings()
     _masked_id = (settings.pluggy_client_id[:4] + "…") if settings.pluggy_client_id else "<not set>"
@@ -49,7 +64,7 @@ def connect_token(body: Optional[ConnectTokenRequest] = None):
         body.itemId,
     )
     try:
-        token = pluggy.create_connect_token(client_user_id=body.clientUserId, item_id=body.itemId)
+        token = pluggy.create_connect_token(client_user_id=client_user_id, item_id=body.itemId)
     except httpx.HTTPStatusError as exc:
         logger.error(
             "connect-token Pluggy error status=%s body=%.500s",
@@ -82,7 +97,18 @@ def register_item(
     session: Session = Depends(get_session),
     user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    return upsert_item(item_id, session, user_id=user_id)
+    existing = session.get(Item, item_id)
+    if existing is not None and user_id is not None and existing.user_id != user_id:
+        raise HTTPException(404, f"Item {item_id!r} not found")
+    try:
+        return upsert_item(
+            item_id,
+            session,
+            user_id=user_id,
+            expected_client_user_id=(pluggy_client_user_id(user_id) if user_id is not None else None),
+        )
+    except ItemOwnershipError as exc:
+        raise HTTPException(404, f"Item {item_id!r} not found") from exc
 
 
 @router.post("/items/{item_id}/sync")
@@ -108,7 +134,17 @@ def sync_item(
     if item is not None and user_id is not None and item.user_id != user_id:
         raise HTTPException(404, f"Item {item_id!r} not found")
     if item is None:
-        item = upsert_item(item_id, session, user_id=user_id)
+        try:
+            item = upsert_item(
+                item_id,
+                session,
+                user_id=user_id,
+                expected_client_user_id=(
+                    pluggy_client_user_id(user_id) if user_id is not None else None
+                ),
+            )
+        except ItemOwnershipError as exc:
+            raise HTTPException(404, f"Item {item_id!r} not found") from exc
     try:
         return run_sync_item(item.id, session)
     except SyncAlreadyRunning:

@@ -58,6 +58,15 @@ class SyncAlreadyRunning(Exception):
     pass
 
 
+class ItemOwnershipError(ValueError):
+    pass
+
+
+def pluggy_client_user_id(user_id: int) -> str:
+    """Stable tenant identifier sent to Pluggy for an authenticated app user."""
+    return f"openfinance-user-{user_id}"
+
+
 def is_sync_lock_stale(item: Item, now: Optional[datetime] = None) -> bool:
     if item.sync_started_at is None or item.sync_finished_at is not None:
         return False
@@ -89,10 +98,26 @@ class AccountSyncResult:
     updated_transactions: int = 0
 
 
-def upsert_item(item_id: str, session: Session, user_id: Optional[int] = None) -> Item:
-    data = pluggy.get_item(item_id)
-    now = datetime.utcnow()
+def upsert_item(
+    item_id: str,
+    session: Session,
+    user_id: Optional[int] = None,
+    expected_client_user_id: Optional[str] = None,
+) -> Item:
     item = session.get(Item, item_id)
+    if item is not None and user_id is not None and item.user_id not in (None, user_id):
+        raise ItemOwnershipError(f"item {item_id!r} belongs to another user")
+
+    data = pluggy.get_item(item_id)
+    remote_client_user_id = data.get("clientUserId")
+    if (
+        expected_client_user_id is not None
+        and remote_client_user_id is not None
+        and remote_client_user_id != expected_client_user_id
+    ):
+        raise ItemOwnershipError(f"item {item_id!r} belongs to another Pluggy user")
+
+    now = datetime.utcnow()
     if item is None:
         item = Item(
             id=data["id"],

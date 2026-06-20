@@ -11,7 +11,15 @@ RUN npm run build
 
 FROM python:3.11-slim
 
+ENV TZ=America/Sao_Paulo
+
 WORKDIR /app
+
+# Financial month/day boundaries follow the application's Brazilian locale.
+# Install the IANA timezone database so Python and libc resolve TZ consistently.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy code and config before installing so the editable install
 # picks up the source in /app/ (used by Alembic path resolution).

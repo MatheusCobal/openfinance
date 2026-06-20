@@ -33,7 +33,7 @@ import { CatAvatar } from "../components/ui/CatAvatar";
 import { CheckToggle } from "../components/ui/CheckToggle";
 import { DayBadge } from "../components/ui/DayBadge";
 import { EmptyState } from "../components/ui/EmptyState";
-import { ErrorState } from "../components/ui/ErrorState";
+import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
 import { Input } from "../components/ui/Input";
 import { LoadingState } from "../components/ui/LoadingState";
@@ -568,7 +568,7 @@ function VariableBudgetsPanel({
       </div>
 
       {/* 3 summary cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {summaryCards.map((s) => (
           <div key={s.label} className="flex items-start gap-3 rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
             <span className={classNames("mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-control", s.toneClass)}>
@@ -2056,7 +2056,7 @@ function CostsBase({
       </div>
 
       {/* 3 summary cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           {
             label: "Total mensal",
@@ -2094,7 +2094,7 @@ function CostsBase({
       </div>
 
       {/* Filter row */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-1.5">
           {catNames.map((cat) => {
             const isActive = catFilter === cat;
@@ -2134,7 +2134,7 @@ function CostsBase({
       {/* Active flat list */}
       {filteredCosts.length > 0 ? (
         <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
-          <div className="flex items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5">
+          <div className="hidden items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5 md:flex">
             <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Compromisso</span>
             <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Valor / mês</span>
             <span className="w-36 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Recorrência</span>
@@ -2147,7 +2147,7 @@ function CostsBase({
             return (
               <div
                 key={cost.id}
-                className="group relative flex items-center gap-4 border-b border-ink-100 px-5 py-3.5 transition-colors last:border-0 hover:bg-surface-muted/40"
+                className="group relative grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 border-b border-ink-100 px-4 py-3.5 transition-colors last:border-0 hover:bg-surface-muted/40 md:flex md:items-center md:gap-4 md:px-5"
               >
                 <CatAvatar category={cat?.name} color={color} size={42} />
                 <div className="min-w-0 flex-1">
@@ -2161,10 +2161,10 @@ function CostsBase({
                     </span>
                   </div>
                 </div>
-                <p className="w-28 shrink-0 text-right text-sm font-bold tabular text-ink-900">
+                <p className="col-start-2 w-auto shrink-0 text-left text-sm font-bold tabular text-ink-900 md:w-28 md:text-right">
                   {formatMoney(cost.amount)}
                 </p>
-                <div className="flex w-36 shrink-0 justify-end">
+                <div className="col-start-2 flex w-auto shrink-0 justify-start md:w-36 md:justify-end">
                   {cost.due_day ? (
                     <span className="inline-flex items-center gap-1 rounded-control bg-surface-muted px-2.5 py-1 text-xs font-medium text-ink-600">
                       <Calendar className="size-3 text-ink-400" aria-hidden="true" />
@@ -2177,11 +2177,11 @@ function CostsBase({
                     </span>
                   )}
                 </div>
-                <div className="flex w-24 shrink-0 items-center justify-end gap-0.5">
+                <div className="col-start-2 flex w-auto shrink-0 items-center justify-start gap-1 md:w-24 md:justify-end md:gap-0.5">
                   <button
                     type="button"
                     title="Editar"
-                    className="flex size-7 items-center justify-center rounded-control text-ink-400 opacity-0 transition-all hover:bg-surface-muted hover:text-ink-700 group-hover:opacity-100"
+                    className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-700 md:size-7 md:opacity-0 md:group-hover:opacity-100"
                     onClick={(e) => { e.stopPropagation(); setEditingCost(cost.id); setCostDraft(cost); }}
                   >
                     <Pencil className="size-3.5" aria-hidden="true" />
@@ -2189,7 +2189,7 @@ function CostsBase({
                   <button
                     type="button"
                     title="Desativar"
-                    className="flex size-7 items-center justify-center rounded-control text-ink-400 opacity-0 transition-all hover:bg-warning-50 hover:text-warning-700 group-hover:opacity-100"
+                    className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-warning-50 hover:text-warning-700 md:size-7 md:opacity-0 md:group-hover:opacity-100"
                     onClick={async (e) => { e.stopPropagation(); await updateFixedCost(cost.id, { active: false }); await onReload(); }}
                   >
                     <X className="size-3.5" aria-hidden="true" />
@@ -2198,7 +2198,7 @@ function CostsBase({
                     <button
                       type="button"
                       title="Mais opções"
-                      className="flex size-7 items-center justify-center rounded-control text-ink-300 transition-all hover:bg-surface-muted hover:text-ink-600 group-hover:text-ink-500"
+                      className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-600 md:size-7 md:text-ink-300 md:group-hover:text-ink-500"
                       onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === cost.id ? null : cost.id); }}
                     >
                       <MoreVertical className="size-4" aria-hidden="true" />
@@ -2269,7 +2269,7 @@ function CostsBase({
                 <div
                   key={cost.id}
                   className={classNames(
-                    "flex items-center gap-4 px-5 py-3.5",
+                    "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-4 py-3.5 md:flex md:items-center md:gap-4 md:px-5",
                     idx < inactiveCosts.length - 1 ? "border-b border-ink-100" : "",
                   )}
                 >
@@ -2288,13 +2288,13 @@ function CostsBase({
                     </div>
                     <p className="mt-0.5 text-xs text-ink-400">{cost.due_day ? `Dia ${cost.due_day}` : "Personalizada"}</p>
                   </div>
-                  <p className="w-28 shrink-0 text-right text-sm font-semibold tabular text-ink-400 line-through opacity-50">
+                  <p className="col-start-2 w-auto shrink-0 text-left text-sm font-semibold tabular text-ink-400 line-through opacity-50 md:w-28 md:text-right">
                     {formatMoney(cost.amount)}
                   </p>
-                  <div className="flex w-36 shrink-0 justify-end">
+                  <div className="col-start-2 flex w-auto shrink-0 justify-start md:w-36 md:justify-end">
                     <span className="rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-500">Inativo</span>
                   </div>
-                  <div className="flex w-24 shrink-0 justify-end">
+                  <div className="col-start-2 flex w-auto shrink-0 justify-start md:w-24 md:justify-end">
                     <button
                       type="button"
                       className="rounded-control border border-ink-200 bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-600 transition-colors hover:bg-surface-muted"
@@ -2489,7 +2489,7 @@ function IncomePlanning({
             Nova entrada
           </Button>
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-4">
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-control border border-positive-200 bg-positive-100/60 p-3.5">
             <p className="text-xs font-medium text-positive-700">Entradas ativas</p>
             <p className="mt-1 text-xl font-bold tabular text-positive-800">{formatMoney(total)}</p>
@@ -2531,7 +2531,7 @@ function IncomePlanning({
       {/* Entries list */}
       {shownEntries.length > 0 ? (
         <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
-          <div className="flex items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5">
+          <div className="hidden items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5 md:flex">
             <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Entrada</span>
             <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Valor</span>
             <span className="w-36 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Status</span>
@@ -2584,7 +2584,7 @@ function IncomePlanning({
               <div
                 key={entry.id}
                 className={classNames(
-                  "group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-surface-muted/40",
+                  "group grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-4 py-3.5 transition-colors hover:bg-surface-muted/40 md:flex md:items-center md:gap-4 md:px-5",
                   !isLast ? "border-b border-ink-100" : "",
                   inactive ? "opacity-60" : "",
                 )}
@@ -2601,10 +2601,10 @@ function IncomePlanning({
                   </div>
                   <p className="mt-0.5 text-xs text-ink-400">recorrente · todo mês</p>
                 </div>
-                <p className={classNames("w-28 shrink-0 text-right text-sm font-bold tabular", inactive ? "text-ink-400" : "text-positive-700")}>
+                <p className={classNames("col-start-2 w-auto shrink-0 text-left text-sm font-bold tabular md:w-28 md:text-right", inactive ? "text-ink-400" : "text-positive-700")}>
                   {formatMoney(entry.amount)}
                 </p>
-                <div className="flex w-36 shrink-0 justify-end">
+                <div className="col-start-2 flex w-auto shrink-0 justify-start md:w-36 md:justify-end">
                   {inactive ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-semibold text-ink-500 ring-1 ring-inset ring-ink-200">Inativo</span>
                   ) : (
@@ -2614,11 +2614,11 @@ function IncomePlanning({
                     </span>
                   )}
                 </div>
-                <div className="flex w-16 shrink-0 items-center justify-end gap-0.5">
+                <div className="col-start-2 flex w-auto shrink-0 items-center justify-start gap-1 md:w-16 md:justify-end md:gap-0.5">
                   <button
                     type="button"
                     title="Editar"
-                    className="flex size-7 items-center justify-center rounded-control text-ink-400 opacity-0 transition-all hover:bg-surface-muted hover:text-ink-700 group-hover:opacity-100"
+                    className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-700 md:size-7 md:opacity-0 md:group-hover:opacity-100"
                     onClick={(e) => { e.stopPropagation(); setEditingEntry(entry.id); setEntryDraft(entry); }}
                   >
                     <Pencil className="size-3.5" aria-hidden="true" />
@@ -2626,7 +2626,8 @@ function IncomePlanning({
                   <div className="relative">
                     <button
                       type="button"
-                      className="flex size-7 items-center justify-center rounded-control text-ink-300 transition-all hover:bg-surface-muted hover:text-ink-600 group-hover:text-ink-500"
+                      title="Mais opções"
+                      className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-600 md:size-7 md:text-ink-300 md:group-hover:text-ink-500"
                       onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === entry.id ? null : entry.id); }}
                     >
                       <MoreVertical className="size-4" aria-hidden="true" />
@@ -2784,6 +2785,9 @@ export function PlanejamentoPage() {
 
           {loading && !data ? <LoadingState label="Carregando planejamento..." /> : null}
           {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
+          {error && data ? (
+            <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
+          ) : null}
           {data ? (
             <>
               {activeTab === "overview" ? <MonthPlanPanel capacity={data.capacity} /> : null}
