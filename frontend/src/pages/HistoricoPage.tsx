@@ -76,7 +76,9 @@ function monthSourceBadge(item?: Partial<InvoiceHistoryMonth> | null) {
   const source = item?.invoice_total_source || "";
   if (source === "pluggy_official_bill") return <Badge tone="positive">Fatura fechada</Badge>;
   if (source === "credit_card_invoice_snapshot") return <Badge tone="accent">Registro histórico</Badge>;
-  if (source === "dashboard_current_invoice") return <Badge tone="primary">Fatura vigente</Badge>;
+  if (source === "dashboard_current_invoice" || source === "pending_current_invoice") {
+    return <Badge tone="primary">Fatura vigente</Badge>;
+  }
   if (source === "missing_official_bill_fallback") return <Badge>Sem fatura oficial</Badge>;
   return null;
 }

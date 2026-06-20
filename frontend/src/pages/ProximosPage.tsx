@@ -209,13 +209,9 @@ export function ProximosPage() {
                       </div>
                       <p className="text-sm text-ink-500 tabular">{monthSubtitle(selected)}</p>
                     </div>
-                    {selected.is_current_invoice &&
-                    selected.reported_invoice_total != null &&
-                    Math.abs(Number(selected.reported_difference || 0)) >= 0.005 ? (
+                    {selected.is_current_invoice ? (
                       <p className="mt-4 border-t border-ink-100 pt-3 text-xs text-ink-500">
-                        Detalhamento de {formatMonthLong(selected.transaction_month)}: {" "}
-                        {formatMoney(selected.detailed_total || 0)} · diferença para o total da fatura: {" "}
-                        {formatMoney(selected.reported_difference || 0)}
+                        Soma das compras PENDING atribuídas à fatura vigente.
                       </p>
                     ) : null}
                   </Card>

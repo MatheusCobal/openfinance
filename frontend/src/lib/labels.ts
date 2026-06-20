@@ -29,6 +29,8 @@ const INVOICE_SOURCE_LABELS: Record<string, string> = {
   pluggy_official_bill: "Fatura fechada do banco",
   credit_card_invoice_snapshot: "Registro histórico",
   dashboard_current_invoice: "Fatura vigente",
+  pending_current_invoice: "Fatura vigente por compras PENDING",
+  pending_transactions: "Compras PENDING da fatura vigente",
   missing_official_bill_fallback: "Sem fatura oficial",
 };
 

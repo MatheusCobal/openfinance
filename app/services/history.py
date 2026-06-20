@@ -393,6 +393,15 @@ def credit_card_invoice_purchases_monthly_summary(
         if tx_month in selected_month_set:
             selected_transactions_by_month[tx_month].append(serialized)
 
+    if vigente_month in selected_month_set:
+        selected_transactions_by_month[vigente_month] = [
+            {
+                **tx,
+                "amount_abs": float(tx.get("amount") or 0),
+            }
+            for tx in current_invoice.get("raw_purchase_transactions", [])
+        ]
+
     def average_month_keys_for(selected_month: str) -> list[str]:
         selected_start = _month_start_from_key(selected_month)
         window_start = shift_month(selected_start, -12)
@@ -424,7 +433,7 @@ def credit_card_invoice_purchases_monthly_summary(
         is_current_invoice = selected_month == vigente_month
         if is_current_invoice:
             month_invoice_display_total = current_invoice_total
-            invoice_total_source = "dashboard_current_invoice"
+            invoice_total_source = "pending_current_invoice"
         elif official_bill_total is not None:
             month_invoice_display_total = official_bill_total
             invoice_total_source = "pluggy_official_bill"

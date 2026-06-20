@@ -209,7 +209,7 @@ class CreditObligationExcludesInactiveTest(unittest.TestCase):
     def test_bill_tier_excludes_bills_from_inactive_accounts(self):
         # official_bill is used for future/past months. Pin today before the
         # queried month so 2026-05 is a future month (bill tier).
-        today = date(2026, 4, 1)
+        today = date(2026, 3, 1)
         with Session(self.engine) as session:
             _seed_item(session, "item-active", is_active=True)
             _seed_item(session, "item-inactive", is_active=False)

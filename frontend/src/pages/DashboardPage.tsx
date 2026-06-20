@@ -160,9 +160,6 @@ export function DashboardPage() {
 
   const dashCap = data ? dashboardAvailableToSpend(data.capacity, data.currentInvoice) : null;
   const invoiceAmount = data?.currentInvoice.amount ?? data?.currentInvoice.adjusted_total ?? 0;
-  const adjustedCard = (data?.currentInvoice.cards || []).find(
-    (card) => (card.adjustments || []).length > 0,
-  );
   const nextInvoice = data?.upcoming?.next_invoice || null;
 
   const insights = useMemo(() => {
@@ -460,9 +457,7 @@ export function DashboardPage() {
                     </span>
                   </div>
                   <p className="mt-3 text-xs leading-relaxed text-ink-500">
-                    {adjustedCard
-                      ? `Saldo do cartão de ${formatMoney(adjustedCard.raw_balance)}, já descontada a fatura anterior de ${formatMoney(adjustedCard.latest_bill_amount)}.`
-                      : "Valor considerado no cálculo do disponível para gastar."}
+                    Soma das compras PENDING até o fim do mês da fatura vigente.
                   </p>
                   {nextInvoice ? (
                     <div className="mt-4 flex items-start gap-2.5 rounded-control border border-ink-100 bg-surface-muted p-3.5">
@@ -499,10 +494,7 @@ export function DashboardPage() {
                         total: Number(category.total),
                         count: category.count ?? 0,
                         color: category.color,
-                        subtitle:
-                          category.source === "account_balance_reconciliation"
-                            ? category.description || "Saldo sem transações detalhadas"
-                            : undefined,
+                        subtitle: undefined,
                       }))}
                       onSelect={(id) =>
                         setSelectedCategory(

@@ -43,13 +43,69 @@ def spending_capacity_summary(
         for entry in fixed["entries"]
         if entry.get("matched_transaction") and entry["matched_transaction"].get("id")
     }
-    invoice = invoice_summary(
-        session,
-        from_date=first_day,
-        to_date=last_day,
-        exclude_transaction_ids=fixed_cost_accounted_ids,
-        user_id=user_id,
-    )
+    vigente_month = _shift_year_month(today.strftime("%Y-%m"), 1)
+    current_invoice_transaction_ids: Optional[set[str]] = None
+    if year_month == vigente_month:
+        from app.services.current_card_invoice import current_card_invoice_summary
+
+        current_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
+        current_rows = current_invoice.get("raw_purchase_transactions", [])
+        current_invoice_transaction_ids = {
+            str(row["id"]) for row in current_rows if row.get("id")
+        }
+        gross_total = sum(
+            (Decimal(str(row.get("amount") or 0)) for row in current_rows),
+            Decimal("0"),
+        )
+        discretionary_rows = [
+            row for row in current_rows if row.get("id") not in fixed_cost_accounted_ids
+        ]
+        discretionary_total = sum(
+            (Decimal(str(row.get("amount") or 0)) for row in discretionary_rows),
+            Decimal("0"),
+        )
+        invoice = {
+            "invoice_mode": "open",
+            "invoice_total": float(discretionary_total),
+            "invoice_count": len(discretionary_rows),
+            "invoice_since": None,
+            "invoice_paid_dates": [],
+            "invoice_paid_total": 0.0,
+            "invoice_paid_count": 0,
+            "invoice_open_total": float(discretionary_total),
+            "invoice_open_count": len(discretionary_rows),
+            "invoice_open_since": None,
+            "invoice_gross_mode": "open",
+            "invoice_gross_total": float(gross_total),
+            "invoice_gross_count": len(current_rows),
+            "invoice_gross_since": None,
+            "invoice_gross_paid_dates": [],
+            "invoice_paid_gross_total": 0.0,
+            "invoice_paid_gross_count": 0,
+            "invoice_open_gross_total": float(gross_total),
+            "invoice_open_gross_count": len(current_rows),
+            "invoice_open_gross_since": None,
+            "invoice_discretionary_mode": "open",
+            "invoice_discretionary_total": float(discretionary_total),
+            "invoice_discretionary_count": len(discretionary_rows),
+            "invoice_discretionary_since": None,
+            "invoice_discretionary_paid_dates": [],
+            "invoice_paid_discretionary_total": 0.0,
+            "invoice_paid_discretionary_count": 0,
+            "invoice_open_discretionary_total": float(discretionary_total),
+            "invoice_open_discretionary_count": len(discretionary_rows),
+            "invoice_open_discretionary_since": None,
+            "invoice_excluded_total": float(gross_total - discretionary_total),
+            "invoice_excluded_count": len(current_rows) - len(discretionary_rows),
+        }
+    else:
+        invoice = invoice_summary(
+            session,
+            from_date=first_day,
+            to_date=last_day,
+            exclude_transaction_ids=fixed_cost_accounted_ids,
+            user_id=user_id,
+        )
 
     # Resolve the planning invoice first so the current month can reuse its
     # billing-cycle window when calculating variable spending.
@@ -77,6 +133,7 @@ def spending_capacity_summary(
         last_day=vb_last_day,
         today=today,
         fixed_cost_accounted_transaction_ids=fixed_cost_accounted_ids,
+        include_transaction_ids=current_invoice_transaction_ids,
         user_id=user_id,
     )
 
@@ -178,6 +235,7 @@ def spending_capacity_summary(
         "account_balance",
         "account_balance_due_month",
         "dashboard_current_invoice",
+        "pending_current_invoice",
     ):
         card_invoice_official_total = planning_inv_amount
     elif planning_inv["source"] == "scheduled_installments":
@@ -240,6 +298,7 @@ def spending_capacity_summary(
             "account_balance_due_month",
             "active_open_invoice_transactions",
             "dashboard_current_invoice",
+            "pending_current_invoice",
         ):
             future_card_obligation_total = planning_inv_amount
         else:

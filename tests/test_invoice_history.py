@@ -184,6 +184,7 @@ def _add_card_transaction(
     classification_rule_key: Optional[str] = None,
     ignored_from_totals: bool = False,
     is_user_overridden: bool = False,
+    status: Optional[str] = None,
 ) -> None:
     session.add(
         Transaction(
@@ -201,6 +202,7 @@ def _add_card_transaction(
             classification_rule_key=classification_rule_key,
             ignored_from_totals=ignored_from_totals,
             is_user_overridden=is_user_overridden,
+            status=status,
         )
     )
     session.commit()
@@ -827,6 +829,15 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 due_date=datetime.date(2026, 7, 8),
                 total=Decimal("9999.00"),
             )
+            _add_card_transaction(
+                session,
+                tx_id="pending-current-invoice",
+                transaction_date=datetime.date(2026, 6, 9),
+                amount=Decimal("400.00"),
+                description="Compra vigente",
+                category="Food",
+                status="PENDING",
+            )
             with patch("app.services.history.date") as history_date:
                 history_date.today.return_value = datetime.date(2026, 6, 10)
                 history_date.side_effect = lambda *args, **kwargs: datetime.date(
@@ -839,10 +850,11 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
 
         self.assertEqual(july["month"], "2026-07")
         self.assertTrue(july["is_current_invoice"])
-        self.assertEqual(july["invoice_total_source"], "dashboard_current_invoice")
-        self.assertEqual(july["dashboard_current_invoice_source"], "adjusted_account_balance")
-        self.assertAlmostEqual(july["invoice_display_total"], 11488.32, places=2)
-        self.assertAlmostEqual(july["total"], 11488.32, places=2)
+        self.assertEqual(july["invoice_total_source"], "pending_current_invoice")
+        self.assertEqual(july["dashboard_current_invoice_source"], "pending_transactions")
+        self.assertAlmostEqual(july["invoice_display_total"], 400.0, places=2)
+        self.assertAlmostEqual(july["total"], 400.0, places=2)
+        self.assertAlmostEqual(july["classified_purchase_total"], 400.0, places=2)
         self.assertAlmostEqual(july["official_bill_total"], 9999.0, places=2)
         self.assertNotEqual(july["invoice_display_total"], july["official_bill_total"])
 

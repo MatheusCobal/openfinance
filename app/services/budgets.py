@@ -22,6 +22,7 @@ def budget_progress_summary(
     today: date,
     include_ignored: bool = False,
     fixed_cost_accounted_transaction_ids: Optional[Set[str]] = None,
+    include_transaction_ids: Optional[Set[str]] = None,
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     # 10D-C: variable budgets are now rebuilt on top of the Pluggy-based
@@ -44,5 +45,6 @@ def budget_progress_summary(
         last_day=last_day,
         today=today,
         exclude_transaction_ids=set(fixed_cost_accounted_transaction_ids),
+        include_transaction_ids=include_transaction_ids,
         user_id=user_id,
     )

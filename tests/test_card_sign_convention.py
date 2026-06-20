@@ -9,8 +9,7 @@ These tests guarantee that:
   - invoice payments never inflate the open invoice;
   - refunds reduce the open invoice (zero floor on the final total only)
     and are neutral in gross spend pickers;
-  - _current_month_invoice and _vigente_forming_invoice share the same
-    convention (both via _net_open_invoice / card_invoice_signed_amount).
+  - the vigente invoice accepts only positive PENDING purchases.
 """
 
 import datetime
@@ -84,6 +83,7 @@ def _add_tx(
             amount=Decimal(amount),
             description=description,
             category=category,
+            status="PENDING",
         )
     )
     session.commit()
@@ -205,9 +205,8 @@ class CurrentMonthInvoiceSignTest(unittest.TestCase):
         self.assertEqual(inv["amount"], 0.0)
 
 
-class VigenteFormingInvoiceSignTest(unittest.TestCase):
-    """_vigente_forming_invoice must follow the same convention as
-    _current_month_invoice: purchases add, refunds subtract, payments out."""
+class VigentePendingInvoiceSignTest(unittest.TestCase):
+    """The vigente invoice includes only positive PENDING purchases."""
 
     def setUp(self):
         self.engine = _make_engine()
@@ -239,19 +238,20 @@ class VigenteFormingInvoiceSignTest(unittest.TestCase):
                 "Credit card payment",
             )
             inv = self._invoice(session)
-        self.assertEqual(inv["source"], "active_open_invoice_transactions")
-        self.assertEqual(inv["amount"], 200.0)
-        self.assertEqual(inv["transaction_count"], 2)
+        self.assertEqual(inv["source"], "pending_current_invoice")
+        self.assertEqual(inv["amount"], 300.0)
+        self.assertEqual(inv["transaction_count"], 1)
 
     def test_refunds_only_cycle_falls_through(self):
-        # A cycle with no purchases must not produce a forming invoice.
+        # A cycle with no positive PENDING purchases produces a zero invoice.
         with Session(self.engine) as session:
             self._seed(session)
             _add_tx(
                 session, "canc-1", datetime.date(2026, 6, 10), "-100.00", "CANC PARCELA", "Shopping"
             )
             inv = self._invoice(session)
-        self.assertNotEqual(inv["source"], "active_open_invoice_transactions")
+        self.assertEqual(inv["source"], "pending_current_invoice")
+        self.assertEqual(inv["amount"], 0.0)
 
 
 class ScheduledInstallmentsSignTest(unittest.TestCase):

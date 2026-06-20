@@ -80,7 +80,7 @@ class CreditCardInvoicePaymentStatusTest(unittest.TestCase):
         return planning_invoice_for_month(
             session,
             "2026-05",
-            today=datetime.date(2026, 4, 20),
+            today=datetime.date(2026, 3, 20),
         )
 
     def test_paid_by_bill_payments_total(self):
@@ -190,7 +190,7 @@ class CreditCardInvoicePaymentStatusTest(unittest.TestCase):
             invoice = planning_invoice_for_month(
                 session,
                 "2026-05",
-                today=datetime.date(2026, 4, 20),
+                today=datetime.date(2026, 3, 20),
             )
 
         self.assertEqual(invoice["source"], "none")
@@ -407,7 +407,7 @@ class StaleDueDateGuardTest(unittest.TestCase):
             invoice = planning_invoice_for_month(
                 session,
                 "2026-07",
-                today=datetime.date(2026, 6, 1),
+                today=datetime.date(2026, 5, 1),
             )
 
         self.assertEqual(invoice["source"], "official_bill")

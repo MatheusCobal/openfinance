@@ -212,6 +212,7 @@ def spend_by_category(
     first_day: date,
     last_day: date,
     exclude_transaction_ids: Optional[Set[str]] = None,
+    include_transaction_ids: Optional[Set[str]] = None,
     user_id: Optional[int] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Real variable spending per category for the period.
@@ -228,17 +229,17 @@ def spend_by_category(
     if not credit_account_ids:
         return {}
     classifier = TransactionClassifier.from_session(session, user_id=user_id)
-    txs = session.exec(
-        scope_query(
-            select(Transaction).where(
-                Transaction.date >= first_day,
-                Transaction.date <= last_day,
-                _non_duplicate_clause(),
-            ),
-            Transaction.user_id,
-            user_id,
+    query = select(Transaction).where(_non_duplicate_clause())
+    if include_transaction_ids is not None:
+        if not include_transaction_ids:
+            return {}
+        query = query.where(Transaction.id.in_(include_transaction_ids))
+    else:
+        query = query.where(
+            Transaction.date >= first_day,
+            Transaction.date <= last_day,
         )
-    ).all()
+    txs = session.exec(scope_query(query, Transaction.user_id, user_id)).all()
 
     buckets: Dict[str, Dict[str, Any]] = {}
     for tx in txs:
@@ -287,6 +288,7 @@ def variable_budget_progress(
     last_day: date,
     today: date,
     exclude_transaction_ids: Optional[Set[str]] = None,
+    include_transaction_ids: Optional[Set[str]] = None,
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Full variable-budget payload for a month.
@@ -298,7 +300,14 @@ def variable_budget_progress(
     """
     exclude_ids = set(exclude_transaction_ids or set())
     goals = list_goals(session, year_month, user_id=user_id)
-    spend = spend_by_category(session, first_day, last_day, exclude_ids, user_id=user_id)
+    spend = spend_by_category(
+        session,
+        first_day,
+        last_day,
+        exclude_ids,
+        include_transaction_ids=include_transaction_ids,
+        user_id=user_id,
+    )
 
     target_total = Decimal("0")
     budgeted_spent_total = Decimal("0")

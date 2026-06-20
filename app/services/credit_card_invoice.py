@@ -9,6 +9,10 @@ Public API:
 
 Source priority:
 
+  vigente_month (next calendar month):
+    1. pending_current_invoice — the shared current-invoice service; no other
+                                 source is allowed for this month.
+
   current_month:
     1. open_invoice  — bill_id-null transactions in the current billing cycle
                        (determined by Account.credit_balance_close_date), or the
@@ -19,17 +23,9 @@ Source priority:
     4. none
 
   future_month:
-    0. active_open_invoice_transactions — forming-cycle transactions, vigente
-                                          month only (needs close_date).
     1. official_bill         — CreditCardBill.due_date in year_month.
     2. account_balance_due_month — Account.balance where credit_balance_due_date
                                    falls in year_month.
-    2b. dashboard_current_invoice — vigente month only: the same adjusted
-                                    current invoice shown on the Dashboard
-                                    (current_card_invoice_summary), so the
-                                    planning value never falls back to a
-                                    stale/partial source while the Dashboard
-                                    shows a live one.
     3. scheduled_installments — future credit-card transactions in year_month.
     4. transaction_fallback
     5. none
@@ -80,39 +76,6 @@ def _billing_cycle_for_close_date(
     prev_close = datetime.date(prev_year, prev_month, prev_day)
     cycle_start = prev_close + datetime.timedelta(days=1)
     return cycle_start, cycle_end
-
-
-def _next_close_date(close_date: datetime.date) -> datetime.date:
-    """Return the next occurrence of the same close-date day, one month later.
-
-    Handles month-length differences (e.g. close on the 31st → 28/29 in Feb).
-    """
-    if close_date.month == 12:
-        next_year, next_month = close_date.year + 1, 1
-    else:
-        next_year, next_month = close_date.year, close_date.month + 1
-    max_day = calendar.monthrange(next_year, next_month)[1]
-    return datetime.date(next_year, next_month, min(close_date.day, max_day))
-
-
-def _forming_billing_cycle(
-    close_date: datetime.date,
-    today: datetime.date,
-) -> tuple[datetime.date, datetime.date]:
-    """Return the billing cycle that is currently OPEN (forming) as of today.
-
-    While today is on/before close_date the cycle ending on close_date is still
-    forming.  Once today passes close_date that cycle has closed and the NEXT
-    cycle (ending on the following close date) is the one accumulating new
-    purchases.
-
-    Example (close_date=2026-06-04):
-      today=2026-06-01 → (2026-05-05, 2026-06-04)   [still forming]
-      today=2026-06-08 → (2026-06-05, 2026-07-04)   [next cycle opened]
-    """
-    if today <= close_date:
-        return _billing_cycle_for_close_date(close_date)
-    return _billing_cycle_for_close_date(_next_close_date(close_date))
 
 
 def _next_calendar_month(today: datetime.date) -> str:
@@ -757,153 +720,32 @@ def _current_month_invoice(
     return {**none_r, **_stale_ab_fields}
 
 
-def _vigente_forming_invoice(
+def _pending_current_invoice_plan(
     session: Session,
     year_month: str,
     today: datetime.date,
     credit_accounts: list[Account],
     user_id: Optional[int] = None,
-) -> Optional[Dict[str, Any]]:
-    """The "fatura vigente": invoice currently FORMING, due next month.
-
-    This is the ONLY part of the future-month flow that is transaction-driven.
-    It applies strictly to the vigente month (the calendar month immediately
-    after ``today`` — the dashboard's default planning month) so that months
-    further out keep using the official-bill / installments tiers unchanged.
-
-    Why it's needed: when today is past the card's close_date, recent purchases
-    land in the freshly-opened cycle that will be due next month. The old future
-    tiers showed either a stale Account.balance snapshot (frozen between syncs)
-    or a premature/empty official bill, so the value appeared "frozen". Here we
-    sum the actual transactions of the forming cycle instead.
-
-    Returns None (caller falls through to the official-bill tiers) when:
-      * year_month is not the vigente month, or
-      * no account exposes credit_balance_close_date, or
-      * the forming cycle has no qualifying transactions yet.
-
-    Purchases (positive) add and refunds/cancellations (negative) subtract,
-    with invoice payments excluded — the same convention used by
-    _current_month_invoice (see _net_open_invoice).
-    """
-    if year_month != _next_calendar_month(today):
-        return None
-
-    accounts_with_close = [a for a in credit_accounts if a.credit_balance_close_date]
-    if not accounts_with_close:
-        return None
-
-    all_starts, all_ends = [], []
-    for a in accounts_with_close:
-        cs, ce = _forming_billing_cycle(a.credit_balance_close_date, today)
-        all_starts.append(cs)
-        all_ends.append(ce)
-    cycle_start = min(all_starts)
-    cycle_end = max(all_ends)
-
-    credit_account_ids = {a.id for a in credit_accounts}
-    cycle_txs = session.exec(
-        scope_query(
-            select(Transaction).where(
-                Transaction.account_id.in_(credit_account_ids),
-                Transaction.date >= cycle_start,
-                Transaction.date <= cycle_end,
-                _non_duplicate_clause(),
-            ),
-            Transaction.user_id,
-            user_id,
-        )
-    ).all()
-
-    from app.services.classification import TransactionClassifier
-
-    classifier = TransactionClassifier.from_session(session, user_id=user_id)
-    net_total, purchase_count, refund_count = _net_open_invoice(cycle_txs, classifier)
-    if not purchase_count:
-        return None
-
-    return {
-        "year_month": year_month,
-        "planning_mode": "future_month",
-        "amount": float(max(net_total, Decimal("0"))),
-        "source": "active_open_invoice_transactions",
-        "source_label": "Fatura vigente em formação",
-        "is_estimated": True,
-        "due_dates": [],
-        "cards": [],
-        "transaction_count": purchase_count + refund_count,
-        "bill_count": 0,
-        "account_count": len(accounts_with_close),
-        "cycle_start": cycle_start.isoformat(),
-        "cycle_end": cycle_end.isoformat(),
-        "account_balance_total": float(_account_balance_total(credit_accounts)),
-    }
-
-
-def _vigente_dashboard_invoice(
-    session: Session,
-    year_month: str,
-    today: datetime.date,
-    credit_accounts: list[Account],
-    user_id: Optional[int] = None,
-) -> Optional[Dict[str, Any]]:
-    """Vigente-month fallback that mirrors the Dashboard's current invoice.
-
-    The Dashboard card uses current_card_invoice_summary() — Account.balance
-    adjusted by removing a closed bill Pluggy may still carry. When the vigente
-    month has no forming-cycle transactions (no close_date), no official bill
-    and no Account.balance due in the month, the old flow fell through to
-    scheduled_installments, which only counts future-dated rows and therefore
-    misses purchases already made in the forming cycle — showing a stale,
-    smaller value than the Dashboard. This tier reuses the Dashboard source so
-    Planning and Upcoming display the same current invoice.
-
-    The tier only applies when every credit account with a balance has a
-    credit_balance_due_date already in the past (a stale snapshot): that is
-    the signature of the bug — the previous cycle closed, Pluggy has not
-    posted the next bill yet, and Account.balance now represents the forming
-    invoice due in the vigente month. Accounts with no due date or a due date
-    in a later month keep the previous policy (balance not used for future
-    months unless the due date falls in them).
-
-    Returns None (caller falls through to the next tier) when year_month is
-    not the vigente month, the due dates are not stale, or the Dashboard
-    summary has no positive amount.
-    """
-    if year_month != _next_calendar_month(today):
-        return None
-
-    accounts_with_balance = [a for a in credit_accounts if a.balance is not None]
-    if not accounts_with_balance:
-        return None
-    if any(
-        a.credit_balance_due_date is None or a.credit_balance_due_date > today
-        for a in accounts_with_balance
-    ):
-        return None
-
+) -> Dict[str, Any]:
+    """Planning representation of the shared PENDING-only current invoice."""
     from app.services.current_card_invoice import current_card_invoice_summary
 
     summary = current_card_invoice_summary(session, today=today, user_id=user_id)
-    amount = Decimal(str(summary.get("adjusted_total") or 0))
-    if amount <= 0 or not summary.get("cards"):
-        return None
-
     return {
         "year_month": year_month,
         "planning_mode": "future_month",
-        "amount": float(amount),
-        "source": "dashboard_current_invoice",
-        "source_label": "Fatura vigente (mesma da Dashboard)",
+        "amount": float(summary.get("amount") or 0),
+        "source": "pending_current_invoice",
+        "source_label": "Compras PENDING da fatura vigente",
         "is_estimated": True,
         "due_dates": [],
-        "cards": [],
-        "transaction_count": 0,
+        "cards": summary.get("cards", []),
+        "transaction_count": summary.get("category_count", 0),
         "bill_count": 0,
         "account_count": summary.get("account_count", len(credit_accounts)),
         "cycle_start": None,
-        "cycle_end": None,
-        "account_balance_total": float(_account_balance_total(credit_accounts)),
+        "cycle_end": summary.get("cutoff_date"),
+        "account_balance_total": 0.0,
     }
 
 
@@ -914,15 +756,10 @@ def _future_month_invoice(
     credit_accounts: list[Account],
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Invoice estimate for a future month.
+    """Invoice estimate for a future month beyond the vigente month.
 
-    Tier 0: fatura vigente — forming-cycle transactions, vigente month only
-            (see _vigente_forming_invoice). Months beyond the vigente month
-            skip this tier entirely.
     Tier 1: official CreditCardBill with due_date in year_month.
     Tier 2: Account.balance where credit_balance_due_date falls in year_month.
-    Tier 2b: Dashboard adjusted current invoice, vigente month only
-             (see _vigente_dashboard_invoice).
     Tier 3: scheduled future installments in year_month.
     Tier 4: transaction fallback.
     Tier 5: none.
@@ -939,11 +776,6 @@ def _future_month_invoice(
 
     if not credit_accounts:
         return _none_result(year_month, "future_month", 0, float(bal_total))
-
-    # ---- Tier 0: fatura vigente (forming-cycle transactions, vigente month) ----
-    forming = _vigente_forming_invoice(session, year_month, today, credit_accounts, user_id=user_id)
-    if forming is not None:
-        return forming
 
     # ---- Tier 1: official CreditCardBill ----
     bills = session.exec(
@@ -1030,13 +862,6 @@ def _future_month_invoice(
             "cycle_end": None,
             "account_balance_total": float(bal_total),
         }
-
-    # ---- Tier 2b: Dashboard adjusted current invoice (vigente month only) ----
-    dashboard = _vigente_dashboard_invoice(
-        session, year_month, today, credit_accounts, user_id=user_id
-    )
-    if dashboard is not None:
-        return dashboard
 
     # ---- Tier 3: scheduled future installments ----
     installments = scheduled_installments_for_month(
@@ -1203,10 +1028,19 @@ def planning_invoice_for_month(
     """
     today = today if today is not None else datetime.date.today()
     current_ym = today.strftime("%Y-%m")
+    vigente_ym = _next_calendar_month(today)
 
     credit_accounts = _active_credit_accounts(session, user_id=user_id)
 
-    if year_month == current_ym:
+    if year_month == vigente_ym:
+        result = _pending_current_invoice_plan(
+            session,
+            year_month,
+            today,
+            credit_accounts,
+            user_id=user_id,
+        )
+    elif year_month == current_ym:
         result = _current_month_invoice(session, year_month, today, credit_accounts, user_id=user_id)
     elif year_month > current_ym:
         result = _future_month_invoice(session, year_month, today, credit_accounts, user_id=user_id)

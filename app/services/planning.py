@@ -55,6 +55,16 @@ def planning_month_summary(
         for entry in fixed_costs["entries"]
         if entry.get("matched_transaction") and entry["matched_transaction"].get("id")
     }
+    include_transaction_ids = None
+    if year_month == _shift_year_month(today.strftime("%Y-%m"), 1):
+        from app.services.current_card_invoice import current_card_invoice_summary
+
+        current_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
+        include_transaction_ids = {
+            str(row["id"])
+            for row in current_invoice.get("raw_purchase_transactions", [])
+            if row.get("id")
+        }
     variable_budgets = budget_progress_summary(
         session,
         year_month=year_month,
@@ -62,6 +72,7 @@ def planning_month_summary(
         last_day=last_day,
         today=today,
         fixed_cost_accounted_transaction_ids=fixed_cost_accounted_ids,
+        include_transaction_ids=include_transaction_ids,
         user_id=user_id,
     )
     planning_invoice = planning_invoice_for_month(session, year_month, today=today, user_id=user_id)

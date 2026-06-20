@@ -327,6 +327,7 @@ class FixedCostsTest(unittest.TestCase):
                         amount=Decimal("200"),
                         description="Academia mensal",
                         category="Fitness",
+                        status="PENDING",
                     ),
                     Transaction(
                         id="credit-scheduled",
@@ -335,6 +336,7 @@ class FixedCostsTest(unittest.TestCase):
                         amount=Decimal("300"),
                         description="Parcela curso 02/06",
                         category="Education",
+                        status="PENDING",
                     ),
                     Transaction(
                         id="bank-current",
@@ -1416,7 +1418,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # No official bill for 2026-07 → future_card_obligation_total must be 0.
@@ -1439,7 +1441,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-installment-no-budget",
                     account_id="credit-1",
-                    date=date(2026, 7, 20),
+                    date=date(2026, 8, 20),
                     amount=Decimal("400"),
                     description="Parcela TV",
                     category="Electronics",
@@ -1448,7 +1450,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # Installment picked up as scheduled_installments fallback.
@@ -1469,7 +1471,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-parcela-1",
                     account_id="credit-1",
-                    date=date(2026, 7, 5),
+                    date=date(2026, 8, 5),
                     amount=Decimal("1000"),
                     description="Parcela A",
                     category="Shopping",
@@ -1479,7 +1481,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-parcela-2",
                     account_id="credit-1",
-                    date=date(2026, 7, 15),
+                    date=date(2026, 8, 15),
                     amount=Decimal("500"),
                     description="Parcela B",
                     category="Shopping",
@@ -1488,7 +1490,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["future_card_obligation_source"], "scheduled_installments")
         self.assertEqual(capacity["future_card_obligation_count"], 2)
@@ -1513,7 +1515,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-future-pos",
                     account_id="credit-1",
-                    date=date(2026, 7, 10),
+                    date=date(2026, 8, 10),
                     amount=Decimal("800"),
                     description="Parcela TV 03/12",
                     category="Electronics",
@@ -1524,7 +1526,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-future-canc",
                     account_id="credit-1",
-                    date=date(2026, 7, 10),
+                    date=date(2026, 8, 10),
                     amount=Decimal("-200"),
                     description="CANC PARCELA SEM J03/12",
                     category="Electronics",
@@ -1535,7 +1537,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-future-zero",
                     account_id="credit-1",
-                    date=date(2026, 7, 10),
+                    date=date(2026, 8, 10),
                     amount=Decimal("0"),
                     description="Ajuste zero",
                     category="Electronics",
@@ -1545,7 +1547,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             installments = scheduled_installments_for_month(
-                session, "2026-07", today=date(2026, 6, 15)
+                session, "2026-08", today=date(2026, 6, 15)
             )
 
         # Only the positive tx (800) is counted
@@ -1554,7 +1556,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(installments["transactions"][0]["transaction_id"], "tx-future-pos")
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["future_card_obligation_source"], "scheduled_installments")
         self.assertEqual(capacity["future_card_obligation_total"], 800.0)
@@ -1570,7 +1572,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 CreditCardBill(
                     id="bill-priority-1",
                     account_id="credit-1",
-                    due_date=date(2026, 7, 10),
+                    due_date=date(2026, 8, 10),
                     total_amount=Decimal("3000"),
                 )
             )
@@ -1579,7 +1581,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
                 Transaction(
                     id="tx-installment-with-bill",
                     account_id="credit-1",
-                    date=date(2026, 7, 20),
+                    date=date(2026, 8, 20),
                     amount=Decimal("400"),
                     description="Parcela notebook",
                     category="Shopping",
@@ -1588,7 +1590,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["future_card_obligation_source"], "official_bill")
         self.assertEqual(capacity["future_card_obligation_total"], 3000.0)
@@ -1602,7 +1604,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         self.assertEqual(capacity["future_card_obligation_source"], "none")
@@ -1620,12 +1622,12 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         with Session(self.engine) as session:
             acct = session.exec(select(Account).where(Account.id == "credit-1")).one()
             acct.balance = Decimal("40132.57")
-            acct.credit_balance_due_date = date(2026, 7, 10)
+            acct.credit_balance_due_date = date(2026, 8, 10)
             session.add(acct)
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         self.assertEqual(capacity["card_invoice_source"], "account_balance_due_month")
@@ -1643,13 +1645,13 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         with Session(self.engine) as session:
             acct = session.exec(select(Account).where(Account.id == "credit-1")).one()
             acct.balance = Decimal("40132.57")
-            # Due date is in August, not July
-            acct.credit_balance_due_date = date(2026, 8, 10)
+            # Due date is in September, not August
+            acct.credit_balance_due_date = date(2026, 9, 10)
             session.add(acct)
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 15))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 15))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # credit_balance_due_date is in 2026-08, not 2026-07 → not used
@@ -1737,10 +1739,10 @@ class CurrentMonthOpenInvoiceCycleTest(unittest.TestCase):
             )
 
         capacity = planning["raw"]["spending_capacity"]
-        self.assertEqual(planning["variable_budgets"]["remaining"], 1400.0)
-        self.assertEqual(capacity["variable_budget_consumed"], 100.0)
-        self.assertEqual(capacity["variable_budget_remaining"], 1400.0)
-        self.assertEqual(capacity["variable_budget_uncommitted"], 1400.0)
+        self.assertEqual(planning["variable_budgets"]["remaining"], 500.0)
+        self.assertEqual(capacity["variable_budget_consumed"], 1000.0)
+        self.assertEqual(capacity["variable_budget_remaining"], 500.0)
+        self.assertEqual(capacity["variable_budget_uncommitted"], 500.0)
 
     # ── 1. bill_id-null in cycle are counted ──────────────────────────────────
 
@@ -1992,14 +1994,14 @@ class CurrentMonthOpenInvoiceCycleTest(unittest.TestCase):
                 CreditCardBill(
                     id="bill-future",
                     account_id="credit-1",
-                    due_date=date(2026, 7, 10),
+                    due_date=date(2026, 8, 10),
                     total_amount=Decimal("3000"),
                 )
             )
             session.commit()
 
         with Session(self.engine) as session:
-            capacity = spending_capacity_summary(session, "2026-07", today=date(2026, 6, 30))
+            capacity = spending_capacity_summary(session, "2026-08", today=date(2026, 6, 30))
 
         self.assertEqual(capacity["planning_mode"], "future_month")
         # Future month: CreditCardBill with due_date in that month IS still used

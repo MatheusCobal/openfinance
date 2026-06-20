@@ -480,16 +480,16 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
                 CreditCardBill(
                     id="bill-future",
                     account_id="cc1",
-                    due_date=date(2026, 6, 10),
+                    due_date=date(2026, 7, 10),
                     total_amount=Decimal("2500"),
                 )
             )
             session.commit()
-            inv = planning_invoice_for_month(session, "2026-06", today=self.today)
+            inv = planning_invoice_for_month(session, "2026-07", today=self.today)
         self.assertEqual(inv["source"], "official_bill")
         self.assertEqual(inv["amount"], 2500.0)
         self.assertEqual(inv["bill_count"], 1)
-        self.assertIn("2026-06-10", inv["due_dates"])
+        self.assertIn("2026-07-10", inv["due_dates"])
         self.assertFalse(inv["is_estimated"])
 
     def test_future_month_account_balance_due_month(self):
@@ -499,9 +499,9 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
         with Session(self.engine) as session:
             self._seed_credit(
-                session, balance=Decimal("900"), credit_balance_due_date=date(2026, 6, 17)
+                session, balance=Decimal("900"), credit_balance_due_date=date(2026, 7, 17)
             )
-            inv = planning_invoice_for_month(session, "2026-06", today=self.today)
+            inv = planning_invoice_for_month(session, "2026-07", today=self.today)
         self.assertEqual(inv["source"], "account_balance_due_month")
         self.assertEqual(inv["amount"], 900.0)
 
@@ -729,11 +729,15 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
+            tx = session.get(Transaction, "credit-buy")
+            tx.status = "PENDING"
+            session.add(tx)
+            session.commit()
 
             capacity = spending_capacity_summary(session, "2026-06", today=self.today)
 
         self.assertEqual(capacity["planning_mode"], "future_month")
-        self.assertEqual(capacity["card_invoice_source"], "active_open_invoice_transactions")
+        self.assertEqual(capacity["card_invoice_source"], "pending_current_invoice")
         # The +1500 purchase in the forming cycle → +1500 invoice.
         self.assertEqual(capacity["card_invoice_official_total"], 1500.0)
         self.assertEqual(capacity["future_card_obligation_total"], 1500.0)
@@ -748,6 +752,9 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
         with Session(self.engine) as session:
             self._seed_item(session)
             sync_service.sync_item("item-1", session)
+            synced = session.get(Transaction, "credit-buy")
+            synced.status = "PENDING"
+            session.add(synced)
             # Simulate a fresh purchase in the newly-opened cycle (after close).
             session.add(
                 Transaction(
@@ -757,6 +764,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
                     amount=Decimal("200"),
                     description="Compra recente",
                     category="Shopping",
+                    status="PENDING",
                 )
             )
             session.commit()
@@ -766,7 +774,7 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
 
         # Forming cycle (2026-05-11 – 2026-06-10) holds credit-buy (1500) and
         # fresh-buy (200) → 1700, which differs from the frozen balance (1500).
-        self.assertEqual(capacity["card_invoice_source"], "active_open_invoice_transactions")
+        self.assertEqual(capacity["card_invoice_source"], "pending_current_invoice")
         self.assertEqual(capacity["card_invoice_official_total"], 1700.0)
         self.assertNotEqual(capacity["card_invoice_official_total"], balance)
 
