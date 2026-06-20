@@ -12,6 +12,7 @@ services:
       # Override DATABASE_URL with the container-internal volume path.
       # This takes precedence over any DATABASE_URL set in .env.
       DATABASE_URL: sqlite:////data/openfinance.db
+      TZ: America/Sao_Paulo
     volumes:
       # Named volume for SQLite — survives docker compose down.
       # Database file: /data/openfinance.db inside the container.

@@ -18,6 +18,10 @@ from app.services import sync as sync_service
 from app.services.transactions import last_month_keys
 
 
+def _snapshot(session: Session, model, year_month: str):
+    return session.exec(select(model).where(model.year_month == year_month)).first()
+
+
 class FakePluggy:
     def __init__(self, today: date):
         self.today = today
@@ -215,9 +219,9 @@ class SyncServiceTest(unittest.TestCase):
             self.assertIsNotNone(bank_sync.last_synced_at)
 
             current_month = last_month_keys(1, self.today)[0]
-            income_snapshot = session.get(BankIncomeMonth, current_month)
-            invoice_snapshot = session.get(CreditCardInvoiceMonth, current_month)
-            balance_snapshot = session.get(MonthlyBalanceMonth, current_month)
+            income_snapshot = _snapshot(session, BankIncomeMonth, current_month)
+            invoice_snapshot = _snapshot(session, CreditCardInvoiceMonth, current_month)
+            balance_snapshot = _snapshot(session, MonthlyBalanceMonth, current_month)
             self.assertEqual(income_snapshot.total, Decimal("5000.0000000000"))
             self.assertEqual(income_snapshot.income_count, 1)
             self.assertEqual(invoice_snapshot.total, Decimal("120.5000000000"))

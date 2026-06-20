@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.database import get_session
 from app.main import app
@@ -48,6 +48,10 @@ from app.services.transactions import credit_card_payment_transactions
 ITEM_ID = "item-hist-test"
 CC_ACCOUNT_ID = "cc-hist-test"
 BANK_ACCOUNT_ID = "bank-hist-test"
+
+
+def _snapshot(session: Session, model, year_month: str):
+    return session.exec(select(model).where(model.year_month == year_month)).first()
 
 
 def _make_engine():
@@ -929,8 +933,8 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 mock_date.side_effect = lambda *args, **kwargs: datetime.date(*args, **kwargs)
                 refresh_credit_card_invoice_snapshots(session, months=2)
 
-            may = session.get(CreditCardInvoiceMonth, "2026-05")
-            april = session.get(CreditCardInvoiceMonth, "2026-04")
+            may = _snapshot(session, CreditCardInvoiceMonth, "2026-05")
+            april = _snapshot(session, CreditCardInvoiceMonth, "2026-04")
 
         self.assertIsNotNone(may)
         self.assertEqual(may.payment_count, 1)
@@ -954,7 +958,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 )
                 refresh_credit_card_invoice_snapshots(session, months=2)
 
-            may = session.get(CreditCardInvoiceMonth, "2026-05")
+            may = _snapshot(session, CreditCardInvoiceMonth, "2026-05")
 
         self.assertIsNotNone(may)
         self.assertEqual(may.payment_count, 1)
@@ -984,8 +988,8 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 )
                 refresh_monthly_balance_snapshots(session, months=2)
 
-            may = session.get(MonthlyBalanceMonth, "2026-05")
-            april = session.get(MonthlyBalanceMonth, "2026-04")
+            may = _snapshot(session, MonthlyBalanceMonth, "2026-05")
+            april = _snapshot(session, MonthlyBalanceMonth, "2026-04")
 
         self.assertIsNotNone(may)
         self.assertIsNone(april)
@@ -1027,7 +1031,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                     **kwargs,
                 )
                 refresh_monthly_balance_snapshots(session, months=2)
-            snapshot = session.get(MonthlyBalanceMonth, "2026-05")
+            snapshot = _snapshot(session, MonthlyBalanceMonth, "2026-05")
 
         live_may = {m["month"]: m for m in live["months"]}["2026-05"]
         self.assertIsNotNone(snapshot)
