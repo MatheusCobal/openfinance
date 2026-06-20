@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from sqlmodel import Session, select
 
-from app.models import Account, Transaction
+from app.models import Account, CreditCardBill, Transaction
 from app.services.classification import TransactionClassifier, card_invoice_signed_amount
 from app.services.credit_categories import (
     credit_category_payload,
@@ -167,11 +167,10 @@ def upcoming_summary(
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     today = today if today is not None else date.today()
-    transaction_month_start = today.replace(day=1)
     candidate_txs = session.exec(
         scope_query(
             select(Transaction).where(
-                Transaction.date >= transaction_month_start,
+                Transaction.date > today,
                 _non_duplicate_clause(),
             ),
             Transaction.user_id,
@@ -197,16 +196,29 @@ def upcoming_summary(
     for tx in candidate_txs:
         if not classifier.is_card_purchase(tx):
             continue
-        transaction_month = tx.date.replace(day=1)
-        invoice_month = month_key(shift_month(transaction_month, 1))
+        invoice_month = month_key(tx.date)
         by_month[invoice_month].append(tx)
 
     months_out = []
-    vigente_month = month_key(shift_month(transaction_month_start, 1))
+    vigente_month = month_key(shift_month(today.replace(day=1), 1))
     if vigente_month not in by_month:
         by_month[vigente_month] = []
 
+    official_bills = session.exec(
+        scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
+    ).all()
+    active_credit_account_ids = set(
+        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
+    )
+    for bill in official_bills:
+        if bill.due_date is None or bill.account_id not in active_credit_account_ids:
+            continue
+        bill_month = month_key(bill.due_date)
+        if bill_month >= vigente_month and bill_month not in by_month:
+            by_month[bill_month] = []
+
     from app.services.current_card_invoice import current_card_invoice_summary
+    from app.services.credit_card_invoice import planning_invoice_for_month
 
     dashboard_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
     has_reported_invoice = dashboard_invoice.get("account_count", 0) > 0
@@ -216,23 +228,27 @@ def upcoming_summary(
         txs = by_month[month]
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
         is_current_invoice = month == vigente_month
-        invoice_total = (
-            reported_invoice_total
-            if is_current_invoice and has_reported_invoice
-            else month_total
+        planned_invoice = planning_invoice_for_month(
+            session,
+            month,
+            today=today,
+            user_id=user_id,
         )
-        invoice_source = (
-            "dashboard_current_invoice"
-            if is_current_invoice and has_reported_invoice
-            else "previous_calendar_month_transactions"
-        )
-        invoice_source_label = (
-            dashboard_invoice.get("source_label") or "Fatura vigente ajustada"
-            if is_current_invoice and has_reported_invoice
-            else "Gastos do mês anterior"
-        )
-        source_month_date = shift_month(date.fromisoformat(f"{month}-01"), -1)
-        source_month = month_key(source_month_date)
+        if is_current_invoice and has_reported_invoice:
+            invoice_total = reported_invoice_total
+            invoice_source = "dashboard_current_invoice"
+            invoice_source_label = (
+                dashboard_invoice.get("source_label") or "Fatura vigente ajustada"
+            )
+        else:
+            planned_amount = planned_invoice.get("amount")
+            invoice_total = Decimal(
+                str(month_total if planned_amount is None else planned_amount)
+            )
+            invoice_source = planned_invoice.get("source") or "scheduled_installments"
+            invoice_source_label = (
+                planned_invoice.get("source_label") or "Fatura Pluggy do mês"
+            )
         serialized_transactions = []
         for tx in txs:
             classification = _classification_fields(tx, accounts)
@@ -280,7 +296,7 @@ def upcoming_summary(
                 "total": float(invoice_total),
                 "detailed_total": float(month_total),
                 "count": len(txs),
-                "transaction_month": source_month,
+                "transaction_month": month,
                 "invoice_total": float(invoice_total),
                 "invoice_source": invoice_source,
                 "invoice_source_label": invoice_source_label,
