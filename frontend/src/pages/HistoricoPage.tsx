@@ -15,7 +15,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ChartCard } from "../components/ui/ChartCard";
 import { EmptyState } from "../components/ui/EmptyState";
-import { ErrorState } from "../components/ui/ErrorState";
+import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FormField } from "../components/ui/FormField";
 import { LoadingState } from "../components/ui/LoadingState";
 import { MetricCard } from "../components/ui/MetricCard";
@@ -787,6 +787,9 @@ export function HistoricoPage() {
           />
           {loading && !data ? <LoadingState label="Carregando histórico..." /> : null}
           {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
+          {error && data ? (
+            <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
+          ) : null}
           {data && activeTab === "invoices" && data.invoices ? <InvoiceTab data={data.invoices} /> : null}
           {data && activeTab === "categories" && data.invoices ? (
             <CategorySpendingTab

@@ -30,7 +30,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { CategoryBreakdown } from "../components/ui/CategoryBreakdown";
 import { EmptyState } from "../components/ui/EmptyState";
-import { ErrorState } from "../components/ui/ErrorState";
+import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
 import { InsightCard } from "../components/ui/InsightCard";
 import { LoadingState } from "../components/ui/LoadingState";
@@ -264,6 +264,9 @@ export function DashboardPage() {
       <PageContainer>
         {loading && !data ? <LoadingState label="Preparando seu cockpit..." /> : null}
         {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
+        {error && data ? (
+          <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
+        ) : null}
         {data && dashCap ? (
           <div className="space-y-8">
             {/* Cockpit hero */}

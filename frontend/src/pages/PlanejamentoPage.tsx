@@ -33,7 +33,7 @@ import { CatAvatar } from "../components/ui/CatAvatar";
 import { CheckToggle } from "../components/ui/CheckToggle";
 import { DayBadge } from "../components/ui/DayBadge";
 import { EmptyState } from "../components/ui/EmptyState";
-import { ErrorState } from "../components/ui/ErrorState";
+import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
 import { Input } from "../components/ui/Input";
 import { LoadingState } from "../components/ui/LoadingState";
@@ -2083,6 +2083,9 @@ export function PlanejamentoPage() {
 
           {loading && !data ? <LoadingState label="Carregando planejamento..." /> : null}
           {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
+          {error && data ? (
+            <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
+          ) : null}
           {data ? (
             <>
               {activeTab === "overview" ? <MonthPlanPanel capacity={data.capacity} /> : null}
