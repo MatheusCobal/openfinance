@@ -543,23 +543,44 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         self.assertEqual(august["source"], "scheduled_installments")
         self.assertEqual(august["amount"], 500.0)
 
-    def test_upcoming_summary_next_invoice_matches_dashboard(self):
-        """Upcoming ("Próximos") exposes next_invoice with the same value as
-        the Dashboard current invoice, not the stale installments-only sum.
-        The vigente month row must use that same value too."""
+    def test_upcoming_vigente_uses_previous_calendar_month_transactions(self):
+        """July is the vigente invoice in June and must detail June spending.
+
+        Future-dated July installments belong to August instead of being mixed
+        into the vigente July row.
+        """
         from app.services.transaction_reports import upcoming_summary
 
         with Session(self.engine) as session:
             self._seed_vigente_scenario(session)
-            session.add(
-                Transaction(
-                    id="current-purchase-jun",
-                    account_id="credit-1",
-                    date=date(2026, 6, 9),
-                    amount=Decimal("100.00"),
-                    description="Compra atual",
-                    category="Groceries",
-                )
+            session.add_all(
+                [
+                    Transaction(
+                        id="current-purchase-jun",
+                        account_id="credit-1",
+                        date=date(2026, 6, 9),
+                        amount=Decimal("100.00"),
+                        description="Compra atual",
+                        category="Groceries",
+                    ),
+                    Transaction(
+                        id="invoice-payment-jun",
+                        account_id="credit-1",
+                        date=date(2026, 6, 9),
+                        amount=Decimal("-100.00"),
+                        description="Pagamento recebido",
+                        category="Credit card payment",
+                    ),
+                    Transaction(
+                        id="duplicate-purchase-jun",
+                        account_id="credit-1",
+                        date=date(2026, 6, 9),
+                        amount=Decimal("999.00"),
+                        description="Compra duplicada",
+                        category="Shopping",
+                        is_duplicate=True,
+                    ),
+                ]
             )
             session.commit()
 
@@ -571,27 +592,107 @@ class CurrentCardInvoiceTest(unittest.TestCase):
             )
 
         self.assertEqual(summary["next_invoice"]["year_month"], "2026-07")
-        self.assertEqual(summary["next_invoice"]["amount"], dashboard["amount"])
-        self.assertEqual(summary["next_invoice"]["amount"], 11488.32)
-        self.assertEqual(summary["next_invoice"]["source"], "dashboard_current_invoice")
+        self.assertEqual(summary["next_invoice"]["transaction_month"], "2026-06")
+        self.assertEqual(summary["next_invoice"]["amount"], 100.0)
+        self.assertEqual(summary["next_invoice"]["reported_amount"], dashboard["amount"])
+        self.assertEqual(
+            summary["next_invoice"]["source"],
+            "previous_calendar_month_transactions",
+        )
         self.assertEqual(summary["months"][0]["month"], "2026-07")
-        self.assertEqual(summary["months"][0]["total"], 11488.32)
-        self.assertEqual(summary["months"][0]["invoice_total"], 11488.32)
-        self.assertEqual(summary["months"][0]["scheduled_total"], 7993.58)
-        self.assertEqual(summary["months"][0]["invoice_source"], "dashboard_current_invoice")
+        self.assertEqual(summary["months"][0]["transaction_month"], "2026-06")
+        self.assertEqual(summary["months"][0]["total"], 100.0)
+        self.assertEqual(summary["months"][0]["invoice_total"], 100.0)
         self.assertTrue(summary["months"][0]["is_current_invoice"])
-        self.assertEqual(summary["months"][0]["categories"][0]["name"], "Lazer / Viagem")
-        self.assertEqual(summary["months"][0]["count"], 2)
-        self.assertEqual(summary["months"][0]["scheduled_count"], 1)
+        self.assertEqual(summary["months"][0]["categories"][0]["name"], "Alimentação")
+        self.assertEqual(summary["months"][0]["count"], 1)
         self.assertEqual(
             {tx["id"] for tx in summary["months"][0]["transactions"]},
-            {"current-purchase-jun", "future-installment-jul"},
+            {"current-purchase-jun"},
         )
         self.assertAlmostEqual(
             sum(category["total"] for category in summary["months"][0]["categories"]),
             summary["months"][0]["total"],
             places=2,
         )
+        self.assertEqual(summary["months"][1]["month"], "2026-08")
+        self.assertEqual(summary["months"][1]["transaction_month"], "2026-07")
+        self.assertEqual(summary["months"][1]["total"], 7993.58)
+        self.assertEqual(
+            {tx["id"] for tx in summary["months"][1]["transactions"]},
+            {"future-installment-jul"},
+        )
+
+    def test_upcoming_rolls_july_spending_into_august(self):
+        from app.services.transaction_reports import upcoming_summary
+
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(
+                session,
+                balance=Decimal("1000"),
+                due_date=date(2026, 7, 8),
+            )
+            session.add_all(
+                [
+                    Transaction(
+                        id="purchase-jul",
+                        account_id="credit-1",
+                        date=date(2026, 7, 12),
+                        amount=Decimal("250"),
+                        description="Compra julho",
+                        category="Groceries",
+                    ),
+                    Transaction(
+                        id="purchase-aug",
+                        account_id="credit-1",
+                        date=date(2026, 8, 5),
+                        amount=Decimal("300"),
+                        description="Compra agosto",
+                        category="Shopping",
+                    ),
+                ]
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 7, 20))
+
+        self.assertEqual(summary["months"][0]["month"], "2026-08")
+        self.assertEqual(summary["months"][0]["transaction_month"], "2026-07")
+        self.assertEqual(summary["months"][0]["total"], 250.0)
+        self.assertEqual(summary["months"][1]["month"], "2026-09")
+        self.assertEqual(summary["months"][1]["transaction_month"], "2026-08")
+        self.assertEqual(summary["months"][1]["total"], 300.0)
+
+    def test_upcoming_rolls_december_spending_into_next_year(self):
+        from app.services.transaction_reports import upcoming_summary
+
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(
+                session,
+                balance=Decimal("500"),
+                due_date=date(2026, 12, 8),
+            )
+            session.add(
+                Transaction(
+                    id="purchase-dec",
+                    account_id="credit-1",
+                    date=date(2026, 12, 15),
+                    amount=Decimal("180"),
+                    description="Compra dezembro",
+                    category="Shopping",
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 12, 20))
+
+        self.assertEqual(summary["months"][0]["month"], "2027-01")
+        self.assertEqual(summary["months"][0]["transaction_month"], "2026-12")
+        self.assertEqual(summary["months"][0]["total"], 180.0)
 
     def test_vigente_spending_capacity_uses_dashboard_invoice(self):
         """Spending capacity for the vigente month subtracts the Dashboard

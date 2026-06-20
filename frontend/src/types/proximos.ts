@@ -10,16 +10,15 @@ export interface UpcomingCategory {
 
 export interface UpcomingMonth {
   month: string;
+  transaction_month: string;
   total: number;
   count: number;
-  scheduled_total?: number;
-  scheduled_count?: number;
   invoice_total?: number;
   invoice_source?: string;
   invoice_source_label?: string;
   is_current_invoice?: boolean;
-  identified_total?: number;
-  unreconciled_amount?: number;
+  reported_invoice_total?: number | null;
+  reported_difference?: number | null;
   transactions?: Transaction[];
   categories?: UpcomingCategory[];
 }
@@ -29,7 +28,10 @@ export interface UpcomingSummary {
   total_count?: number;
   next_invoice?: {
     year_month: string;
+    transaction_month: string;
     amount: number;
+    reported_amount?: number;
+    source?: string;
     source_label?: string;
   } | null;
 }

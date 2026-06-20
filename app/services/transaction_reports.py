@@ -22,6 +22,8 @@ from app.services.transactions import (
     filter_transactions_by_account_type,
     ignored_description_patterns,
     is_ignored_transaction,
+    month_key,
+    shift_month,
 )
 
 
@@ -165,21 +167,25 @@ def upcoming_summary(
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     today = today if today is not None else date.today()
-    future_txs = session.exec(
+    transaction_month_start = today.replace(day=1)
+    candidate_txs = session.exec(
         scope_query(
-            select(Transaction).where(Transaction.date > today, _non_duplicate_clause()),
+            select(Transaction).where(
+                Transaction.date >= transaction_month_start,
+                _non_duplicate_clause(),
+            ),
             Transaction.user_id,
             user_id,
         ).order_by(Transaction.date)
     ).all()
-    future_txs = filter_transactions_by_account_type(
-        future_txs,
+    candidate_txs = filter_transactions_by_account_type(
+        candidate_txs,
         session,
         SPENDING_ACCOUNT_TYPES,
         user_id=user_id,
     )
-    future_txs = filter_ignored_transactions(
-        future_txs,
+    candidate_txs = filter_ignored_transactions(
+        candidate_txs,
         session,
         include_ignored,
         user_id=user_id,
@@ -187,18 +193,29 @@ def upcoming_summary(
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     accounts = _accounts_by_id(session, user_id=user_id)
-    for tx in future_txs:
-        # Exclude credits / refunds / cancellations (amount <= 0) so they
-        # don't inflate the scheduled invoice total via abs(amount).
-        if tx.amount <= 0:
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    for tx in candidate_txs:
+        if not classifier.is_card_purchase(tx):
             continue
-        month = tx.date.strftime("%Y-%m")
-        by_month[month].append(tx)
+        transaction_month = tx.date.replace(day=1)
+        invoice_month = month_key(shift_month(transaction_month, 1))
+        by_month[invoice_month].append(tx)
 
     months_out = []
-    for month in sorted(by_month.keys()):
+    vigente_month = month_key(shift_month(transaction_month_start, 1))
+    if vigente_month not in by_month:
+        by_month[vigente_month] = []
+
+    from app.services.current_card_invoice import current_card_invoice_summary
+
+    dashboard_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
+    reported_invoice_total = Decimal(str(dashboard_invoice.get("amount") or 0))
+
+    for month in sorted(by_month):
         txs = by_month[month]
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        source_month_date = shift_month(date.fromisoformat(f"{month}-01"), -1)
+        source_month = month_key(source_month_date)
         serialized_transactions = []
         for tx in txs:
             classification = _classification_fields(tx, accounts)
@@ -245,6 +262,11 @@ def upcoming_summary(
                 "month": month,
                 "total": float(month_total),
                 "count": len(txs),
+                "transaction_month": source_month,
+                "invoice_total": float(month_total),
+                "invoice_source": "previous_calendar_month_transactions",
+                "invoice_source_label": "Gastos do mês anterior",
+                "is_current_invoice": month == vigente_month,
                 "categories": [
                     {
                         **bucket,
@@ -257,99 +279,28 @@ def upcoming_summary(
                     )
                 ],
                 "transactions": serialized_transactions,
-                "legacy_category_breakdown_removed": False,
-            }
-        )
-
-    # "Próxima fatura" must mirror the planning/Dashboard invoice for the
-    # vigente month instead of the raw sum of future-dated installments,
-    # which misses purchases already made in the forming cycle.
-    from app.services.credit_card_invoice import (
-        _next_calendar_month,
-        planning_invoice_for_month,
-    )
-    from app.services.current_card_invoice import current_card_invoice_summary
-
-    vigente_month = _next_calendar_month(today)
-    planning_inv = planning_invoice_for_month(session, vigente_month, today=today, user_id=user_id)
-    dashboard_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
-    has_dashboard_invoice = dashboard_invoice.get("account_count", 0) > 0
-    if has_dashboard_invoice:
-        next_invoice = {
-            "year_month": vigente_month,
-            "amount": dashboard_invoice["amount"],
-            "source": "dashboard_current_invoice",
-            "source_label": dashboard_invoice["source_label"],
-            "is_estimated": True,
-        }
-    else:
-        next_invoice = {
-            "year_month": vigente_month,
-            "amount": planning_inv["amount"],
-            "source": planning_inv["source"],
-            "source_label": planning_inv["source_label"],
-            "is_estimated": planning_inv["is_estimated"],
-        }
-
-    next_invoice_amount = Decimal(str(next_invoice["amount"] or 0))
-    vigente_row = next(
-        (month for month in months_out if month["month"] == vigente_month),
-        None,
-    )
-    if vigente_row is not None:
-        vigente_row["scheduled_total"] = vigente_row["total"]
-        vigente_row["scheduled_count"] = vigente_row["count"]
-        vigente_row["total"] = float(next_invoice_amount)
-        vigente_row["invoice_total"] = float(next_invoice_amount)
-        vigente_row["invoice_source"] = next_invoice["source"]
-        vigente_row["invoice_source_label"] = next_invoice["source_label"]
-        vigente_row["is_current_invoice"] = True
-        if has_dashboard_invoice:
-            vigente_row["count"] = dashboard_invoice["category_count"]
-            vigente_row["categories"] = dashboard_invoice["categories"]
-            vigente_row["transactions"] = dashboard_invoice["raw_purchase_transactions"]
-            vigente_row["identified_total"] = dashboard_invoice["reconciliation"][
-                "identified_category_total"
-            ]
-            vigente_row["unreconciled_amount"] = dashboard_invoice["reconciliation"][
-                "unreconciled_amount"
-            ]
-    elif next_invoice_amount > 0:
-        months_out.append(
-            {
-                "month": vigente_month,
-                "total": float(next_invoice_amount),
-                "count": (
-                    dashboard_invoice["category_count"]
-                    if has_dashboard_invoice
-                    else planning_inv.get("transaction_count", 0)
+                "reported_invoice_total": (
+                    float(reported_invoice_total) if month == vigente_month else None
                 ),
-                "scheduled_total": 0.0,
-                "scheduled_count": 0,
-                "invoice_total": float(next_invoice_amount),
-                "invoice_source": next_invoice["source"],
-                "invoice_source_label": next_invoice["source_label"],
-                "is_current_invoice": True,
-                "categories": dashboard_invoice["categories"] if has_dashboard_invoice else [],
-                "transactions": (
-                    dashboard_invoice["raw_purchase_transactions"]
-                    if has_dashboard_invoice
-                    else []
-                ),
-                "identified_total": (
-                    dashboard_invoice["reconciliation"]["identified_category_total"]
-                    if has_dashboard_invoice
-                    else 0.0
-                ),
-                "unreconciled_amount": (
-                    dashboard_invoice["reconciliation"]["unreconciled_amount"]
-                    if has_dashboard_invoice
-                    else 0.0
+                "reported_difference": (
+                    float(reported_invoice_total - month_total)
+                    if month == vigente_month
+                    else None
                 ),
                 "legacy_category_breakdown_removed": False,
             }
         )
-        months_out.sort(key=lambda month: month["month"])
+
+    vigente_row = next(month for month in months_out if month["month"] == vigente_month)
+    next_invoice = {
+        "year_month": vigente_month,
+        "transaction_month": vigente_row["transaction_month"],
+        "amount": vigente_row["total"],
+        "source": vigente_row["invoice_source"],
+        "source_label": vigente_row["invoice_source_label"],
+        "reported_amount": float(reported_invoice_total),
+        "is_estimated": False,
+    }
 
     return {
         "total_count": sum(month["count"] for month in months_out),

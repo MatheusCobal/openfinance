@@ -16,16 +16,14 @@ import { MonthStrip } from "../components/ui/MonthStrip";
 import { useAsync } from "../hooks/useAsync";
 import { categoryColor } from "../lib/categories";
 import { formatDayLabel, formatMonthCompact, formatMonthLong } from "../lib/dates";
-import { invoiceSourceLabel, pluralParcelas } from "../lib/labels";
+import { pluralParcelas } from "../lib/labels";
 import { formatMoney } from "../lib/money";
 import type { UpcomingMonth } from "../types/proximos";
 
 function monthSubtitle(month: UpcomingMonth) {
-  if (month.is_current_invoice) {
-    const label = invoiceSourceLabel(month.invoice_source, month.invoice_source_label || "Fatura vigente");
-    return `${label} · ${pluralParcelas(month.count || 0)}`;
-  }
-  return pluralParcelas(month.count || 0);
+  const count = month.count || 0;
+  const entries = `${count.toLocaleString("pt-BR")} ${count === 1 ? "lançamento" : "lançamentos"}`;
+  return `${entries} de ${formatMonthLong(month.transaction_month)}`;
 }
 
 function transactionList(transactions: UpcomingMonth["transactions"]) {
@@ -123,9 +121,9 @@ export function ProximosPage() {
                   value={formatMoney(data.next_invoice?.amount ?? summary.next?.total)}
                   subtitle={
                     data.next_invoice
-                      ? `${formatMonthLong(data.next_invoice.year_month)} · ${
-                          data.next_invoice.source_label || "Fatura vigente"
-                        }`
+                      ? `${formatMonthLong(data.next_invoice.year_month)} · gastos de ${formatMonthLong(
+                          data.next_invoice.transaction_month,
+                        )}`
                       : summary.next
                         ? `${formatMonthLong(summary.next.month)} · ${pluralParcelas(summary.next.count)}`
                         : "Sem parcelas"
@@ -211,6 +209,15 @@ export function ProximosPage() {
                       </div>
                       <p className="text-sm text-ink-500 tabular">{monthSubtitle(selected)}</p>
                     </div>
+                    {selected.is_current_invoice &&
+                    selected.reported_invoice_total != null &&
+                    Math.abs(Number(selected.reported_difference || 0)) >= 0.005 ? (
+                      <p className="mt-4 border-t border-ink-100 pt-3 text-xs text-ink-500">
+                        Saldo informado pela instituição: {formatMoney(selected.reported_invoice_total)} · diferença
+                        para os gastos detalhados de {formatMonthLong(selected.transaction_month)}: {" "}
+                        {formatMoney(selected.reported_difference || 0)}
+                      </p>
+                    ) : null}
                   </Card>
 
                   <section className="space-y-3" aria-label="Compromissos por categoria">
@@ -260,7 +267,7 @@ export function ProximosPage() {
                       >
                         <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
                           <span className="min-w-0 flex-1 text-sm font-semibold text-ink-900">
-                            Parcelas do mês
+                            Lançamentos de {formatMonthLong(selected.transaction_month)}
                           </span>
                           <span className="text-xs text-ink-500 tabular">
                             {pluralParcelas(selected.count || 0)}
