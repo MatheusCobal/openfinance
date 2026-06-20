@@ -12,6 +12,7 @@ export interface UpcomingMonth {
   month: string;
   transaction_month: string;
   total: number;
+  detailed_total?: number;
   count: number;
   invoice_total?: number;
   invoice_source?: string;

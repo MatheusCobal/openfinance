@@ -209,11 +209,28 @@ def upcoming_summary(
     from app.services.current_card_invoice import current_card_invoice_summary
 
     dashboard_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
+    has_reported_invoice = dashboard_invoice.get("account_count", 0) > 0
     reported_invoice_total = Decimal(str(dashboard_invoice.get("amount") or 0))
 
     for month in sorted(by_month):
         txs = by_month[month]
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
+        is_current_invoice = month == vigente_month
+        invoice_total = (
+            reported_invoice_total
+            if is_current_invoice and has_reported_invoice
+            else month_total
+        )
+        invoice_source = (
+            "dashboard_current_invoice"
+            if is_current_invoice and has_reported_invoice
+            else "previous_calendar_month_transactions"
+        )
+        invoice_source_label = (
+            dashboard_invoice.get("source_label") or "Fatura vigente ajustada"
+            if is_current_invoice and has_reported_invoice
+            else "Gastos do mês anterior"
+        )
         source_month_date = shift_month(date.fromisoformat(f"{month}-01"), -1)
         source_month = month_key(source_month_date)
         serialized_transactions = []
@@ -260,13 +277,14 @@ def upcoming_summary(
         months_out.append(
             {
                 "month": month,
-                "total": float(month_total),
+                "total": float(invoice_total),
+                "detailed_total": float(month_total),
                 "count": len(txs),
                 "transaction_month": source_month,
-                "invoice_total": float(month_total),
-                "invoice_source": "previous_calendar_month_transactions",
-                "invoice_source_label": "Gastos do mês anterior",
-                "is_current_invoice": month == vigente_month,
+                "invoice_total": float(invoice_total),
+                "invoice_source": invoice_source,
+                "invoice_source_label": invoice_source_label,
+                "is_current_invoice": is_current_invoice,
                 "categories": [
                     {
                         **bucket,
@@ -280,11 +298,13 @@ def upcoming_summary(
                 ],
                 "transactions": serialized_transactions,
                 "reported_invoice_total": (
-                    float(reported_invoice_total) if month == vigente_month else None
+                    float(reported_invoice_total)
+                    if is_current_invoice and has_reported_invoice
+                    else None
                 ),
                 "reported_difference": (
                     float(reported_invoice_total - month_total)
-                    if month == vigente_month
+                    if is_current_invoice and has_reported_invoice
                     else None
                 ),
                 "legacy_category_breakdown_removed": False,
@@ -298,8 +318,8 @@ def upcoming_summary(
         "amount": vigente_row["total"],
         "source": vigente_row["invoice_source"],
         "source_label": vigente_row["invoice_source_label"],
-        "reported_amount": float(reported_invoice_total),
-        "is_estimated": False,
+        "reported_amount": vigente_row["reported_invoice_total"],
+        "is_estimated": has_reported_invoice,
     }
 
     return {

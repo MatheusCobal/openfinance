@@ -616,16 +616,17 @@ class CurrentCardInvoiceTest(unittest.TestCase):
 
         self.assertEqual(summary["next_invoice"]["year_month"], "2026-07")
         self.assertEqual(summary["next_invoice"]["transaction_month"], "2026-06")
-        self.assertEqual(summary["next_invoice"]["amount"], 100.0)
+        self.assertEqual(summary["next_invoice"]["amount"], dashboard["amount"])
         self.assertEqual(summary["next_invoice"]["reported_amount"], dashboard["amount"])
         self.assertEqual(
             summary["next_invoice"]["source"],
-            "previous_calendar_month_transactions",
+            "dashboard_current_invoice",
         )
         self.assertEqual(summary["months"][0]["month"], "2026-07")
         self.assertEqual(summary["months"][0]["transaction_month"], "2026-06")
-        self.assertEqual(summary["months"][0]["total"], 100.0)
-        self.assertEqual(summary["months"][0]["invoice_total"], 100.0)
+        self.assertEqual(summary["months"][0]["total"], dashboard["amount"])
+        self.assertEqual(summary["months"][0]["invoice_total"], dashboard["amount"])
+        self.assertEqual(summary["months"][0]["detailed_total"], 100.0)
         self.assertTrue(summary["months"][0]["is_current_invoice"])
         self.assertEqual(summary["months"][0]["categories"][0]["name"], "Alimentação")
         self.assertEqual(summary["months"][0]["count"], 1)
@@ -635,8 +636,12 @@ class CurrentCardInvoiceTest(unittest.TestCase):
         )
         self.assertAlmostEqual(
             sum(category["total"] for category in summary["months"][0]["categories"]),
-            summary["months"][0]["total"],
+            summary["months"][0]["detailed_total"],
             places=2,
+        )
+        self.assertEqual(
+            summary["months"][0]["reported_difference"],
+            dashboard["amount"] - 100.0,
         )
         self.assertEqual(summary["months"][1]["month"], "2026-08")
         self.assertEqual(summary["months"][1]["transaction_month"], "2026-07")
@@ -683,10 +688,12 @@ class CurrentCardInvoiceTest(unittest.TestCase):
 
         self.assertEqual(summary["months"][0]["month"], "2026-08")
         self.assertEqual(summary["months"][0]["transaction_month"], "2026-07")
-        self.assertEqual(summary["months"][0]["total"], 250.0)
+        self.assertEqual(summary["months"][0]["total"], 1000.0)
+        self.assertEqual(summary["months"][0]["detailed_total"], 250.0)
         self.assertEqual(summary["months"][1]["month"], "2026-09")
         self.assertEqual(summary["months"][1]["transaction_month"], "2026-08")
         self.assertEqual(summary["months"][1]["total"], 300.0)
+        self.assertEqual(summary["months"][1]["detailed_total"], 300.0)
 
     def test_upcoming_rolls_december_spending_into_next_year(self):
         from app.services.transaction_reports import upcoming_summary
@@ -715,7 +722,8 @@ class CurrentCardInvoiceTest(unittest.TestCase):
 
         self.assertEqual(summary["months"][0]["month"], "2027-01")
         self.assertEqual(summary["months"][0]["transaction_month"], "2026-12")
-        self.assertEqual(summary["months"][0]["total"], 180.0)
+        self.assertEqual(summary["months"][0]["total"], 500.0)
+        self.assertEqual(summary["months"][0]["detailed_total"], 180.0)
 
     def test_vigente_spending_capacity_uses_dashboard_invoice(self):
         """Spending capacity for the vigente month subtracts the Dashboard

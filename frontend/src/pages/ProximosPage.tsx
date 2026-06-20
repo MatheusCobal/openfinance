@@ -121,7 +121,7 @@ export function ProximosPage() {
                   value={formatMoney(data.next_invoice?.amount ?? summary.next?.total)}
                   subtitle={
                     data.next_invoice
-                      ? `${formatMonthLong(data.next_invoice.year_month)} · gastos de ${formatMonthLong(
+                      ? `${formatMonthLong(data.next_invoice.year_month)} · detalhes de ${formatMonthLong(
                           data.next_invoice.transaction_month,
                         )}`
                       : summary.next
@@ -213,8 +213,8 @@ export function ProximosPage() {
                     selected.reported_invoice_total != null &&
                     Math.abs(Number(selected.reported_difference || 0)) >= 0.005 ? (
                       <p className="mt-4 border-t border-ink-100 pt-3 text-xs text-ink-500">
-                        Saldo informado pela instituição: {formatMoney(selected.reported_invoice_total)} · diferença
-                        para os gastos detalhados de {formatMonthLong(selected.transaction_month)}: {" "}
+                        Detalhamento de {formatMonthLong(selected.transaction_month)}: {" "}
+                        {formatMoney(selected.detailed_total || 0)} · diferença para o total da fatura: {" "}
                         {formatMoney(selected.reported_difference || 0)}
                       </p>
                     ) : null}
@@ -224,9 +224,10 @@ export function ProximosPage() {
                     {selected.categories?.length ? (
                       selected.categories.map((category) => {
                         const color = categoryColor(category.name);
+                        const categoryBase = Number(selected.detailed_total ?? selected.total);
                         const share =
-                          Number(selected.total) > 0
-                            ? Math.round((Number(category.total || 0) / Number(selected.total)) * 100)
+                          categoryBase > 0
+                            ? Math.round((Number(category.total || 0) / categoryBase) * 100)
                             : 0;
                         return (
                           <details
@@ -273,7 +274,7 @@ export function ProximosPage() {
                             {pluralParcelas(selected.count || 0)}
                           </span>
                           <span className="ml-3 text-sm font-bold tabular text-ink-900">
-                            {formatMoney(selected.total || 0)}
+                            {formatMoney(selected.detailed_total ?? selected.total ?? 0)}
                           </span>
                           <ChevronDown
                             className="ml-1 size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"
