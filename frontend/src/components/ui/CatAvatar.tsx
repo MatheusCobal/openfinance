@@ -1,20 +1,29 @@
 import {
+  Banknote,
   BookOpen,
+  Building2,
   Car,
   CreditCard,
+  Droplets,
   Dumbbell,
   GraduationCap,
+  Heart,
   HeartPulse,
   Home,
+  Landmark,
+  PawPrint,
   PiggyBank,
   Plane,
   Receipt,
   ShoppingBag,
   ShoppingCart,
   Sparkles,
+  TrendingDown,
   Tv,
+  Users,
   Utensils,
   Wifi,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,8 +43,12 @@ function iconForCategory(name?: string | null): LucideIcon {
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase();
   if (key.includes("morad") || key.includes("casa") || key.includes("aluguel")) return Home;
+  if (key.includes("condom")) return Building2;
+  if (key.includes("financiam") || key.includes("hipoteca") || key.includes("mortgage")) return Landmark;
+  if (key.includes("emprest")) return Banknote;
+  if (key.includes("divida") || key.includes("debito")) return TrendingDown;
   if (key.includes("saude") || key.includes("plano")) return HeartPulse;
-  if (key.includes("academia") || key.includes("fitness")) return Dumbbell;
+  if (key.includes("academia") || key.includes("fitness") || key.includes("ginasio")) return Dumbbell;
   if (key.includes("assinatura") || key.includes("streaming")) return Tv;
   if (key.includes("internet") || key.includes("telefon") || key.includes("celular")) return Wifi;
   if (key.includes("transporte") || key.includes("carro") || key.includes("seguro")) return Car;
@@ -48,6 +61,11 @@ function iconForCategory(name?: string | null): LucideIcon {
   if (key.includes("lazer") || key.includes("beleza")) return Sparkles;
   if (key.includes("invest") || key.includes("poupan")) return PiggyBank;
   if (key.includes("imposto") || key.includes("taxa")) return Receipt;
+  if (key.includes("luz") || key.includes("energia") || key.includes("eletric")) return Zap;
+  if (key.includes("agua") || key.includes("saneam")) return Droplets;
+  if (key.includes("pet") || key.includes("racao") || key.includes("animal") || key.includes("canil")) return PawPrint;
+  if (key.includes("diarista") || key.includes("faxin") || key.includes("empregad") || key.includes("domest")) return Users;
+  if (key.includes("esposa") || key.includes("marido") || key.includes("conjuge") || key.includes("famil")) return Heart;
   return CreditCard;
 }
 
