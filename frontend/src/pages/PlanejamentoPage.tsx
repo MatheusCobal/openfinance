@@ -950,9 +950,16 @@ function FixedCostsAgenda({
     () => new Set((fixed.entries || []).filter((e) => e.status === "paid").map((e) => e.fixed_cost_id)),
   );
   const [expandedFor, setExpandedFor] = useState<number | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [allCandidates, setAllCandidates] = useState<Transaction[]>([]);
+  const [pickerFilter, setPickerFilter] = useState<"CREDIT" | "BANK">("CREDIT");
+  const [pickerVisible, setPickerVisible] = useState(10);
   const [loadingPicker, setLoadingPicker] = useState(false);
   const [pickerAttempted, setPickerAttempted] = useState(false);
+
+  const filteredCandidates = allCandidates.filter(
+    (tx) => (tx.account_type ?? "").toUpperCase() === pickerFilter,
+  );
+  const transactions = filteredCandidates.slice(0, pickerVisible);
 
   useEffect(() => {
     setLocalPaid(
@@ -1028,6 +1035,8 @@ function FixedCostsAgenda({
 
   const openPicker = async (item: FixedCostMonthEntry) => {
     setLoadingPicker(true);
+    setPickerFilter("CREDIT");
+    setPickerVisible(10);
     try {
       const data = await listFixedCostMatchCandidates(selectedMonth);
       const costTokens = tokenSet(item.description);
@@ -1049,9 +1058,8 @@ function FixedCostsAgenda({
           if (b.overlap !== a.overlap) return b.overlap - a.overlap;
           return a.amountDelta - b.amountDelta;
         })
-        .slice(0, 20)
         .map((scoredItem) => scoredItem.tx);
-      setTransactions(scored);
+      setAllCandidates(scored);
       setPickerAttempted(true);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Erro ao carregar transações.", "error");
@@ -1065,7 +1073,9 @@ function FixedCostsAgenda({
     try {
       await createFixedCostMatch(item.fixed_cost_id, tx.id, selectedMonth);
       setExpandedFor(null);
-      setTransactions([]);
+      setAllCandidates([]);
+      setPickerFilter("CREDIT");
+      setPickerVisible(10);
       await onReload();
       showToast(`"${item.description}" vinculado ao pagamento.`, "success");
     } catch (err) {
@@ -1075,7 +1085,9 @@ function FixedCostsAgenda({
 
   const toggleExpand = (item: FixedCostMonthEntry) => {
     setExpandedFor((current) => (current === item.fixed_cost_id ? null : item.fixed_cost_id));
-    setTransactions([]);
+    setAllCandidates([]);
+    setPickerFilter("CREDIT");
+    setPickerVisible(10);
     setPickerAttempted(false);
   };
 
@@ -1347,43 +1359,74 @@ function FixedCostsAgenda({
                         </div>
                       </div>
 
+                      {!loadingPicker && pickerAttempted && (
+                        <div className="mt-3 flex gap-1.5">
+                          {(["CREDIT", "BANK"] as const).map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() => { setPickerFilter(f); setPickerVisible(10); }}
+                              className={classNames(
+                                "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                                pickerFilter === f
+                                  ? "bg-primary-600 text-white"
+                                  : "bg-ink-100 text-ink-600 hover:bg-ink-200",
+                              )}
+                            >
+                              {f === "CREDIT" ? "Crédito" : "Débito"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
                       {loadingPicker ? (
                         <p className="py-3 text-center text-xs text-ink-500">Buscando saídas do mês...</p>
                       ) : transactions.length ? (
-                        <div className="mt-3 max-h-64 space-y-1 overflow-y-auto">
-                          {transactions.map((tx) => (
-                            <div
-                              key={tx.id}
-                              className="flex items-center gap-2 rounded-control bg-surface px-2 py-1.5"
-                            >
-                              <span className="w-14 shrink-0 text-xs text-ink-500">
-                                {formatDayLabel(tx.date)}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-xs text-ink-800">{tx.description}</p>
-                                <p className="text-[11px] text-ink-400">
-                                  {[tx.account_type, tx.account_name, tx.pluggy_category || tx.category]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                </p>
-                              </div>
-                              <span className="shrink-0 text-xs font-semibold tabular text-ink-800">
-                                {formatMoney(Math.abs(Number(tx.amount)))}
-                              </span>
-                              <Button
-                                type="button"
-                                variant="primary"
-                                size="sm"
-                                onClick={() => void linkTransaction(item, tx)}
+                        <>
+                          <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+                            {transactions.map((tx) => (
+                              <div
+                                key={tx.id}
+                                className="flex items-center gap-2 rounded-control bg-surface px-2 py-1.5"
                               >
-                                Vincular
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
+                                <span className="w-14 shrink-0 text-xs text-ink-500">
+                                  {formatDayLabel(tx.date)}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-xs text-ink-800">{tx.description}</p>
+                                  <p className="text-[11px] text-ink-400">
+                                    {[tx.account_type, tx.account_name, tx.pluggy_category || tx.category]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </p>
+                                </div>
+                                <span className="shrink-0 text-xs font-semibold tabular text-ink-800">
+                                  {formatMoney(Math.abs(Number(tx.amount)))}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={() => void linkTransaction(item, tx)}
+                                >
+                                  Vincular
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                          {filteredCandidates.length > pickerVisible && (
+                            <button
+                              type="button"
+                              onClick={() => setPickerVisible((v) => v + 10)}
+                              className="mt-2 w-full text-center text-xs text-primary-600 hover:text-primary-800"
+                            >
+                              Ver mais ({filteredCandidates.length - pickerVisible} restantes)
+                            </button>
+                          )}
+                        </>
                       ) : pickerAttempted ? (
                         <p className="py-3 text-center text-xs text-ink-400">
-                          Nenhuma transação encontrada para este mês.
+                          {`Nenhuma transação de ${pickerFilter === "CREDIT" ? "crédito" : "débito"} encontrada.`}
                         </p>
                       ) : null}
                     </div>
