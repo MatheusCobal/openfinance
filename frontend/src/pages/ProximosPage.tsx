@@ -26,24 +26,41 @@ function cardLabel(card: {
   card_brand?: string | null;
   card_last_four?: string | null;
 }) {
-  const parts: string[] = [];
-  const add = (value?: string | null) => {
-    const normalized = value?.trim();
-    if (
-      normalized &&
-      !parts.some(
-        (part) =>
-          part.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
-      )
-    ) {
-      parts.push(normalized);
-    }
+  const normalizeToken = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase();
+  const noise = new Set([
+    "BLACK",
+    "GOLD",
+    "INFINITE",
+    "INTERNACIONAL",
+    "INTERNATIONAL",
+    "MASTERCARD",
+    "PLATINUM",
+    "VISA",
+  ]);
+  for (const word of card.card_brand?.split(/\s+/) || []) {
+    noise.add(normalizeToken(word));
+  }
+
+  const usefulName = card.account_name
+    ?.split(/\s+/)
+    .filter((word) => !noise.has(normalizeToken(word)))
+    .join(" ")
+    .trim();
+  const connectorName =
+    normalizeToken(card.institution_name || "") === "MEUPLUGGY"
+      ? ""
+      : card.institution_name?.trim();
+  const name = usefulName || connectorName || card.card_brand?.trim() || "Cartão";
+
+  if (card.card_last_four) {
+    return `${name} * ${card.card_last_four}`;
   };
-  add(card.institution_name);
-  add(card.account_name);
-  add(card.card_brand);
-  if (card.card_last_four) parts.push(`final ${card.card_last_four}`);
-  return parts.join(" · ");
+  return name;
 }
 
 function monthSubtitle(month: UpcomingMonth) {
