@@ -58,7 +58,7 @@ function cardLabel(card: {
   const name = usefulName || connectorName || card.card_brand?.trim() || "Cartão";
 
   if (card.card_last_four) {
-    return `${name} * ${card.card_last_four}`;
+    return `${name} - final ${card.card_last_four}`;
   };
   return name;
 }
