@@ -20,6 +20,32 @@ import { pluralParcelas } from "../lib/labels";
 import { formatMoney } from "../lib/money";
 import type { UpcomingMonth } from "../types/proximos";
 
+function cardLabel(card: {
+  institution_name?: string | null;
+  account_name?: string | null;
+  card_brand?: string | null;
+  card_last_four?: string | null;
+}) {
+  const parts: string[] = [];
+  const add = (value?: string | null) => {
+    const normalized = value?.trim();
+    if (
+      normalized &&
+      !parts.some(
+        (part) =>
+          part.toLocaleLowerCase("pt-BR") === normalized.toLocaleLowerCase("pt-BR"),
+      )
+    ) {
+      parts.push(normalized);
+    }
+  };
+  add(card.institution_name);
+  add(card.account_name);
+  add(card.card_brand);
+  if (card.card_last_four) parts.push(`final ${card.card_last_four}`);
+  return parts.join(" · ");
+}
+
 function monthSubtitle(month: UpcomingMonth) {
   const count = month.count || 0;
   const entries = `${count.toLocaleString("pt-BR")} ${count === 1 ? "lançamento" : "lançamentos"}`;
@@ -42,6 +68,9 @@ function transactionList(transactions: UpcomingMonth["transactions"]) {
                 ? ` · parcela ${tx.installment_number} de ${tx.total_installments}`
                 : ""}
             </p>
+            {cardLabel(tx) ? (
+              <p className="mt-1 truncate text-xs font-medium text-primary-700">{cardLabel(tx)}</p>
+            ) : null}
           </div>
           <p className="shrink-0 text-sm font-medium tabular text-ink-900">{formatMoney(tx.amount)}</p>
         </li>
@@ -213,6 +242,23 @@ export function ProximosPage() {
                       <p className="mt-4 border-t border-ink-100 pt-3 text-xs text-ink-500">
                         Soma das compras PENDING atribuídas à fatura vigente.
                       </p>
+                    ) : null}
+                    {selected.cards?.length ? (
+                      <div className="mt-4 grid gap-2 border-t border-ink-100 pt-4 sm:grid-cols-2">
+                        {selected.cards.map((card) => (
+                          <div
+                            key={card.account_id}
+                            className="flex items-center justify-between gap-3 rounded-xl bg-surface-muted px-3 py-2"
+                          >
+                            <span className="min-w-0 truncate text-xs font-medium text-ink-700">
+                              {cardLabel(card) || "Cartão de crédito"}
+                            </span>
+                            <span className="shrink-0 text-xs font-bold tabular text-ink-900">
+                              {formatMoney(card.pending_total ?? card.total_amount ?? 0)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     ) : null}
                   </Card>
 

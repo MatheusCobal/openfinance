@@ -26,11 +26,12 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         SQLModel.metadata.drop_all(self.engine)
         self.engine.dispose()
 
-    def _add_item(self, session, item_id="item-1", active=True):
+    def _add_item(self, session, item_id="item-1", active=True, connector_name="Itaú"):
         session.add(
             Item(
                 id=item_id,
                 connector_id="connector-1",
+                connector_name=connector_name,
                 status="UPDATED",
                 is_active=active,
             )
@@ -43,13 +44,18 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         item_id="item-1",
         balance=Decimal("0"),
         active=True,
+        name="Cartão",
+        number=None,
+        brand=None,
     ):
         session.add(
             Account(
                 id=account_id,
                 item_id=item_id,
-                name="Cartão",
+                name=name,
                 type="CREDIT",
+                number=number,
+                credit_brand=brand,
                 balance=balance,
                 credit_balance_due_date=date(2026, 6, 8),
                 balance_updated_at=datetime(2026, 6, 20, 12, 0),
@@ -294,6 +300,47 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         )
         self.assertEqual(august["total"], 500.0)
         self.assertEqual({tx["id"] for tx in august["transactions"]}, {"aug"})
+
+    def test_upcoming_identifies_each_card_and_institution(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="Itaú")
+            self._add_item(session, item_id="item-caixa", connector_name="CAIXA")
+            self._add_credit_account(
+                session,
+                name="Click Platinum",
+                number="1234",
+                brand="VISA",
+            )
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                item_id="item-caixa",
+                name="Cartão CAIXA",
+                number="9876",
+                brand="MASTERCARD",
+            )
+            self._add_purchase(session, "itau-buy", date(2026, 7, 10), 100)
+            self._add_purchase(
+                session,
+                "caixa-buy",
+                date(2026, 7, 11),
+                200,
+                account_id="credit-caixa",
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 6, 20))
+
+        july = summary["months"][0]
+        transactions = {tx["id"]: tx for tx in july["transactions"]}
+        self.assertEqual(transactions["itau-buy"]["institution_name"], "Itaú")
+        self.assertEqual(transactions["itau-buy"]["card_last_four"], "1234")
+        self.assertEqual(transactions["caixa-buy"]["institution_name"], "CAIXA")
+        self.assertEqual(transactions["caixa-buy"]["card_brand"], "MASTERCARD")
+        cards = {card["account_id"]: card for card in july["cards"]}
+        self.assertEqual(cards["credit-1"]["pending_total"], 100.0)
+        self.assertEqual(cards["credit-caixa"]["pending_total"], 200.0)
 
     def test_planning_capacity_and_variable_budget_use_pending_ids(self):
         with Session(self.engine) as session:

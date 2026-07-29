@@ -20,6 +20,17 @@ export interface UpcomingMonth {
   is_current_invoice?: boolean;
   reported_invoice_total?: number | null;
   reported_difference?: number | null;
+  cards?: Array<{
+    account_id: string;
+    account_name?: string | null;
+    institution_name?: string | null;
+    card_brand?: string | null;
+    card_last_four?: string | null;
+    pending_total?: number;
+    total_amount?: number;
+    transaction_count?: number;
+    due_date?: string | null;
+  }>;
   transactions?: Transaction[];
   categories?: UpcomingCategory[];
 }

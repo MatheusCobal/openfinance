@@ -28,6 +28,9 @@ export interface Transaction {
   account_id?: string;
   account_name?: string;
   account_type?: string;
+  institution_name?: string | null;
+  card_brand?: string | null;
+  card_last_four?: string | null;
   category?: string;
   pluggy_category?: string;
   pluggy_subcategory?: string;

@@ -75,7 +75,24 @@ def _looks_like_refund(tx: Transaction) -> bool:
     )
 
 
-def _serialize_current_invoice_transaction(tx: Transaction) -> dict[str, Any]:
+def _card_identity(account: Optional[Account], item: Optional[Item] = None) -> dict[str, Any]:
+    if account is None:
+        return {}
+    number = "".join(character for character in str(account.number or "") if character.isdigit())
+    return {
+        "account_id": account.id,
+        "account_name": account.marketing_name or account.name,
+        "card_brand": account.credit_brand,
+        "card_last_four": number[-4:] if number else None,
+        "institution_name": item.connector_name if item is not None else None,
+    }
+
+
+def _serialize_current_invoice_transaction(
+    tx: Transaction,
+    account: Optional[Account] = None,
+    item: Optional[Item] = None,
+) -> dict[str, Any]:
     classification = serialize_transaction_classification(tx, account_type="CREDIT")
     effective_category = resolve_credit_internal_category(
         tx,
@@ -95,6 +112,7 @@ def _serialize_current_invoice_transaction(tx: Transaction) -> dict[str, Any]:
         "bill_id": tx.bill_id,
         "installment_number": tx.installment_number,
         "total_installments": tx.total_installments,
+        **_card_identity(account, item),
     }
 
 
@@ -154,12 +172,26 @@ def current_card_invoice_summary(
     invoice_month = current_invoice_month(today)
     cutoff = _invoice_month_end(invoice_month)
     accounts = _active_credit_accounts(session, user_id=user_id)
+    accounts_by_id = {account.id: account for account in accounts}
+    items_by_id = {
+        item.id: item
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+    }
     transactions = pending_current_invoice_transactions(
         session,
         today=today,
         user_id=user_id,
     )
-    serialized = [_serialize_current_invoice_transaction(tx) for tx in transactions]
+    serialized = [
+        _serialize_current_invoice_transaction(
+            tx,
+            accounts_by_id.get(tx.account_id),
+            items_by_id.get(accounts_by_id[tx.account_id].item_id)
+            if tx.account_id in accounts_by_id
+            else None,
+        )
+        for tx in transactions
+    ]
     total = sum((Decimal(str(tx["amount"])) for tx in serialized), Decimal("0"))
 
     categories_by_name: dict[str, dict[str, Any]] = {}
@@ -208,6 +240,7 @@ def current_card_invoice_summary(
         {
             "account_id": account.id,
             "name": account.name,
+            **_card_identity(account, items_by_id.get(account.item_id)),
             "pending_total": float(totals_by_account[account.id]),
             "transaction_count": counts_by_account[account.id],
             "invoice_month": invoice_month,

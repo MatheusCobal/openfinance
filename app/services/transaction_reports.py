@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from sqlmodel import Session, select
 
-from app.models import Account, CreditCardBill, Transaction
+from app.models import Account, CreditCardBill, Item, Transaction
 from app.services.classification import TransactionClassifier, card_invoice_signed_amount
 from app.services.credit_categories import (
     credit_category_payload,
@@ -192,6 +192,27 @@ def upcoming_summary(
 
     by_month: Dict[str, list[Transaction]] = defaultdict(list)
     accounts = _accounts_by_id(session, user_id=user_id)
+    items_by_id = {
+        item.id: item
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+    }
+
+    def account_identity(account_id: Optional[str]) -> dict[str, Any]:
+        account = accounts.get(account_id or "")
+        if account is None:
+            return {}
+        item = items_by_id.get(account.item_id)
+        number = "".join(
+            character for character in str(account.number or "") if character.isdigit()
+        )
+        return {
+            "account_id": account.id,
+            "account_name": account.marketing_name or account.name,
+            "card_brand": account.credit_brand,
+            "card_last_four": number[-4:] if number else None,
+            "institution_name": item.connector_name if item is not None else None,
+        }
+
     classifier = TransactionClassifier.from_session(session, user_id=user_id)
     for tx in candidate_txs:
         if not classifier.is_card_purchase(tx):
@@ -261,6 +282,7 @@ def upcoming_summary(
                     "amount": float(abs(tx.amount)),
                     "description": tx.description,
                     "pluggy_category": classification["pluggy_raw_category"],
+                    **account_identity(tx.account_id),
                     **classification,
                     **credit_category_payload(effective_category),
                 }
@@ -306,6 +328,12 @@ def upcoming_summary(
             categories = list(dashboard_invoice.get("categories", []))
             month_total = reported_invoice_total
             row_count = int(dashboard_invoice.get("category_count") or 0)
+            cards = list(dashboard_invoice.get("cards", []))
+        else:
+            cards = [
+                {**card, **account_identity(card.get("account_id"))}
+                for card in planned_invoice.get("cards", [])
+            ]
         months_out.append(
             {
                 "month": month,
@@ -317,6 +345,7 @@ def upcoming_summary(
                 "invoice_source": invoice_source,
                 "invoice_source_label": invoice_source_label,
                 "is_current_invoice": is_current_invoice,
+                "cards": cards,
                 "categories": categories,
                 "transactions": serialized_transactions,
                 "reported_invoice_total": (
