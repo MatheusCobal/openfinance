@@ -34,18 +34,6 @@ const INVOICE_SOURCE_LABELS: Record<string, string> = {
   missing_official_bill_fallback: "Sem fatura oficial",
 };
 
-const ACCOUNT_SCOPE_LABELS: Record<string, string> = {
-  ALL: "Todas as contas",
-  CREDIT: "Cartão de crédito",
-  BANK: "Conta bancária",
-};
-
-const AMOUNT_SIGN_LABELS: Record<string, string> = {
-  any: "Qualquer valor",
-  negative: "Saídas",
-  positive: "Entradas",
-};
-
 export function cashflowTypeLabel(value?: string | null): string {
   if (!value) return "";
   return CASHFLOW_TYPE_LABELS[value.toLowerCase()] || value;
@@ -61,16 +49,6 @@ export function invoiceSourceLabel(value?: string | null, fallback = "Fatura"): 
   return INVOICE_SOURCE_LABELS[value] || fallback;
 }
 
-export function accountScopeLabel(value?: string | null): string {
-  if (!value) return ACCOUNT_SCOPE_LABELS.ALL;
-  return ACCOUNT_SCOPE_LABELS[value.toUpperCase()] || value;
-}
-
-export function amountSignLabel(value?: string | null): string {
-  if (!value) return AMOUNT_SIGN_LABELS.any;
-  return AMOUNT_SIGN_LABELS[value.toLowerCase()] || value;
-}
-
 /** "1 conta ativa" / "3 contas ativas" — simple pt-BR pluralization. */
 export function pluralize(count: number, singular: string, plural: string): string {
   const formatted = count.toLocaleString("pt-BR");
@@ -83,8 +61,4 @@ export function pluralCompras(count: number): string {
 
 export function pluralParcelas(count: number): string {
   return pluralize(count, "parcela", "parcelas");
-}
-
-export function pluralItens(count: number): string {
-  return pluralize(count, "item", "itens");
 }

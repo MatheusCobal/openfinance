@@ -168,7 +168,7 @@ def refresh_balance(
             raise HTTPException(429, "rate limited by Pluggy") from exc
         raise HTTPException(502, f"Pluggy error: {exc.response.status_code}") from exc
     except httpx.RequestError as exc:
-        raise HTTPException(502, f"network error reaching Pluggy: {exc}") from exc
+        raise HTTPException(502, "network error reaching Pluggy") from exc
 
     from decimal import Decimal, InvalidOperation
 

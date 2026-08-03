@@ -16,7 +16,6 @@ from app.models import (
 from app.services.classification import (
     BANK_ACCOUNT_TYPES,
     SPENDING_ACCOUNT_TYPES,
-    TRACKED_ACCOUNT_TYPES,
     TransactionClassifier,
 )
 from app.services.scoping import scope_query
@@ -162,9 +161,7 @@ def credit_card_payment_transactions(
     user_id: Optional[int] = None,
 ) -> list[Transaction]:
     classifier = TransactionClassifier.from_session(session, user_id=user_id)
-    active_bank_account_ids = set(
-        account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id)
-    )
+    active_bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id))
     transactions = session.exec(
         scope_query(
             select(Transaction).where(
@@ -196,24 +193,6 @@ def credit_card_payment_transactions(
             continue
         output.append(tx)
     return output
-
-
-def bank_income_exclusion_rules(
-    session: Session,
-    user_id: Optional[int] = None,
-) -> list[BankIncomeExclusionRule]:
-    return session.exec(
-        scope_query(select(BankIncomeExclusionRule), BankIncomeExclusionRule.user_id, user_id)
-    ).all()
-
-
-def bank_cashflow_exclusion_rules(
-    session: Session,
-    user_id: Optional[int] = None,
-) -> list[BankCashflowExclusionRule]:
-    return session.exec(
-        scope_query(select(BankCashflowExclusionRule), BankCashflowExclusionRule.user_id, user_id)
-    ).all()
 
 
 def is_excluded_bank_cashflow_transaction(
@@ -323,68 +302,6 @@ def credit_card_spend_transactions(
     return [tx for tx in transactions if classifier.is_card_purchase(tx)]
 
 
-def _investment_transactions(
-    session: Session,
-    start_date: date,
-    end_date: date,
-    direction: str,
-    user_id: Optional[int] = None,
-) -> list[Transaction]:
-    """Internal helper for investment_application_/investment_rescue_ pickers.
-
-    direction: 'out' (applications, amount < 0) or 'in' (rescues, amount > 0).
-    """
-    from app.services.classification import TransactionKind
-
-    classifier = TransactionClassifier.from_session(session, user_id=user_id)
-    bank_account_ids = set(account_ids_by_type(session, BANK_ACCOUNT_TYPES, user_id=user_id))
-    if not bank_account_ids:
-        return []
-    amount_cond = Transaction.amount < 0 if direction == "out" else Transaction.amount > 0
-    rows = session.exec(
-        scope_query(
-            select(Transaction).where(
-                Transaction.account_id.in_(bank_account_ids),
-                Transaction.date >= start_date,
-                Transaction.date <= end_date,
-                amount_cond,
-                _non_duplicate_clause(),
-            ),
-            Transaction.user_id,
-            user_id,
-        ).order_by(Transaction.date.asc())
-    ).all()
-    return [tx for tx in rows if classifier.classify(tx).kind == TransactionKind.INVESTMENT_NOISE]
-
-
-def investment_application_transactions(
-    session: Session,
-    start_date: date,
-    end_date: date,
-    user_id: Optional[int] = None,
-) -> list[Transaction]:
-    """Return CDB/investment APPLICATIONS (money going into investments).
-
-    Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
-    bank_outflow_transactions.
-    """
-    return _investment_transactions(session, start_date, end_date, "out", user_id=user_id)
-
-
-def investment_rescue_transactions(
-    session: Session,
-    start_date: date,
-    end_date: date,
-    user_id: Optional[int] = None,
-) -> list[Transaction]:
-    """Return CDB/investment RESCUES (money coming back from investments).
-
-    Classified by INVESTMENT_NOISE_CATEGORIES. Excluded from
-    bank_inflow_transactions.
-    """
-    return _investment_transactions(session, start_date, end_date, "in", user_id=user_id)
-
-
 def bank_inflow_transactions(
     session: Session,
     start_date: date,
@@ -472,59 +389,6 @@ def bank_outflow_transactions(
         if any(p and p in desc for p in CREDIT_CARD_PAYMENT_DESCRIPTION_PATTERNS):
             continue
         out.append(tx)
-    return out
-
-
-def discretionary_spend_transactions(
-    session: Session,
-    start_date: date,
-    end_date: date,
-    include_ignored: bool = False,
-    user_id: Optional[int] = None,
-) -> list[Transaction]:
-    """Return transactions that count as personal discretionary spending.
-
-    Includes:
-      - CREDIT purchases (non-invoice-payment, non-ignored)
-      - BANK outflows that pass cashflow filters (non-internal-transfer,
-        non-investment-noise, non-cashflow-excluded, non-ignored)
-
-    Used by ``budget_progress_summary`` so PIX/débito leaving the bank
-    account is visible to the budget — historically only credit-card
-    spending was counted, which under-reported real expenses in Brazil.
-    """
-    from app.services.classification import TransactionKind
-
-    classifier = TransactionClassifier.from_session(session, user_id=user_id)
-    tracked_account_ids = set(account_ids_by_type(session, TRACKED_ACCOUNT_TYPES, user_id=user_id))
-    if not tracked_account_ids:
-        return []
-    rows = session.exec(
-        scope_query(
-            select(Transaction).where(
-                Transaction.account_id.in_(tracked_account_ids),
-                Transaction.date >= start_date,
-                Transaction.date <= end_date,
-                _non_duplicate_clause(),
-            ),
-            Transaction.user_id,
-            user_id,
-        ).order_by(Transaction.date.asc())
-    ).all()
-    out: list[Transaction] = []
-    for tx in rows:
-        classification = classifier.classify(tx)
-        if classification.ignored and not include_ignored:
-            continue
-        kind = classification.kind
-        if kind == TransactionKind.CARD_PURCHASE:
-            out.append(tx)
-            continue
-        # BANK side: only outflows count as spending, and only when they
-        # survive the cashflow filters (so we drop internal transfers and
-        # investment movements).
-        if kind == TransactionKind.BANK_OUTFLOW and not classification.cashflow_excluded:
-            out.append(tx)
     return out
 
 

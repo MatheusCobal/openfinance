@@ -39,7 +39,7 @@ async function parseResponse(response: Response): Promise<unknown> {
   return text || null;
 }
 
-export async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
+async function apiRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");

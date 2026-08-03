@@ -1,7 +1,7 @@
 import { classNames } from "../../lib/classNames";
 import { formatMoney } from "../../lib/money";
 
-export interface FlowSegment {
+interface FlowSegment {
   key: string;
   label: string;
   value: number;

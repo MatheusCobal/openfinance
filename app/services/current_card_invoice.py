@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 import datetime
 from collections import defaultdict
 from decimal import Decimal
@@ -17,6 +16,7 @@ from app.services.credit_categories import (
 from app.services.scoping import scope_query
 from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.transactions import _non_duplicate_clause
+from app.services.year_month import month_bounds, shift_year_month
 
 
 REFUND_DESCRIPTION_PATTERNS = tuple(
@@ -34,14 +34,11 @@ REFUND_DESCRIPTION_PATTERNS = tuple(
 
 
 def current_invoice_month(today: datetime.date) -> str:
-    if today.month == 12:
-        return f"{today.year + 1}-01"
-    return f"{today.year}-{today.month + 1:02d}"
+    return shift_year_month(today.strftime("%Y-%m"), 1)
 
 
 def _invoice_month_end(year_month: str) -> datetime.date:
-    year, month = int(year_month[:4]), int(year_month[5:])
-    return datetime.date(year, month, calendar.monthrange(year, month)[1])
+    return month_bounds(year_month)[1]
 
 
 def _active_credit_accounts(
@@ -55,12 +52,8 @@ def _active_credit_accounts(
     }
     return [
         account
-        for account in session.exec(
-            scope_query(select(Account), Account.user_id, user_id)
-        ).all()
-        if account.type == "CREDIT"
-        and account.is_active
-        and account.item_id in active_item_ids
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+        if account.type == "CREDIT" and account.is_active and account.item_id in active_item_ids
     ]
 
 
@@ -264,7 +257,7 @@ def current_card_invoice_summary(
         "cards": cards,
         "categories": categories,
         "category_total": float(category_total),
-        "category_count": len(serialized),
+        "transaction_count": len(serialized),
         "raw_purchase_transactions": serialized,
         "recent_purchase_transactions": recent_transactions,
         "source_detail": {
@@ -282,5 +275,4 @@ def current_card_invoice_summary(
             "amount_minus_category_total": float(total - category_total),
             "source_label": "Soma das compras PENDING",
         },
-        "legacy_category_breakdown_removed": False,
     }

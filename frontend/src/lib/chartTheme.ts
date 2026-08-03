@@ -17,15 +17,6 @@ export const CHART_COLORS = {
   valueLabel: "#334155",
 } as const;
 
-export const CHART_SERIES = [
-  "#2563eb",
-  "#7c3aed",
-  "#0d9488",
-  "#ea580c",
-  "#db2777",
-  "#0ea5e9",
-] as const;
-
 export const CHART_FONT = {
   family: "Inter, ui-sans-serif, system-ui, sans-serif",
   size: 11,

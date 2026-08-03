@@ -1,6 +1,6 @@
 import type { Transaction } from "./common";
 
-export interface InvoiceHistoryCategory {
+interface InvoiceHistoryCategory {
   id: string;
   name: string;
   total: number;
@@ -33,7 +33,7 @@ export interface InvoiceHistorySummary {
   classified_purchase_total?: number;
 }
 
-export interface CashflowMonth {
+interface CashflowMonth {
   month: string;
   income?: number;
   outflow?: number;
@@ -50,12 +50,4 @@ export interface CashflowSummary {
     net?: number;
   };
   months: CashflowMonth[];
-}
-
-export interface CashflowRule {
-  id: number;
-  direction?: string;
-  pluggy_category?: string | null;
-  pattern?: string | null;
-  affected_count?: number;
 }

@@ -186,6 +186,7 @@ class SyncServiceTest(unittest.TestCase):
             self.assertEqual(result["fetched_transactions"], 5)
             self.assertEqual(result["new_transactions"], 4)
             self.assertEqual(result["updated_transactions"], 1)
+            self.assertEqual(result["deleted_transactions"], 0)
             self.assertEqual(result["refreshed_income_months"], 1)
             self.assertEqual(result["refreshed_invoice_months"], 1)
             self.assertEqual(result["refreshed_balance_months"], 1)
@@ -228,6 +229,49 @@ class SyncServiceTest(unittest.TestCase):
             self.assertEqual(invoice_snapshot.payment_count, 1)
             self.assertEqual(balance_snapshot.income, Decimal("5000.0000000000"))
             self.assertEqual(balance_snapshot.invoice_paid, Decimal("120.5000000000"))
+
+    def test_sync_deletes_transactions_missing_from_authoritative_window(self):
+        with Session(self.engine) as session:
+            session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
+            session.add(
+                Account(
+                    id="credit-1",
+                    item_id="item-1",
+                    name="Credit Card",
+                    type="CREDIT",
+                )
+            )
+            session.add(
+                AccountSync(
+                    account_id="credit-1",
+                    last_transaction_date=self.today,
+                )
+            )
+            session.add(
+                Transaction(
+                    id="deleted-by-pluggy",
+                    account_id="credit-1",
+                    date=self.today,
+                    amount=Decimal("10"),
+                    description="Deleted remotely",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="old-local-history",
+                    account_id="credit-1",
+                    date=self.today - timedelta(days=30),
+                    amount=Decimal("20"),
+                    description="Outside reconciliation window",
+                )
+            )
+            session.commit()
+
+            result = sync_service.sync_item("item-1", session)
+
+            self.assertEqual(result["deleted_transactions"], 1)
+            self.assertIsNone(session.get(Transaction, "deleted-by-pluggy"))
+            self.assertIsNotNone(session.get(Transaction, "old-local-history"))
 
 
 class SyncIsolationAndLockTest(unittest.TestCase):

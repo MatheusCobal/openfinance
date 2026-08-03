@@ -66,18 +66,14 @@ def connect_token(
     try:
         token = pluggy.create_connect_token(client_user_id=client_user_id, item_id=body.itemId)
     except httpx.HTTPStatusError as exc:
-        logger.error(
-            "connect-token Pluggy error status=%s body=%.500s",
-            exc.response.status_code,
-            exc.response.text,
-        )
+        logger.error("connect-token Pluggy error status=%s", exc.response.status_code)
         if exc.response.status_code in (401, 403):
             raise HTTPException(
                 401,
                 "Pluggy rejeitou as credenciais. Verifique PLUGGY_CLIENT_ID e "
                 "PLUGGY_CLIENT_SECRET no arquivo .env.",
             )
-        raise HTTPException(502, f"Pluggy retornou {exc.response.status_code}: {exc.response.text}")
+        raise HTTPException(502, "Pluggy está temporariamente indisponível.") from exc
     except PluggyCredentialError as exc:
         raise HTTPException(
             500,
@@ -86,7 +82,7 @@ def connect_token(
         ) from exc
     except Exception as exc:
         logger.exception("connect-token unexpected error: %s", exc)
-        raise HTTPException(500, f"Erro interno ao gerar token de conexão: {exc}") from exc
+        raise HTTPException(500, "Erro interno ao gerar token de conexão.") from exc
     logger.info("connect-token issued successfully")
     return {"accessToken": token}
 
@@ -105,7 +101,9 @@ def register_item(
             item_id,
             session,
             user_id=user_id,
-            expected_client_user_id=(pluggy_client_user_id(user_id) if user_id is not None else None),
+            expected_client_user_id=(
+                pluggy_client_user_id(user_id) if user_id is not None else None
+            ),
         )
     except ItemOwnershipError as exc:
         raise HTTPException(404, f"Item {item_id!r} not found") from exc
@@ -117,19 +115,6 @@ def sync_item(
     session: Session = Depends(get_session),
     user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    try:
-        backup_sqlite_database(database_settings.database_url, f"pluggy-sync-{item_id}")
-    except Exception as exc:
-        logger.error(
-            "SQLite backup before Pluggy sync failed for item_id=%s error=%s",
-            item_id,
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            500,
-            "Could not create SQLite backup before starting Pluggy sync.",
-        ) from exc
-
     item = session.get(Item, item_id)
     if item is not None and user_id is not None and item.user_id != user_id:
         raise HTTPException(404, f"Item {item_id!r} not found")
@@ -145,6 +130,18 @@ def sync_item(
             )
         except ItemOwnershipError as exc:
             raise HTTPException(404, f"Item {item_id!r} not found") from exc
+    try:
+        backup_sqlite_database(database_settings.database_url, f"pluggy-sync-{item_id}")
+    except Exception as exc:
+        logger.error(
+            "SQLite backup before Pluggy sync failed for item_id=%s error=%s",
+            item_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            500,
+            "Could not create SQLite backup before starting Pluggy sync.",
+        ) from exc
     try:
         return run_sync_item(item.id, session)
     except SyncAlreadyRunning:
@@ -234,9 +231,7 @@ def deactivate_item(
     item.deactivated_at = now
     session.add(item)
     accounts = session.exec(
-        scope_query(
-            select(Account).where(Account.item_id == item_id), Account.user_id, user_id
-        )
+        scope_query(select(Account).where(Account.item_id == item_id), Account.user_id, user_id)
     ).all()
     for account in accounts:
         account.is_active = False
@@ -284,8 +279,7 @@ def debug_duplicate_transactions(
     """
     # --- load accounts and items ---
     all_accounts: dict[str, Account] = {
-        a.id: a
-        for a in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+        a.id: a for a in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
     active_item_ids = {
         item.id

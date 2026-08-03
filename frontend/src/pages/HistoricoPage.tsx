@@ -737,7 +737,7 @@ function CashflowTab({
 
 export function HistoricoPage() {
   const { showToast } = useToast();
-  const { data, loading, error, run } = useAsync(loadHistory, []);
+  const { data, loading, error, run } = useAsync(loadHistory);
   const [activeTab, setActiveTab] = useState<HistoryTab>("invoices");
   const [modal, setModal] = useState<{
     title: string;

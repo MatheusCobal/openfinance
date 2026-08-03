@@ -1,6 +1,5 @@
 from calendar import monthrange
 from datetime import date
-from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
@@ -24,8 +23,3 @@ def month_range(year_month: Optional[str] = None) -> tuple[str, date, date]:
         return year_month, date(year, month, 1), date(year, month, last_day)
     except ValueError:
         raise HTTPException(400, "year_month must be a valid calendar month")
-
-
-def validate_budget_target(monthly_target: Decimal) -> None:
-    if monthly_target <= 0:
-        raise HTTPException(400, "monthly_target must be > 0")

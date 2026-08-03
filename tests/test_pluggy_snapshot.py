@@ -15,7 +15,6 @@ from app.models import (
     Transaction,
 )
 from app.services import sync as sync_service
-from app.services.pluggy_snapshot import account_snapshot_summary
 
 
 def _http_404(path: str) -> httpx.HTTPStatusError:
@@ -298,30 +297,6 @@ class AccountSnapshotSyncTest(_SyncTestBase):
             self.assertEqual(buy.type, "BUY")
             self.assertEqual(buy.amount, Decimal("1000.0000000000"))
             self.assertEqual(buy.investment_id, "inv-cdb")
-
-
-class AccountSnapshotSummaryTest(_SyncTestBase):
-    def test_account_snapshot_totals_from_pluggy(self):
-        with Session(self.engine) as session:
-            self._seed_item(session)
-            sync_service.sync_item("item-1", session)
-
-            summary = account_snapshot_summary(session)
-
-            # Bank total from Account.balance, not transactions
-            self.assertEqual(summary["bank"]["total"], 5000.0)
-            self.assertTrue(summary["bank"]["has_balance"])
-
-            # Credit usage + limits from Account.balance / creditData
-            self.assertEqual(summary["credit"]["used"], 1500.0)
-            self.assertEqual(summary["credit"]["limit"], 10000.0)
-            self.assertEqual(summary["credit"]["available"], 8500.0)
-
-            # Investments total = sum(Investment.balance) (CDB + stock)
-            self.assertEqual(summary["investments"]["total"], 13700.0)
-            self.assertEqual(summary["investments"]["investment_count"], 2)
-            self.assertNotIn("reserve_total", summary["investments"])
-            self.assertNotIn("reserve_investment_count", summary["investments"])
 
 
 class CreditCardBillVsReconstructedTest(_SyncTestBase):

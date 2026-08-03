@@ -145,6 +145,12 @@ class BackendRegressionTest(unittest.TestCase):
             )
             session.commit()
 
+    def test_credit_card_invoice_rejects_invalid_year(self):
+        response = self.client.get("/credit-card/invoice/abcd-01")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "year_month must be in YYYY-MM format")
+
     def test_transactions_can_include_bank_accounts_and_ignored_rows(self):
         response = self.client.get(
             "/transactions",
@@ -269,18 +275,10 @@ class BackendRegressionTest(unittest.TestCase):
         self.assertEqual(payload["months"][0]["month"], self.current_month)
         self.assertEqual(payload["months"][0]["transactions"][0]["id"], "tx-invoice-payment")
 
-    def test_bank_income_respects_real_income_exclusion_rules(self):
-        with Session(self.engine) as session:
-            session.add(BankIncomeExclusionRule(pluggy_category="Proceeds interests and dividends"))
-            session.commit()
-
-        response = self.client.get("/bank-income/monthly", params={"months": 1})
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["total_income"], 5000.0)
-        self.assertEqual(payload["transaction_count"], 1)
-        self.assertEqual(payload["months"][0]["transactions"][0]["id"], "tx-salary")
+    def test_deprecated_bank_income_endpoints_are_removed(self):
+        for path in ("/bank-income/monthly", "/bank-income/history"):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 404)
 
     def test_monthly_balance_combines_income_card_spend_and_invoice_payment(self):
         with Session(self.engine) as session:
@@ -300,11 +298,9 @@ class BackendRegressionTest(unittest.TestCase):
     def test_read_endpoints_do_not_create_snapshot_rows(self):
         endpoints = [
             ("/credit-card-payments/monthly", {"months": 1}),
-            ("/bank-income/monthly", {"months": 1}),
             ("/monthly-balance", {"months": 1}),
             ("/expected-income/forecast", {"year_month": self.current_month}),
             ("/credit-card-payments/history", {}),
-            ("/bank-income/history", {}),
             ("/monthly-balance/history", {}),
         ]
 
@@ -321,7 +317,6 @@ class BackendRegressionTest(unittest.TestCase):
     def test_history_get_endpoints_do_not_call_snapshot_refresh(self):
         endpoints = [
             ("/credit-card-payments/history", {}),
-            ("/bank-income/history", {}),
             ("/monthly-balance", {"months": 1}),
             ("/monthly-balance/history", {}),
         ]
@@ -478,7 +473,6 @@ class BackendRegressionTest(unittest.TestCase):
     def test_http_validation_rejects_invalid_month_windows(self):
         endpoints = [
             "/credit-card-payments/monthly",
-            "/bank-income/monthly",
             "/bank-cashflow/monthly",
             "/monthly-balance",
         ]

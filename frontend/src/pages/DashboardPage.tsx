@@ -24,6 +24,7 @@ import {
   registerPluggyItem,
   syncPluggyItem,
 } from "../api/dashboard";
+import { ApiError } from "../api/client";
 import { Topbar } from "../components/layout/Topbar";
 import { PageContainer } from "../components/layout/PageContainer";
 import { Button } from "../components/ui/Button";
@@ -47,7 +48,6 @@ import {
   classificationSourceLabel,
   invoiceSourceLabel,
   pluralCompras,
-  pluralItens,
   pluralize,
 } from "../lib/labels";
 import { dashboardAvailableToSpend, normalizePlanningOverview, planStatusMeta } from "../lib/planning";
@@ -84,17 +84,21 @@ async function loadDashboardData() {
     getPlanningMonth(planningMonth),
     getCurrentInvoice(),
   ]);
-  const [bankBalance, upcoming] = await Promise.all([
-    getBankBalance().catch(() => null),
-    getUpcoming().catch(() => null),
+  const [bankBalanceResult, upcomingResult] = await Promise.allSettled([
+    getBankBalance(),
+    getUpcoming(),
   ]);
+  const partialErrors: string[] = [];
+  if (bankBalanceResult.status === "rejected") partialErrors.push("saldo bancário");
+  if (upcomingResult.status === "rejected") partialErrors.push("próximos compromissos");
   const capacity = normalizePlanningOverview(planning);
   return {
     planningMonth,
     capacity,
     currentInvoice,
-    bankBalance,
-    upcoming,
+    bankBalance: bankBalanceResult.status === "fulfilled" ? bankBalanceResult.value : null,
+    upcoming: upcomingResult.status === "fulfilled" ? upcomingResult.value : null,
+    partialErrors,
     categories: currentInvoice.categories || [],
     recentCardPurchases: latestCardPurchases(
       currentInvoice.recent_purchase_transactions || currentInvoice.raw_purchase_transactions || [],
@@ -104,7 +108,7 @@ async function loadDashboardData() {
 
 export function DashboardPage() {
   const { showToast } = useToast();
-  const { data, loading, error, run } = useAsync(loadDashboardData, []);
+  const { data, loading, error, run } = useAsync(loadDashboardData);
   const [selectedCategory, setSelectedCategory] = useState<InvoiceCategory | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [visibleRecentPurchaseCount, setVisibleRecentPurchaseCount] = useState(
@@ -137,11 +141,20 @@ export function DashboardPage() {
           }
           try {
             await registerPluggyItem(itemId);
-            await syncPluggyItem(itemId).catch((err) => {
-              if (err instanceof Error && err.message.includes("409")) return null;
+            const syncResult = await syncPluggyItem(itemId).catch((err) => {
+              if (err instanceof ApiError && err.status === 409) return null;
               throw err;
             });
-            showToast("Banco conectado. Sincronização iniciada.", "success");
+            if (syncResult === null) {
+              showToast("Banco conectado. Já existe uma sincronização em andamento.");
+            } else if (syncResult.failed_accounts.length > 0) {
+              showToast(
+                `Banco conectado, mas ${syncResult.failed_accounts.length} conta(s) falharam ao sincronizar.`,
+                "error",
+              );
+            } else {
+              showToast("Banco conectado e sincronizado.", "success");
+            }
             await run();
           } catch (err) {
             showToast(err instanceof Error ? err.message : "Erro ao sincronizar banco.", "error");
@@ -264,6 +277,13 @@ export function DashboardPage() {
         {error && data ? (
           <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
         ) : null}
+        {data?.partialErrors.length ? (
+          <StaleDataWarning
+            message={`Dados parciais: não foi possível carregar ${data.partialErrors.join(" e ")}.`}
+            loading={loading}
+            onRetry={() => void run()}
+          />
+        ) : null}
         {data && dashCap ? (
           <div className="space-y-8">
             {/* Cockpit hero */}
@@ -353,9 +373,9 @@ export function DashboardPage() {
                 icon={<Banknote className="size-4" aria-hidden="true" />}
               />
               <MetricCard
-                label="Custos fixos"
-                value={formatMoney(dashCap.fixedCosts)}
-                subtitle={`${pluralItens(data.capacity.fixed_costs?.entries?.length ?? 0)} reservados ou pagos`}
+                label="Custos fixos a pagar"
+                value={formatMoney(dashCap.fixedCostsPending)}
+                subtitle={`${formatMoney(dashCap.fixedCostsPaid)} já pagos de ${formatMoney(dashCap.fixedCosts)}`}
                 icon={<Wallet className="size-4" aria-hidden="true" />}
               />
               <MetricCard

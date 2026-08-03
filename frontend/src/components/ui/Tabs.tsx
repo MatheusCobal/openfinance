@@ -1,6 +1,6 @@
 import { classNames } from "../../lib/classNames";
 
-export interface TabItem<T extends string> {
+interface TabItem<T extends string> {
   key: T;
   label: string;
 }

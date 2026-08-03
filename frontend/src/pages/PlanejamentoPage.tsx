@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Banknote, Bell, Calendar, CalendarClock, Check, ChevronDown, Clock, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
 import {
   createExpectedIncome,
@@ -157,7 +157,6 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
   const isFuture = isFuturePlanningMonth(capacity);
   const free = asMoneyNumber(
     capacity.budget_available_to_spend ??
-      capacity.discretionary_available ??
       capacity.available_to_spend ??
       capacity.remaining_after_plan ??
       capacity.remaining_after_invoice,
@@ -2771,10 +2770,11 @@ export function PlanejamentoPage() {
   const [showInactiveCosts, setShowInactiveCosts] = useState(false);
   const [showInactiveIncome, setShowInactiveIncome] = useState(false);
   const months = useMemo(() => monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE + 1), []);
-  const { data, loading, error, run } = useAsync(
+  const planningLoader = useCallback(
     () => loadPlanningData(selectedMonth, showInactiveCosts, showInactiveIncome),
     [selectedMonth, showInactiveCosts, showInactiveIncome],
   );
+  const { data, loading, error, run } = useAsync(planningLoader);
 
   useEffect(() => {
     const url = new URL(window.location.href);

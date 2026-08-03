@@ -19,7 +19,6 @@ categoria" report.
 
 from __future__ import annotations
 
-import re
 from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, Optional, Set
@@ -28,6 +27,7 @@ from sqlmodel import Session, select
 
 from app.models import Transaction, VariableBudget
 from app.services.classification import (
+    SPENDING_ACCOUNT_TYPES,
     TransactionClassifier,
     card_invoice_signed_amount,
 )
@@ -37,12 +37,10 @@ from app.services.credit_categories import (
 )
 from app.services.scoping import scope_query
 from app.services.transactions import (
-    SPENDING_ACCOUNT_TYPES,
     _non_duplicate_clause,
     account_ids_by_type,
 )
-
-_YEAR_MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+from app.services.year_month import InvalidYearMonth, parse_year_month, shift_year_month
 
 
 class VariableBudgetValidationError(ValueError):
@@ -56,8 +54,10 @@ def eligible_categories() -> list[str]:
 
 def validate_year_month(year_month: str) -> str:
     value = (year_month or "").strip()
-    if not _YEAR_MONTH_RE.match(value):
-        raise VariableBudgetValidationError("year_month must be in YYYY-MM format")
+    try:
+        parse_year_month(value)
+    except InvalidYearMonth as exc:
+        raise VariableBudgetValidationError(str(exc)) from exc
     return value
 
 
@@ -163,15 +163,7 @@ def delete_goal(
 
 
 def _shift_month(year_month: str, delta: int) -> str:
-    year, month = int(year_month[:4]), int(year_month[5:])
-    month += delta
-    while month > 12:
-        month -= 12
-        year += 1
-    while month < 1:
-        month += 12
-        year -= 1
-    return f"{year:04d}-{month:02d}"
+    return shift_year_month(year_month, delta)
 
 
 def replicate_goals(
@@ -223,9 +215,7 @@ def spend_by_category(
     dropped to avoid double counting.
     """
     skip = exclude_transaction_ids or set()
-    credit_account_ids = set(
-        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
-    )
+    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id))
     if not credit_account_ids:
         return {}
     classifier = TransactionClassifier.from_session(session, user_id=user_id)

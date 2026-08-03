@@ -1,6 +1,6 @@
 import type { Transaction } from "./common";
 
-export interface UpcomingCategory {
+interface UpcomingCategory {
   id?: string | number;
   name?: string;
   total: number;

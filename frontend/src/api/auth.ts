@@ -5,7 +5,7 @@ export interface AuthUser {
   email: string;
 }
 
-export interface AuthConfig {
+interface AuthConfig {
   required: boolean;
 }
 

@@ -3,19 +3,20 @@ from typing import Any, Dict, Optional
 
 from sqlmodel import Session
 
-from app.services.budgets import budget_progress_summary
-from app.services.credit_card_invoice import (
-    planning_invoice_for_month,
-    scheduled_installments_for_month,
-)
-from app.services.expected_income import monthly_breakdown as expected_income_breakdown
+from app.services.credit_card_invoice import scheduled_installments_for_month
 from app.services.fixed_costs import (
     FixedCostValidationError,
-    _month_bounds,
     _shift_year_month,
     monthly_breakdown,
 )
 from app.services.spending_capacity import spending_capacity_summary
+
+_CAPACITY_DETAIL_KEYS = {
+    "expected_income",
+    "fixed_costs",
+    "planning_invoice",
+    "variable_budgets",
+}
 
 
 def upcoming_months(
@@ -46,37 +47,11 @@ def planning_month_summary(
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     today = today if today is not None else date.today()
-    first_day, last_day = _month_bounds(year_month)
-
-    income = expected_income_breakdown(session, year_month, user_id=user_id)
-    fixed_costs = monthly_breakdown(session, year_month, today=today, user_id=user_id)
-    fixed_cost_accounted_ids = {
-        entry["matched_transaction"]["id"]
-        for entry in fixed_costs["entries"]
-        if entry.get("matched_transaction") and entry["matched_transaction"].get("id")
-    }
-    include_transaction_ids = None
-    if year_month == _shift_year_month(today.strftime("%Y-%m"), 1):
-        from app.services.current_card_invoice import current_card_invoice_summary
-
-        current_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
-        include_transaction_ids = {
-            str(row["id"])
-            for row in current_invoice.get("raw_purchase_transactions", [])
-            if row.get("id")
-        }
-    variable_budgets = budget_progress_summary(
-        session,
-        year_month=year_month,
-        first_day=first_day,
-        last_day=last_day,
-        today=today,
-        fixed_cost_accounted_transaction_ids=fixed_cost_accounted_ids,
-        include_transaction_ids=include_transaction_ids,
-        user_id=user_id,
-    )
-    planning_invoice = planning_invoice_for_month(session, year_month, today=today, user_id=user_id)
     capacity = spending_capacity_summary(session, year_month, today=today, user_id=user_id)
+    income = capacity["expected_income"]
+    fixed_costs = capacity["fixed_costs"]
+    variable_budgets = capacity["variable_budgets"]
+    planning_invoice = capacity["planning_invoice"]
 
     budget_summary = variable_budgets["summary"]
     return {
@@ -103,12 +78,6 @@ def planning_month_summary(
         },
         "credit_card_invoice": planning_invoice,
         "capacity": {
-            "available_to_spend": capacity["available_to_spend"],
-            "daily_discretionary_remaining": capacity["daily_discretionary_remaining"],
-            "days_remaining_in_month": capacity["days_remaining_in_month"],
-            "plan_status": capacity["plan_status"],
-        },
-        "raw": {
-            "spending_capacity": capacity,
+            key: value for key, value in capacity.items() if key not in _CAPACITY_DETAIL_KEYS
         },
     }

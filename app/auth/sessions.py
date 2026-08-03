@@ -14,7 +14,9 @@ Two read paths exist on purpose:
 """
 
 import datetime
+import hashlib
 import secrets
+from dataclasses import dataclass
 from typing import Optional
 
 from sqlmodel import Session
@@ -28,25 +30,36 @@ _TOKEN_BYTES = 32
 DEFAULT_SESSION_TTL = datetime.timedelta(days=14)
 
 
+@dataclass(frozen=True)
+class CreatedSession:
+    token: str
+    expires_at: datetime.datetime
+
+
 def _utcnow() -> datetime.datetime:
     return datetime.datetime.utcnow()
+
+
+def _token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def create_session(
     db: Session,
     user_id: int,
     ttl: datetime.timedelta = DEFAULT_SESSION_TTL,
-) -> AuthSession:
-    """Create and persist a new session for ``user_id`` and return the row."""
+) -> CreatedSession:
+    """Create a session while keeping the browser token out of the database."""
+    token = secrets.token_urlsafe(_TOKEN_BYTES)
+    expires_at = _utcnow() + ttl
     row = AuthSession(
-        token=secrets.token_urlsafe(_TOKEN_BYTES),
+        token=_token_digest(token),
         user_id=user_id,
-        expires_at=_utcnow() + ttl,
+        expires_at=expires_at,
     )
     db.add(row)
     db.commit()
-    db.refresh(row)
-    return row
+    return CreatedSession(token=token, expires_at=expires_at)
 
 
 def get_valid_session(db: Session, token: Optional[str]) -> Optional[AuthSession]:
@@ -56,7 +69,10 @@ def get_valid_session(db: Session, token: Optional[str]) -> Optional[AuthSession
     """
     if not token:
         return None
-    row = db.get(AuthSession, token)
+    row = db.get(AuthSession, _token_digest(token))
+    if row is None:
+        # Compatibility window for sessions created before token hashing.
+        row = db.get(AuthSession, token)
     if row is None:
         return None
     if row.expires_at <= _utcnow():
@@ -81,7 +97,7 @@ def revoke_session(db: Session, token: Optional[str]) -> None:
     """Delete the session row for ``token`` if it exists (idempotent)."""
     if not token:
         return
-    row = db.get(AuthSession, token)
+    row = db.get(AuthSession, _token_digest(token)) or db.get(AuthSession, token)
     if row is not None:
         db.delete(row)
         db.commit()

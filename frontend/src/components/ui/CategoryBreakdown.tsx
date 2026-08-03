@@ -3,7 +3,7 @@ import { classNames } from "../../lib/classNames";
 import { pluralCompras } from "../../lib/labels";
 import { formatMoney } from "../../lib/money";
 
-export interface CategoryBreakdownItem {
+interface CategoryBreakdownItem {
   id: string | number;
   name: string;
   total: number;

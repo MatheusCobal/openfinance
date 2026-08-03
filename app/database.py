@@ -1,9 +1,10 @@
+import sqlite3
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import event, inspect, text
 from sqlalchemy.engine import make_url
-from sqlalchemy import inspect, text
 from sqlmodel import Session, create_engine
 
 from app.config import database_settings
@@ -24,6 +25,26 @@ engine = create_engine(
     echo=False,
     connect_args=_connect_args_for_database_url(database_settings.database_url),
 )
+
+
+def _configure_sqlite_connection(
+    dbapi_connection: object,
+    _connection_record: object,
+) -> None:
+    """Enable the integrity and concurrency guarantees expected by the app."""
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
+
+
+event.listen(engine, "connect", _configure_sqlite_connection)
 
 
 def _alembic_config() -> Config:

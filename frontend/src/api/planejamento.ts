@@ -18,10 +18,6 @@ export function getFixedCostsByMonth(yearMonth: string) {
   return apiGet<FixedCostsMonth>(`/fixed-costs/by-month?year_month=${yearMonth}`);
 }
 
-export function getSpendingCapacity(yearMonth: string) {
-  return apiGet(`/spending-capacity?year_month=${yearMonth}`);
-}
-
 export function setVariableBudget(yearMonth: string, category: string, targetAmount: number) {
   return apiPut<{ id: number; year_month: string; category: string; target_amount: number }>(
     "/budgets/variable",
@@ -52,10 +48,6 @@ export function listFixedCostCategories() {
 
 export function createFixedCostCategory(body: { name: string; color: string; sort_order: number }) {
   return apiPost<FixedCostCategory>("/fixed-cost-categories", body);
-}
-
-export function deleteFixedCostCategory(id: number) {
-  return apiDelete(`/fixed-cost-categories/${id}`);
 }
 
 export function listFixedCostTemplates() {
@@ -132,12 +124,4 @@ export function deleteExpectedIncome(id: number) {
 
 export function getExpectedIncomeByMonth(yearMonth: string) {
   return apiGet<ExpectedIncomeMonth>(`/expected-income/by-month?year_month=${yearMonth}`);
-}
-
-export function setExpectedIncomeOverride(id: number, yearMonth: string, amount: number) {
-  return apiPut(`/expected-income/${id}/overrides/${yearMonth}`, { amount });
-}
-
-export function deleteExpectedIncomeOverride(id: number, yearMonth: string) {
-  return apiDelete(`/expected-income/${id}/overrides/${yearMonth}`);
 }

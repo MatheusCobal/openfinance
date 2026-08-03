@@ -158,15 +158,10 @@ class PageSmokeTest(unittest.TestCase):
             response = self.client.get("/planning/month/2026-07")
         self.assertEqual(response.status_code, 401)
 
-    def test_custos_fixos_redirects_to_planejamento(self):
-        response = self.client.get("/custos-fixos")
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["location"], "/planejamento")
-
-    def test_orcamento_redirects_to_planejamento(self):
-        response = self.client.get("/orcamento")
-        self.assertEqual(response.status_code, 307)
-        self.assertEqual(response.headers["location"], "/planejamento")
+    def test_removed_legacy_page_aliases_return_404(self):
+        for path in ("/custos-fixos", "/orcamento"):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 404)
 
     def test_health_works(self):
         response = self.client.get("/health")

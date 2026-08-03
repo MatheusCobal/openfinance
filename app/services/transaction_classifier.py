@@ -20,15 +20,6 @@ CASHFLOW_TYPES = {
     "ignored",
     "unknown",
 }
-CLASSIFICATION_SOURCES = {
-    "pluggy_rule",
-    "system_rule",
-    "manual_override",
-    "fallback",
-    "unclassified",
-}
-CLASSIFICATION_CONFIDENCES = {"high", "medium", "low", "unknown"}
-
 INTERNAL_CATEGORIES = (
     "Alimentação",
     "Transporte",

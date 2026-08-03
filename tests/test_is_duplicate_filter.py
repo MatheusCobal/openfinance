@@ -5,10 +5,9 @@ Covers every scenario listed in the task:
   B. Duplicate payment: does not shift last_payment_date
   C. upcoming_summary: future duplicate installment ignored
   D. enriched_transactions (/transactions endpoint): marked duplicate hidden
-  E. spending_capacity via discretionary_spend_transactions
-  F. snapshot refresh: marked duplicate not included
-  G. Endpoints: /transactions, /stats/monthly, /planning/month/{ym}
-  H. /debug/duplicate-transactions still lists marked duplicates
+  E. snapshot refresh: marked duplicate not included
+  F. Endpoints: /transactions, /stats/monthly, /planning/month/{ym}
+  G. /debug/duplicate-transactions still lists marked duplicates
 """
 
 import unittest
@@ -27,11 +26,6 @@ from app.services.transaction_reports import (
     invoice_summary,
     upcoming_summary,
 )
-
-from app.services.transactions import (
-    discretionary_spend_transactions,
-)
-
 
 # ---------------------------------------------------------------------------
 # Shared test infrastructure
@@ -176,14 +170,10 @@ class TestUpcomingSummaryExcludesMarkedDuplicate(unittest.TestCase):
     def session(self):
         return Session(self.engine)
 
-    def _future_date(self):
-        from datetime import date, timedelta
-
-        return date.today() + timedelta(days=10)
-
     def test_future_duplicate_excluded_from_total(self):
         """A duplicate future installment must not appear in upcoming total."""
-        future = self._future_date()
+        today = date(2026, 5, 1)
+        future = date(2026, 7, 10)
         with self.session() as s:
             _seed(s)
             s.add(_tx("fut-real", "acc-a", future, Decimal("150"), "Parcela"))
@@ -191,7 +181,7 @@ class TestUpcomingSummaryExcludesMarkedDuplicate(unittest.TestCase):
             s.commit()
 
         with self.session() as s:
-            result = upcoming_summary(s)
+            result = upcoming_summary(s, today=today)
 
         self.assertEqual(result["total_count"], 1)
         all_totals = sum(m["total"] for m in result["months"])
@@ -228,37 +218,7 @@ class TestEnrichedTransactionsExcludesMarkedDuplicate(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# F: discretionary_spend_transactions excludes marked duplicate
-# ---------------------------------------------------------------------------
-
-
-class TestDiscretionarySpendExcludesMarkedDuplicate(unittest.TestCase):
-    def setUp(self):
-        self.engine = _make_engine()
-
-    def session(self):
-        return Session(self.engine)
-
-    def test_duplicate_not_in_discretionary_spend(self):
-        d = date(2026, 5, 5)
-        with self.session() as s:
-            _seed(s)
-            s.add(_tx("tx-real", "acc-a", d, Decimal("90"), "Gym"))
-            s.add(_tx("tx-dup", "acc-a", d, Decimal("90"), "Gym", is_duplicate=True))
-            s.commit()
-
-        with self.session() as s:
-            txs = discretionary_spend_transactions(s, d, d)
-
-        ids = {tx.id for tx in txs}
-        self.assertIn("tx-real", ids)
-        self.assertNotIn("tx-dup", ids)
-        total = sum(abs(tx.amount) for tx in txs)
-        self.assertAlmostEqual(float(total), 90.0, places=2)
-
-
-# ---------------------------------------------------------------------------
-# G: snapshot refresh ignores marked duplicates
+# E: snapshot refresh ignores marked duplicates
 # ---------------------------------------------------------------------------
 
 

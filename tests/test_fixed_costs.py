@@ -467,9 +467,7 @@ class FixedCostsTest(unittest.TestCase):
                 today=date(2026, 6, 20),
             )
 
-        auto_matches = [
-            item for item in breakdown["entries"] if item["match_source"] == "auto"
-        ]
+        auto_matches = [item for item in breakdown["entries"] if item["match_source"] == "auto"]
         self.assertEqual(len(auto_matches), 1)
         self.assertEqual(
             auto_matches[0]["matched_transaction"]["id"],
@@ -624,7 +622,7 @@ class SpendingCapacityMonthlyShapeTest(unittest.TestCase):
         row = payload["months"][0]
         self.assertIn("card_invoice_gross_total", row)
         self.assertIn("card_invoice_discretionary_total", row)
-        self.assertIn("discretionary_available", row)
+        self.assertIn("budget_available_to_spend", row)
         self.assertIn("plan_status", row)
         self.assertIn("card_invoice_gross_total", payload["summary"])
         self.assertEqual(
@@ -695,13 +693,13 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
             self.assertEqual(capacity["daily_discretionary_remaining"], 0.0)
 
     def test_daily_discretionary_remaining(self):
-        """#5 — discretionary_available divided across days left in month."""
+        """#5 — available budget divided across days left in month."""
         from app.services.spending_capacity import spending_capacity_summary
 
         with Session(self.engine) as session:
             # Mid-month with no expenses → all R$ 10k spread across 21 days.
             capacity = spending_capacity_summary(session, "2026-05", today=date(2026, 5, 11))
-            self.assertEqual(capacity["discretionary_available"], 10000.0)
+            self.assertEqual(capacity["budget_available_to_spend"], 10000.0)
             self.assertEqual(capacity["days_remaining_in_month"], 21)
             self.assertAlmostEqual(
                 capacity["daily_discretionary_remaining"],
@@ -726,7 +724,7 @@ class SpendingCapacityDiagnosticsTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             capacity = cap(session, "2026-05", today=date(2026, 5, 11))
-            self.assertLess(capacity["discretionary_available"], 0)
+            self.assertLess(capacity["budget_available_to_spend"], 0)
             self.assertEqual(capacity["daily_discretionary_remaining"], 0.0)
 
     def test_plan_status_flag_transitions(self):
@@ -1021,7 +1019,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         self.assertEqual(capacity["fixed_cost_reserved_total"], 300.0)
         # 20300 - 300 = 20000
         self.assertEqual(capacity["budget_available_to_spend"], 20000.0)
-        self.assertEqual(capacity["discretionary_available"], 20000.0)
+        self.assertEqual(capacity["budget_available_to_spend"], 20000.0)
 
     # ----- 2. Fixed cost paid exactly -----
 
@@ -1236,8 +1234,7 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
     # ----- 10. Monthly endpoint exposes new headline -----
 
     def test_monthly_endpoint_returns_budget_available_to_spend(self):
-        """/spending-capacity/monthly must include the new headline field per
-        month AND in the aggregate summary, alongside the legacy aliases."""
+        """The monthly endpoint exposes the canonical headline per month and summary."""
         self._make_water_fixed_cost(amount=300)
         response = self.client.get("/spending-capacity/monthly", params={"months": 1})
 
@@ -1245,12 +1242,9 @@ class MonthlyPlanningAvailabilityTest(unittest.TestCase):
         payload = response.json()
         row = payload["months"][0]
         self.assertIn("budget_available_to_spend", row)
-        self.assertIn("projected_cash_available", row)
         self.assertIn("fixed_cost_reserved_total", row)
         self.assertIn("variable_budget_consumed", row)
         self.assertIn("budget_available_to_spend", payload["summary"])
-        # Sanity: the new headline matches the legacy alias for backward compat
-        self.assertEqual(row["budget_available_to_spend"], row["discretionary_available"])
 
     # ----- 10. Unbudgeted spend does NOT reduce disponível -----
 
@@ -1738,7 +1732,7 @@ class CurrentMonthOpenInvoiceCycleTest(unittest.TestCase):
                 today=date(2026, 6, 19),
             )
 
-        capacity = planning["raw"]["spending_capacity"]
+        capacity = planning["capacity"]
         self.assertEqual(planning["variable_budgets"]["remaining"], 500.0)
         self.assertEqual(capacity["variable_budget_consumed"], 1000.0)
         self.assertEqual(capacity["variable_budget_remaining"], 500.0)

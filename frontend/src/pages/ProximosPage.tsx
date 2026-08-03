@@ -97,7 +97,7 @@ function transactionList(transactions: UpcomingMonth["transactions"]) {
 }
 
 export function ProximosPage() {
-  const { data, loading, error, run } = useAsync(getUpcoming, []);
+  const { data, loading, error, run } = useAsync(getUpcoming);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   useEffect(() => {
@@ -137,12 +137,15 @@ export function ProximosPage() {
     });
   }, [data, selectedMonth, summary.largest]);
 
+  const horizonLabel =
+    data?.months?.length === 1 ? "no próximo mês" : `nos próximos ${data?.months?.length || 0} meses`;
+
   return (
     <>
       <Topbar
         subtitle={
           data?.months?.length
-            ? `${pluralParcelas(data.total_count || summary.totalCount)} já comprometidas nos próximos ${data.months.length} meses`
+            ? `${pluralParcelas(data.total_count || summary.totalCount)} já comprometidas ${horizonLabel}`
             : "O que já está comprometido nos próximos meses"
         }
         actions={

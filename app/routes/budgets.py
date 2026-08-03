@@ -26,13 +26,6 @@ class VariableBudgetUpsert(BaseModel):
     target_amount: float
 
 
-@router.get("/budgets")
-def list_budgets():
-    # Legacy per-category budget storage was removed in 10D-A. The variable
-    # goals live under /budgets/variable + /budgets/progress now.
-    return {"items": []}
-
-
 @router.get("/budgets/variable/categories")
 def variable_budget_categories():
     return {"categories": eligible_categories()}

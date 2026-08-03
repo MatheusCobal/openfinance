@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 
 STATIC_DIR = Path(__file__).parents[1] / "static"
 PROJECT_ROOT = Path(__file__).parents[2]
@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 def react_app():
-    """Serve the authenticated React app for legacy internal routes.
+    """Serve the authenticated React app for its internal routes.
 
     Production Docker builds copy the Vite output to app/static/react.
     The source index fallback keeps route smoke tests and local backend-only
@@ -56,18 +56,6 @@ def historico():
 @router.get("/proximos", include_in_schema=False)
 def proximos():
     return react_app()
-
-
-@router.get("/custos-fixos", include_in_schema=False)
-def custos_fixos_legacy():
-    # Legacy alias — redirects to the primary planning route.
-    return RedirectResponse(url="/planejamento", status_code=302)
-
-
-@router.get("/orcamento", include_in_schema=False)
-def orcamento():
-    # Legacy budgets screen — redirects permanently to Planejamento.
-    return RedirectResponse(url="/planejamento", status_code=307)
 
 
 @router.get("/health")

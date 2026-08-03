@@ -17,7 +17,6 @@ from app.main import app
 from app.models import Account, CreditCardBill, Item, Transaction
 from app.services import sync as sync_service
 from app.services.credit_card_invoice import planning_invoice_for_month
-from app.services.pluggy_snapshot import account_snapshot_summary
 from app.services.transactions import (
     account_ids_by_type,
     bank_outflow_transactions,
@@ -141,34 +140,6 @@ class BankOutflowExcludesInactiveTest(unittest.TestCase):
         self.assertIn("tx-itau-out", ids)
         self.assertNotIn("tx-caixa-out", ids)
         self.assertEqual(total, Decimal("100"))
-
-
-class AccountSnapshotExcludesInactiveTest(unittest.TestCase):
-    """Test 3: account_snapshot_summary excludes inactive accounts."""
-
-    def setUp(self):
-        self.engine = _make_engine()
-
-    def test_bank_total_excludes_inactive_account(self):
-        with Session(self.engine) as session:
-            _seed_item(session, "item-active", is_active=True)
-            _seed_item(session, "item-inactive", is_active=False)
-            _seed_account(
-                session, "bank-ok", "item-active", "BANK", is_active=True, balance=Decimal("1000")
-            )
-            _seed_account(
-                session,
-                "bank-dead",
-                "item-inactive",
-                "BANK",
-                is_active=False,
-                balance=Decimal("5000"),
-            )
-
-            summary = account_snapshot_summary(session)
-
-        self.assertEqual(summary["bank"]["total"], 1000.0)
-        self.assertEqual(summary["bank"]["account_count"], 1)
 
 
 class CreditObligationExcludesInactiveTest(unittest.TestCase):

@@ -1,4 +1,4 @@
-export const MONTH_LABELS = [
+const MONTH_LABELS = [
   "jan",
   "fev",
   "mar",
@@ -28,17 +28,12 @@ const dayFormatter = new Intl.DateTimeFormat("pt-BR", {
   month: "short",
 });
 
-const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
-  dateStyle: "short",
-  timeStyle: "short",
-});
-
 export function currentYearMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export function shiftYearMonth(ym: string, offset: number): string {
+function shiftYearMonth(ym: string, offset: number): string {
   const [year, month] = ym.split("-").map(Number);
   const zeroBased = year * 12 + (month - 1) + offset;
   return `${String(Math.floor(zeroBased / 12)).padStart(4, "0")}-${String(
@@ -76,22 +71,6 @@ export function formatDayLabel(isoDate?: string | null): string {
   return dayFormatter.format(new Date(year, month - 1, day));
 }
 
-export function formatDateTime(iso?: string | null): string {
-  if (!iso) return "-";
-  const value = new Date(iso);
-  if (Number.isNaN(value.getTime())) return iso;
-  return dateTimeFormatter.format(value);
-}
-
 export function monthWindow(start = getDefaultPlanningMonth(), size = 6): string[] {
   return Array.from({ length: size }, (_, index) => shiftYearMonth(start, index));
-}
-
-export function monthDateRange(ym: string): { fromDate: string; toDate: string } {
-  const [year, month] = ym.split("-").map(Number);
-  const lastDay = new Date(year, month, 0).getDate();
-  return {
-    fromDate: `${ym}-01`,
-    toDate: `${ym}-${String(lastDay).padStart(2, "0")}`,
-  };
 }

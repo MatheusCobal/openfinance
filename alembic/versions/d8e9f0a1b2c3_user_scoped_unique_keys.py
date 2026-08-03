@@ -75,8 +75,7 @@ def _rebuild_snapshot_for_user_scope(table_name: str, value_specs: list[tuple]) 
     column_list = ", ".join(copied_columns)
     op.execute(
         sa.text(
-            f'INSERT INTO "{table_name}" ({column_list}) '
-            f'SELECT {column_list} FROM "{legacy_table}"'
+            f'INSERT INTO "{table_name}" ({column_list}) SELECT {column_list} FROM "{legacy_table}"'
         )
     )
     op.drop_table(legacy_table)
@@ -92,8 +91,7 @@ def _restore_global_month_snapshot(table_name: str, value_specs: list[tuple]) ->
     bind = op.get_bind()
     duplicate = bind.execute(
         sa.text(
-            f'SELECT year_month FROM "{table_name}" '
-            "GROUP BY year_month HAVING COUNT(*) > 1 LIMIT 1"
+            f'SELECT year_month FROM "{table_name}" GROUP BY year_month HAVING COUNT(*) > 1 LIMIT 1'
         )
     ).first()
     if duplicate is not None:
@@ -125,8 +123,7 @@ def _restore_global_month_snapshot(table_name: str, value_specs: list[tuple]) ->
     column_list = ", ".join(copied_columns)
     op.execute(
         sa.text(
-            f'INSERT INTO "{table_name}" ({column_list}) '
-            f'SELECT {column_list} FROM "{scoped_table}"'
+            f'INSERT INTO "{table_name}" ({column_list}) SELECT {column_list} FROM "{scoped_table}"'
         )
     )
     op.drop_table(scoped_table)
@@ -136,9 +133,7 @@ def _restore_global_month_snapshot(table_name: str, value_specs: list[tuple]) ->
 
 def upgrade() -> None:
     op.drop_index("ix_fixedcostcategory_name", table_name="fixedcostcategory")
-    op.create_index(
-        "ix_fixedcostcategory_name", "fixedcostcategory", ["name"], unique=False
-    )
+    op.create_index("ix_fixedcostcategory_name", "fixedcostcategory", ["name"], unique=False)
     op.create_index(
         "uq_fixedcostcategory_user_name",
         "fixedcostcategory",
@@ -202,6 +197,4 @@ def downgrade() -> None:
 
     op.drop_index("uq_fixedcostcategory_user_name", table_name="fixedcostcategory")
     op.drop_index("ix_fixedcostcategory_name", table_name="fixedcostcategory")
-    op.create_index(
-        "ix_fixedcostcategory_name", "fixedcostcategory", ["name"], unique=True
-    )
+    op.create_index("ix_fixedcostcategory_name", "fixedcostcategory", ["name"], unique=True)

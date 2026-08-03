@@ -4,16 +4,6 @@ from typing import Any, Dict, Optional, Set
 from sqlmodel import Session
 
 
-def budget_status(progress_pct: Optional[float]) -> Optional[str]:
-    if progress_pct is None:
-        return None
-    if progress_pct >= 100:
-        return "over"
-    if progress_pct >= 80:
-        return "warning"
-    return "ok"
-
-
 def budget_progress_summary(
     session: Session,
     year_month: str,

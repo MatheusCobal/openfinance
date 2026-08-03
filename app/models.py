@@ -136,7 +136,7 @@ class PluggyWebhookEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, index=True)
     event: str = Field(index=True)
-    event_id: Optional[str] = Field(default=None, index=True)
+    event_id: Optional[str] = Field(default=None, unique=True, index=True)
     item_id: Optional[str] = Field(default=None, index=True)
     action: str = Field(index=True)
     payload_json: Optional[str] = None
@@ -403,11 +403,8 @@ class VariableBudget(SQLModel, table=True):
 class User(SQLModel, table=True):
     """An application user that can authenticate.
 
-    Single-tenant for now: the app serves one shared financial dataset and only
-    one real user is expected until per-user data isolation is implemented (see
-    the auth plan, "Fase 6"). The ``get_current_user`` dependency already returns
-    this object so future queries can filter by ``user_id`` without reworking how
-    identity is carried through the request.
+    Financial records are scoped by ``user_id`` whenever authentication is
+    enabled. Auth-disabled local mode intentionally uses the shared null scope.
     """
 
     __tablename__: ClassVar[str] = "users"
@@ -421,11 +418,11 @@ class User(SQLModel, table=True):
 
 
 class AuthSession(SQLModel, table=True):
-    """Server-side session: an opaque token mapped to a user with an expiry.
+    """Server-side session: a token digest mapped to a user with an expiry.
 
-    The token is the only thing stored in the client's HttpOnly cookie, so
-    logout/revocation is a single row delete and there is no signed-cookie secret
-    to rotate. Expired rows are removed lazily when looked up.
+    Only the raw token reaches the client's HttpOnly cookie. A database leak
+    therefore cannot directly replay newly-created sessions. Expired rows are
+    removed lazily when looked up.
     """
 
     __tablename__: ClassVar[str] = "sessions"

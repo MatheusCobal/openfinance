@@ -39,7 +39,6 @@ export interface FixedCostMonthEntry {
   is_override?: boolean;
   match_source?: string | null;
   matched_transaction?: Transaction | null;
-  [key: string]: any;
 }
 
 export interface FixedCostsMonth {
@@ -61,7 +60,7 @@ export interface ExpectedIncomeEntry {
   active: boolean;
 }
 
-export interface ExpectedIncomeMonthEntry {
+interface ExpectedIncomeMonthEntry {
   expected_income_id: number;
   description: string;
   amount: number;
@@ -121,7 +120,6 @@ export interface PlanningOverview {
   bank_outflows_total?: number;
   available_to_spend?: number;
   budget_available_to_spend?: number;
-  discretionary_available?: number;
   remaining_after_plan?: number;
   remaining_after_invoice?: number;
   daily_discretionary_remaining?: number;
@@ -136,13 +134,10 @@ export interface PlanningOverview {
   };
   planning_invoice?: CreditCardInvoice;
   credit_card_invoice?: CreditCardInvoice;
-  raw?: { spending_capacity?: Partial<PlanningOverview> };
-  [key: string]: any;
 }
 
 export interface PlanningMonth {
   year_month: string;
-  raw?: { spending_capacity?: Partial<PlanningOverview> };
   capacity?: Partial<PlanningOverview>;
   income?: {
     expected?: number;
@@ -165,7 +160,6 @@ export interface PlanningMonth {
     items?: unknown[];
   };
   credit_card_invoice?: CreditCardInvoice;
-  [key: string]: any;
 }
 
 export interface CreditCardInvoice {
@@ -182,7 +176,6 @@ export interface CreditCardInvoice {
   recent_purchase_transactions?: Transaction[];
   reconciliation?: Record<string, any>;
   year_month?: string;
-  [key: string]: any;
 }
 
 export interface InvoiceCategory {
@@ -192,5 +185,4 @@ export interface InvoiceCategory {
   total: number;
   count: number;
   transactions?: Transaction[];
-  [key: string]: any;
 }

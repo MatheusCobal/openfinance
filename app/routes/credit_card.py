@@ -7,6 +7,7 @@ from app.auth.dependencies import current_scope_user_id
 from app.database import get_session
 from app.services.credit_card_invoice import planning_invoice_for_month
 from app.services.current_card_invoice import current_card_invoice_summary
+from app.services.year_month import InvalidYearMonth, parse_year_month
 
 router = APIRouter()
 
@@ -33,9 +34,7 @@ def credit_card_invoice(
     bill_count, account_count, cycle_start, cycle_end.
     """
     try:
-        year, month = year_month.split("-")
-        if len(year) != 4 or len(month) != 2 or not (1 <= int(month) <= 12):
-            raise ValueError
-    except (ValueError, AttributeError):
-        raise HTTPException(400, "year_month must be in YYYY-MM format")
+        parse_year_month(year_month)
+    except InvalidYearMonth as exc:
+        raise HTTPException(400, str(exc)) from exc
     return planning_invoice_for_month(session, year_month, user_id=user_id)

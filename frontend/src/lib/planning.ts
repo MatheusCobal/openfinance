@@ -8,7 +8,7 @@ import type {
 
 export type PlanStatusTone = "positive" | "warning" | "danger" | "neutral";
 
-export const PLAN_STATUS_META: Record<
+const PLAN_STATUS_META: Record<
   string,
   { label: string; tone: PlanStatusTone; description: string }
 > = {
@@ -43,17 +43,11 @@ export function planStatusMeta(status?: string) {
   return PLAN_STATUS_META[status || "unknown"] || PLAN_STATUS_META.unknown;
 }
 
-export function planStatusLabel(status?: string): string {
-  return planStatusMeta(status).label;
-}
-
 export function normalizePlanningOverview(planning?: PlanningMonth | null): PlanningOverview {
-  const rawCapacity = planning?.raw?.spending_capacity || {};
-  const invoice = (planning?.credit_card_invoice ||
-    rawCapacity.planning_invoice ||
-    {}) as CreditCardInvoice;
-  const fixed = rawCapacity.fixed_costs || {
-    year_month: planning?.year_month || rawCapacity.year_month || "",
+  const capacity = planning?.capacity || {};
+  const invoice = (planning?.credit_card_invoice || {}) as CreditCardInvoice;
+  const fixed = {
+    year_month: planning?.year_month || capacity.year_month || "",
     total: planning?.fixed_costs?.planned || 0,
     planned_total: planning?.fixed_costs?.planned || 0,
     actual_total: planning?.fixed_costs?.actual || 0,
@@ -62,12 +56,12 @@ export function normalizePlanningOverview(planning?: PlanningMonth | null): Plan
     categories: [],
     entries: planning?.fixed_costs?.entries || [],
   };
-  const expectedIncome = rawCapacity.expected_income || {
+  const expectedIncome = {
     year_month: planning?.year_month,
     total: planning?.income?.expected || 0,
     entries: planning?.income?.entries || [],
   };
-  const variableBudgets = rawCapacity.variable_budgets || {
+  const variableBudgets = {
     year_month: planning?.year_month,
     summary: {
       target: planning?.variable_budgets?.planned || 0,
@@ -80,62 +74,53 @@ export function normalizePlanningOverview(planning?: PlanningMonth | null): Plan
   };
 
   return {
-    ...rawCapacity,
-    year_month: planning?.year_month || rawCapacity.year_month,
+    ...capacity,
+    year_month: planning?.year_month || capacity.year_month,
     planning_invoice: invoice,
     credit_card_invoice: invoice,
-    expected_income_total:
-      planning?.income?.expected ?? rawCapacity.expected_income_total ?? 0,
-    received_income_total:
-      planning?.income?.received ?? rawCapacity.received_income_total ?? 0,
-    income_to_receive: planning?.income?.to_receive ?? rawCapacity.income_to_receive ?? 0,
+    expected_income_total: planning?.income?.expected ?? capacity.expected_income_total ?? 0,
+    received_income_total: planning?.income?.received ?? capacity.received_income_total ?? 0,
+    income_to_receive: planning?.income?.to_receive ?? capacity.income_to_receive ?? 0,
     fixed_cost_planned_total:
       planning?.fixed_costs?.planned ??
-      rawCapacity.fixed_cost_planned_total ??
+      capacity.fixed_cost_planned_total ??
       fixed.planned_total ??
       0,
     fixed_cost_actual_total:
       planning?.fixed_costs?.actual ??
-      rawCapacity.fixed_cost_actual_total ??
+      capacity.fixed_cost_actual_total ??
       fixed.actual_total ??
       0,
     fixed_cost_pending_total:
       planning?.fixed_costs?.pending ??
-      rawCapacity.fixed_cost_pending_total ??
+      capacity.fixed_cost_pending_total ??
       fixed.pending_total ??
       0,
     fixed_cost_reserved_total:
       planning?.fixed_costs?.reserved_or_actual ??
-      rawCapacity.fixed_cost_reserved_total ??
+      capacity.fixed_cost_reserved_total ??
       fixed.reserved_or_actual_total ??
       0,
-    variable_budget_total:
-      planning?.variable_budgets?.planned ?? rawCapacity.variable_budget_total ?? 0,
+    variable_budget_total: planning?.variable_budgets?.planned ?? capacity.variable_budget_total ?? 0,
     variable_budget_consumed:
-      planning?.variable_budgets?.consumed ?? rawCapacity.variable_budget_consumed ?? 0,
+      planning?.variable_budgets?.consumed ?? capacity.variable_budget_consumed ?? 0,
     variable_budget_remaining:
-      planning?.variable_budgets?.remaining ?? rawCapacity.variable_budget_remaining ?? 0,
+      planning?.variable_budgets?.remaining ?? capacity.variable_budget_remaining ?? 0,
     variable_budget_overage:
-      planning?.variable_budgets?.overage ?? rawCapacity.variable_budget_overage ?? 0,
+      planning?.variable_budgets?.overage ?? capacity.variable_budget_overage ?? 0,
     available_to_spend:
-      planning?.capacity?.available_to_spend ??
-      rawCapacity.available_to_spend ??
-      rawCapacity.budget_available_to_spend ??
+      capacity.available_to_spend ??
+      capacity.budget_available_to_spend ??
       0,
     budget_available_to_spend:
-      planning?.capacity?.available_to_spend ??
-      rawCapacity.budget_available_to_spend ??
-      rawCapacity.available_to_spend ??
+      capacity.available_to_spend ??
+      capacity.budget_available_to_spend ??
       0,
     daily_discretionary_remaining:
-      planning?.capacity?.daily_discretionary_remaining ??
-      rawCapacity.daily_discretionary_remaining ??
-      0,
+      capacity.daily_discretionary_remaining ?? 0,
     days_remaining_in_month:
-      planning?.capacity?.days_remaining_in_month ??
-      rawCapacity.days_remaining_in_month ??
-      0,
-    plan_status: planning?.capacity?.plan_status ?? rawCapacity.plan_status,
+      capacity.days_remaining_in_month ?? 0,
+    plan_status: capacity.plan_status,
     fixed_costs: fixed,
     expected_income: expectedIncome,
     variable_budgets: variableBudgets,
@@ -167,11 +152,14 @@ export function dashboardAvailableToSpend(
   const fixedCosts = isFuture
     ? planningCapacity.fixed_cost_planned_total ?? 0
     : planningCapacity.fixed_cost_reserved_total ?? 0;
+  // Split of the same commitment: how much is already paid (linked to a real
+  // transaction) vs. still pending. `fixedCosts` stays the full commitment so
+  // the donut, pressure meter and available-to-spend math are unchanged.
+  const fixedCostsPaid = planningCapacity.fixed_cost_actual_total ?? 0;
+  const fixedCostsPending = planningCapacity.fixed_cost_pending_total ?? fixedCosts;
   const variableBudget = planningCapacity.variable_budget_total ?? 0;
   const planningAvailable = asMoneyNumber(
-    planningCapacity.budget_available_to_spend ??
-      planningCapacity.discretionary_available ??
-      planningCapacity.available_to_spend,
+    planningCapacity.budget_available_to_spend ?? planningCapacity.available_to_spend,
   );
   const planningInvoiceImpact = invoiceIncludedAmount(planningCapacity);
   const currentInvoiceRawAmount = cardInvoice?.amount ?? cardInvoice?.adjusted_total;
@@ -195,6 +183,8 @@ export function dashboardAvailableToSpend(
   return {
     expectedIncome,
     fixedCosts,
+    fixedCostsPaid,
+    fixedCostsPending,
     currentInvoiceAmount,
     variableBudget,
     variableUsed,
@@ -205,7 +195,7 @@ export function dashboardAvailableToSpend(
   };
 }
 
-export function normalizeTextForMatch(text: string | null | undefined): string {
+function normalizeTextForMatch(text: string | null | undefined): string {
   return (text || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")

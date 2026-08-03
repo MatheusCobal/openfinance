@@ -1,6 +1,4 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-import type { DependencyList } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function asyncErrorMessage(error: unknown): string {
   if (error instanceof TypeError && ["Failed to fetch", "Load failed"].includes(error.message)) {
@@ -11,27 +9,43 @@ function asyncErrorMessage(error: unknown): string {
 
 export function useAsync<T>(
   loader: () => Promise<T>,
-  deps: DependencyList = [],
   immediate = true,
 ) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(immediate);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
 
   const run = useCallback(async (): Promise<T | null> => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const result = await loader();
-      setData(result);
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setData(result);
+      }
       return result;
     } catch (err) {
-      setError(asyncErrorMessage(err));
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setError(asyncErrorMessage(err));
+      }
       return null;
     } finally {
-      setLoading(false);
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, deps);
+  }, [loader]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (!immediate) return;

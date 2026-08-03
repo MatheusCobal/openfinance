@@ -16,14 +16,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.models import (
-    Account,
     CreditCardBill,
     Investment,
     InvestmentTransaction,
-    Item,
 )
 from app.pluggy_client import pluggy
 
@@ -310,112 +308,3 @@ def sync_investments(
     if tx_failures:
         outcome.extras["transaction_failures"] = tx_failures
     return outcome
-
-
-# ---------- account snapshot queries ----------
-
-
-def _active_item_ids(session: Session) -> set:
-    return {item.id for item in session.exec(select(Item)).all() if item.is_active}
-
-
-def account_snapshot_summary(session: Session) -> Dict[str, Any]:
-    """Aggregate Pluggy snapshot totals for active accounts.
-
-    Every total here comes straight from Pluggy-persisted data — account
-    balances, creditData limits and Investment.balance — NOT from
-    re-deriving numbers out of raw transactions. Treat this as the source
-    of truth for "how much money do I have / owe".
-    """
-    active_ids = _active_item_ids(session)
-    all_accounts = list(session.exec(select(Account)).all())
-    accounts = [a for a in all_accounts if a.is_active and a.item_id in active_ids]
-    investments = [i for i in session.exec(select(Investment)).all() if i.item_id in active_ids]
-
-    bank_accounts = [a for a in accounts if a.type == "BANK"]
-    credit_accounts = [a for a in accounts if a.type == "CREDIT"]
-
-    def _sum(values) -> Decimal:
-        total = Decimal("0")
-        for value in values:
-            if value is not None:
-                total += value
-        return total
-
-    bank_total = _sum(a.balance for a in bank_accounts)
-    credit_used = _sum(a.balance for a in credit_accounts)
-    credit_limit = _sum(a.credit_limit for a in credit_accounts)
-    credit_available = _sum(a.credit_available_limit for a in credit_accounts)
-    investments_total = _sum(i.balance for i in investments)
-
-    # Whether the snapshot is actually populated. Lets the frontend decide
-    # between "show the number" and "sync first / unavailable".
-    bank_has_balance = any(a.balance is not None for a in bank_accounts)
-    credit_has_balance = any(a.balance is not None for a in credit_accounts)
-
-    return {
-        "bank": {
-            "total": float(bank_total),
-            "account_count": len(bank_accounts),
-            "has_balance": bank_has_balance,
-            "accounts": [
-                {
-                    "id": a.id,
-                    "item_id": a.item_id,
-                    "is_active": a.is_active,
-                    "name": a.marketing_name or a.name,
-                    "balance": float(a.balance) if a.balance is not None else None,
-                    "currency_code": a.currency_code,
-                    "automatically_invested_balance": (
-                        float(a.bank_automatically_invested_balance)
-                        if a.bank_automatically_invested_balance is not None
-                        else None
-                    ),
-                }
-                for a in bank_accounts
-            ],
-        },
-        "credit": {
-            "used": float(credit_used),
-            "limit": float(credit_limit),
-            "available": float(credit_available),
-            "account_count": len(credit_accounts),
-            "has_balance": credit_has_balance,
-            "accounts": [
-                {
-                    "id": a.id,
-                    "item_id": a.item_id,
-                    "is_active": a.is_active,
-                    "name": a.marketing_name or a.name,
-                    "brand": a.credit_brand,
-                    "level": a.credit_level,
-                    "used": float(a.balance) if a.balance is not None else None,
-                    "limit": (float(a.credit_limit) if a.credit_limit is not None else None),
-                    "available": (
-                        float(a.credit_available_limit)
-                        if a.credit_available_limit is not None
-                        else None
-                    ),
-                    "minimum_payment": (
-                        float(a.credit_minimum_payment)
-                        if a.credit_minimum_payment is not None
-                        else None
-                    ),
-                    "balance_close_date": (
-                        a.credit_balance_close_date.isoformat()
-                        if a.credit_balance_close_date
-                        else None
-                    ),
-                    "balance_due_date": (
-                        a.credit_balance_due_date.isoformat() if a.credit_balance_due_date else None
-                    ),
-                }
-                for a in credit_accounts
-            ],
-        },
-        "investments": {
-            "total": float(investments_total),
-            "investment_count": len(investments),
-            "has_investments": len(investments) > 0,
-        },
-    }

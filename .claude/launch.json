@@ -10,6 +10,13 @@
         "PLUGGY_CLIENT_ID": "dummy",
         "PLUGGY_CLIENT_SECRET": "dummy"
       }
+    },
+    {
+      "name": "openfinance-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "frontend",
+      "port": 5173
     }
   ]
 }

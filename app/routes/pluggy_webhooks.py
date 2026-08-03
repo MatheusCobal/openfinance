@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, desc, select
 
 from app.auth.dependencies import current_scope_user_id
@@ -55,6 +56,7 @@ async def pluggy_webhook(
 
     event = str(event) if event is not None else "unknown"
     item_id = item_id.strip() if isinstance(item_id, str) and item_id.strip() else None
+    event_id = str(event_id) if event_id is not None else None
 
     logger.info(
         "pluggy webhook event=%s event_id=%s item_id=%s",
@@ -63,33 +65,47 @@ async def pluggy_webhook(
         item_id,
     )
 
-    active_item_ids: list[str] = []
-    if event in SYNC_EVENTS:
-        if not item_id:
-            active_item_ids = _active_item_ids(session)
-            action = "sync_scheduled_all_active" if active_item_ids else "no_active_items"
-        elif session.get(Item, item_id) is None:
-            action = "item_not_found"
-            logger.info("pluggy webhook item_not_found event=%s item_id=%s", event, item_id)
-        else:
-            action = "sync_scheduled"
-    elif event in REMOVAL_EVENTS:
-        action = _deactivate_item(item_id, session)
-    elif event in ERROR_EVENTS:
-        action = _record_item_status(event, item_id, payload, session)
-    else:
-        action = "ignored"
-
-    logger.info("pluggy webhook action=%s event=%s item_id=%s", action, event, item_id)
-
     webhook_event = _record_webhook_event(
         session,
         event=event,
         event_id=event_id,
         item_id=item_id,
-        action=action,
+        action="received",
         payload=payload,
     )
+    if webhook_event is None:
+        logger.info("pluggy webhook duplicate event_id=%s ignored", event_id)
+        return {
+            "ok": True,
+            "event": event,
+            "item_id": item_id,
+            "action": "duplicate_ignored",
+        }
+
+    active_item_ids: list[str] = []
+    try:
+        if event in SYNC_EVENTS:
+            if not item_id:
+                active_item_ids = _active_item_ids(session)
+                action = "sync_scheduled_all_active" if active_item_ids else "no_active_items"
+            elif session.get(Item, item_id) is None:
+                action = "item_not_found"
+                logger.info("pluggy webhook item_not_found event=%s item_id=%s", event, item_id)
+            else:
+                action = "sync_scheduled"
+        elif event in REMOVAL_EVENTS:
+            action = _deactivate_item(item_id, session)
+        elif event in ERROR_EVENTS:
+            action = _record_item_status(event, item_id, payload, session)
+        else:
+            action = "ignored"
+    except Exception as exc:
+        _release_failed_webhook_claim(session, webhook_event.id, exc)
+        raise
+
+    logger.info("pluggy webhook action=%s event=%s item_id=%s", action, event, item_id)
+
+    _set_webhook_action(session, webhook_event, action)
     if action == "sync_scheduled" and item_id:
         background_tasks.add_task(_do_sync_item, item_id, webhook_event.id)
     elif action == "sync_scheduled_all_active":
@@ -142,7 +158,7 @@ def _record_webhook_event(
     item_id: Optional[str],
     action: str,
     payload: Dict[str, Any],
-) -> PluggyWebhookEvent:
+) -> Optional[PluggyWebhookEvent]:
     payload_json = json.dumps(payload, ensure_ascii=False, default=str)
     row = PluggyWebhookEvent(
         event=event,
@@ -153,9 +169,47 @@ def _record_webhook_event(
         sync_status="scheduled" if action.startswith("sync_scheduled") else None,
     )
     session.add(row)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if row.event_id is not None:
+            return None
+        raise
     session.refresh(row)
     return row
+
+
+def _set_webhook_action(
+    session: Session,
+    webhook_event: PluggyWebhookEvent,
+    action: str,
+) -> None:
+    webhook_event.action = action
+    webhook_event.sync_status = "scheduled" if action.startswith("sync_scheduled") else None
+    session.add(webhook_event)
+    session.commit()
+    session.refresh(webhook_event)
+
+
+def _release_failed_webhook_claim(
+    session: Session,
+    webhook_event_id: Optional[int],
+    error: Exception,
+) -> None:
+    """Keep a diagnostic row but allow Pluggy to retry a failed delivery."""
+    session.rollback()
+    if webhook_event_id is None:
+        return
+    webhook_event = session.get(PluggyWebhookEvent, webhook_event_id)
+    if webhook_event is None:
+        return
+    webhook_event.event_id = None
+    webhook_event.action = "processing_failed"
+    webhook_event.sync_status = "failed"
+    webhook_event.sync_error = str(error)[:_SYNC_ERROR_MAX_LEN]
+    session.add(webhook_event)
+    session.commit()
 
 
 def _mark_webhook_sync_started(session: Session, event_id: Optional[int]) -> None:

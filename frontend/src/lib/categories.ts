@@ -4,7 +4,7 @@
  * Próximos. Unknown names fall back to a deterministic chart-palette pick.
  */
 
-export const CATEGORY_PALETTE: Record<string, string> = {
+const CATEGORY_PALETTE: Record<string, string> = {
   "Alimentação": "#ea580c",
   "Mercado": "#16a34a",
   "Transporte": "#2563eb",
@@ -33,7 +33,7 @@ export const CATEGORY_PALETTE: Record<string, string> = {
 };
 
 /** Accent rotation for categories outside the known taxonomy. */
-export const FALLBACK_CATEGORY_COLORS = [
+const FALLBACK_CATEGORY_COLORS = [
   "#2563eb",
   "#7c3aed",
   "#0d9488",

@@ -7,7 +7,6 @@ from sqlmodel import Session, select
 
 from app.models import (
     Account,
-    BankIncomeMonth,
     CreditCardBill,
     CreditCardInvoiceMonth,
     MonthlyBalanceMonth,
@@ -21,11 +20,10 @@ from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
 )
+from app.services.classification import BANK_ACCOUNT_TYPES, SPENDING_ACCOUNT_TYPES
 from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.scoping import scope_query
 from app.services.transactions import (
-    BANK_ACCOUNT_TYPES,
-    SPENDING_ACCOUNT_TYPES,
     _non_duplicate_clause,
     account_ids_by_type,
     bank_income_transactions,
@@ -247,15 +245,11 @@ def _credit_card_official_bill_totals_by_month(
     selected_months: set[str],
     user_id: Optional[int] = None,
 ) -> dict[str, dict[str, Any]]:
-    credit_account_ids = set(
-        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
-    )
+    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id))
     if not credit_account_ids:
         return {}
 
-    bills = session.exec(
-        scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
-    ).all()
+    bills = session.exec(scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)).all()
     totals_by_month: dict[str, dict[str, Any]] = {}
     for bill in bills:
         if bill.account_id not in credit_account_ids:
@@ -579,87 +573,6 @@ def credit_card_payments_history_summary(session: Session, user_id: Optional[int
                 "month": snapshot.year_month,
                 "total": float(snapshot.total),
                 "count": snapshot.payment_count,
-                "captured_at": snapshot.captured_at.isoformat(),
-                "updated_at": snapshot.updated_at.isoformat(),
-            }
-            for snapshot in snapshots
-        ],
-    }
-
-
-def bank_income_monthly_summary(session: Session, months: int, user_id: Optional[int] = None):
-    today = date.today()
-    month_keys = last_month_keys(months, today)
-    first_year, first_month = month_keys[0].split("-")
-    start_date = date(int(first_year), int(first_month), 1)
-    active_bank_ids = set(
-        account_ids_by_type(session, BANK_ACCOUNT_TYPES, active_only=True, user_id=user_id)
-    )
-    bank_accounts = {
-        account.id: account
-        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
-        if account.id in active_bank_ids
-    }
-    accounts_by_id = bank_accounts
-    income_transactions = bank_income_transactions(session, start_date, today, user_id=user_id)
-    by_month: Dict[str, list[Transaction]] = {month: [] for month in month_keys}
-    for tx in income_transactions:
-        month = month_key(tx.date)
-        if month in by_month:
-            by_month[month].append(tx)
-
-    total = Decimal("0")
-    output_months = []
-    for month in month_keys:
-        txs = by_month[month]
-        income = sum((tx.amount for tx in txs), Decimal("0"))
-        income_count = len(txs)
-        total += income
-        output_months.append(
-            {
-                "month": month,
-                "income": float(income),
-                "count": income_count,
-                "transactions": [
-                    {
-                        "id": tx.id,
-                        "account_id": tx.account_id,
-                        "account_name": bank_accounts[tx.account_id].name,
-                        "date": tx.date.isoformat(),
-                        "amount": float(tx.amount),
-                        "description": tx.description,
-                        **_history_transaction_classification(tx, accounts_by_id),
-                    }
-                    for tx in txs
-                ],
-            }
-        )
-
-    return {
-        "total_income": float(total),
-        "transaction_count": sum(month["count"] for month in output_months),
-        "bank_account_count": len(bank_accounts),
-        "months": output_months,
-    }
-
-
-def bank_income_history_summary(session: Session, user_id: Optional[int] = None):
-    snapshots = session.exec(
-        scope_query(select(BankIncomeMonth), BankIncomeMonth.user_id, user_id).order_by(
-            BankIncomeMonth.year_month.asc()
-        )
-    ).all()
-    total = sum((snapshot.total for snapshot in snapshots), Decimal("0"))
-    total_count = sum(snapshot.income_count for snapshot in snapshots)
-    return {
-        "total_income": float(total),
-        "transaction_count": total_count,
-        "month_count": len(snapshots),
-        "months": [
-            {
-                "month": snapshot.year_month,
-                "income": float(snapshot.total),
-                "count": snapshot.income_count,
                 "captured_at": snapshot.captured_at.isoformat(),
                 "updated_at": snapshot.updated_at.isoformat(),
             }

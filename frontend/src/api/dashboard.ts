@@ -3,6 +3,11 @@ import type { BankBalanceSummary } from "../types/dashboard";
 import type { CreditCardInvoice, PlanningMonth } from "../types/planejamento";
 import type { UpcomingSummary } from "../types/proximos";
 
+interface SyncResult {
+  failed_accounts: Array<{ account_id: string; error: string }>;
+  deleted_transactions: number;
+}
+
 export function getPlanningMonth(yearMonth: string) {
   return apiGet<PlanningMonth>(`/planning/month/${yearMonth}`);
 }
@@ -28,5 +33,5 @@ export function registerPluggyItem(itemId: string) {
 }
 
 export function syncPluggyItem(itemId: string) {
-  return apiPost(`/items/${encodeURIComponent(itemId)}/sync`);
+  return apiPost<SyncResult>(`/items/${encodeURIComponent(itemId)}/sync`);
 }

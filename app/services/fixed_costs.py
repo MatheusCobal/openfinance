@@ -20,6 +20,12 @@ from app.services.fixed_cost_defaults import (
     DEFAULT_FIXED_COST_CATEGORIES,
     FIXED_COST_TEMPLATES,
 )
+from app.services.year_month import (
+    InvalidYearMonth,
+    month_bounds,
+    parse_year_month,
+    shift_year_month,
+)
 
 
 class FixedCostValidationError(ValueError):
@@ -34,24 +40,16 @@ DUE_SOON_DAYS = 3
 
 def _validate_month(year_month: str) -> None:
     try:
-        year_str, month_str = year_month.split("-")
-        year = int(year_str)
-        month = int(month_str)
-        if len(year_str) != 4 or len(month_str) != 2 or not (1 <= month <= 12):
-            raise ValueError
-        date(year, month, 1)
-    except (ValueError, AttributeError):
-        raise FixedCostValidationError("year_month must be in YYYY-MM format")
+        parse_year_month(year_month)
+    except InvalidYearMonth as exc:
+        raise FixedCostValidationError(str(exc)) from exc
 
 
 def _month_bounds(year_month: str) -> tuple[date, date]:
-    _validate_month(year_month)
-    year, month = (int(part) for part in year_month.split("-"))
-    if month == 12:
-        next_month = date(year + 1, 1, 1)
-    else:
-        next_month = date(year, month + 1, 1)
-    return date(year, month, 1), date.fromordinal(next_month.toordinal() - 1)
+    try:
+        return month_bounds(year_month)
+    except InvalidYearMonth as exc:
+        raise FixedCostValidationError(str(exc)) from exc
 
 
 def _date_for_month_day(year_month: str, day: int) -> date:
@@ -60,10 +58,10 @@ def _date_for_month_day(year_month: str, day: int) -> date:
 
 
 def _shift_year_month(year_month: str, months: int) -> str:
-    _validate_month(year_month)
-    year, month = (int(part) for part in year_month.split("-"))
-    zero_based = year * 12 + (month - 1) + months
-    return f"{zero_based // 12:04d}-{(zero_based % 12) + 1:02d}"
+    try:
+        return shift_year_month(year_month, months)
+    except InvalidYearMonth as exc:
+        raise FixedCostValidationError(str(exc)) from exc
 
 
 def _validate_amount(amount: Decimal, allow_zero: bool = False) -> None:
@@ -268,9 +266,7 @@ def list_fixed_cost_categories(
 ) -> List[Dict[str, Any]]:
     _sync_default_categories(session, user_id=user_id)
     categories = session.exec(
-        scope_query(
-            select(FixedCostCategory), FixedCostCategory.user_id, user_id
-        ).order_by(
+        scope_query(select(FixedCostCategory), FixedCostCategory.user_id, user_id).order_by(
             FixedCostCategory.is_default.desc(),
             FixedCostCategory.sort_order,
             FixedCostCategory.name,
@@ -662,9 +658,7 @@ def list_fixed_cost_match_candidates(
     }
     accounts = {
         account.id: account
-        for account in session.exec(
-            scope_query(select(Account), Account.user_id, user_id)
-        ).all()
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
     return [
         _serialize_transaction_match(tx, accounts.get(tx.account_id))
@@ -912,11 +906,7 @@ def monthly_breakdown(
             matched_transaction = _find_matching_transaction(
                 cost,
                 effective_amount,
-                [
-                    tx
-                    for tx in auto_match_transactions
-                    if tx.id not in auto_matched_transaction_ids
-                ],
+                [tx for tx in auto_match_transactions if tx.id not in auto_matched_transaction_ids],
             )
             match_source = "auto" if matched_transaction is not None else None
             if matched_transaction is not None:

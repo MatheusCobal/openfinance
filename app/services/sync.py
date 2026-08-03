@@ -8,8 +8,9 @@ from sqlalchemy import or_, update
 from sqlmodel import Session, select
 
 from app.categorization import normalize_description
-from app.models import Account, AccountSync, Item, Transaction
+from app.models import Account, AccountSync, FixedCostTransactionMatch, Item, Transaction
 from app.pluggy_client import pluggy
+from app.services.classification import TRACKED_ACCOUNT_TYPES
 from app.services.pluggy_snapshot import (
     account_snapshot_values,
     sync_credit_card_bills,
@@ -20,7 +21,6 @@ from app.services.transaction_classifier import (
     classification_payload_fields,
     classify_pluggy_payload,
 )
-from app.services.transactions import TRACKED_ACCOUNT_TYPES
 
 SYNC_LOOKBACK_DAYS = 7
 SYNC_STALE_LOCK_MINUTES = 10
@@ -96,6 +96,7 @@ class AccountSyncResult:
     fetched_transactions: int = 0
     new_transactions: int = 0
     updated_transactions: int = 0
+    deleted_transactions: int = 0
 
 
 def upsert_item(
@@ -295,10 +296,13 @@ def sync_account_transactions(
 ) -> AccountSyncResult:
     result = AccountSyncResult()
     max_past_tx_date = sync_state.last_transaction_date
-    for raw_tx in pluggy.list_transactions(
+    from_date = sync_from_date(sync_state)
+    remote_transactions = pluggy.list_transactions(
         account_id,
-        from_date=sync_from_date(sync_state),
-    ):
+        from_date=from_date,
+    )
+    remote_transaction_ids = {str(raw_tx["id"]) for raw_tx in remote_transactions}
+    for raw_tx in remote_transactions:
         result.fetched_transactions += 1
         is_new, is_updated, tx_date = upsert_transaction(
             raw_tx,
@@ -314,10 +318,53 @@ def sync_account_transactions(
         if tx_date <= date.today() and (max_past_tx_date is None or tx_date > max_past_tx_date):
             max_past_tx_date = tx_date
 
+    result.deleted_transactions = _delete_missing_transactions(
+        account_id,
+        remote_transaction_ids,
+        from_date,
+        session,
+    )
+
     sync_state.last_transaction_date = max_past_tx_date
     sync_state.last_synced_at = datetime.utcnow()
     session.add(sync_state)
     return result
+
+
+def _delete_missing_transactions(
+    account_id: str,
+    remote_transaction_ids: set[str],
+    from_date: Optional[date],
+    session: Session,
+) -> int:
+    """Reconcile the portion of history Pluggy returned for an account.
+
+    An incremental fetch is authoritative only from its ``from_date`` onward;
+    older local history stays untouched. Dependent fixed-cost links are removed
+    first so foreign-key enforcement cannot leave a deleted transaction alive.
+    """
+    query = select(Transaction).where(Transaction.account_id == account_id)
+    if from_date is not None:
+        query = query.where(Transaction.date >= from_date)
+    missing_transactions = [
+        transaction
+        for transaction in session.exec(query).all()
+        if transaction.id not in remote_transaction_ids
+    ]
+    if not missing_transactions:
+        return 0
+
+    missing_ids = {transaction.id for transaction in missing_transactions}
+    matches = session.exec(
+        select(FixedCostTransactionMatch).where(
+            FixedCostTransactionMatch.transaction_id.in_(missing_ids)
+        )
+    ).all()
+    for match in matches:
+        session.delete(match)
+    for transaction in missing_transactions:
+        session.delete(transaction)
+    return len(missing_transactions)
 
 
 def _acquire_sync_lock(item_id: str, session: Session) -> datetime:
@@ -473,6 +520,7 @@ def _sync_item_locked(
 
     new_transactions = 0
     updated_transactions = 0
+    deleted_transactions = 0
     fetched_transactions = 0
     synced_accounts_by_type: Dict[str, int] = {}
     failed_accounts: List[Dict[str, str]] = []
@@ -505,6 +553,7 @@ def _sync_item_locked(
         fetched_transactions += account_result.fetched_transactions
         new_transactions += account_result.new_transactions
         updated_transactions += account_result.updated_transactions
+        deleted_transactions += account_result.deleted_transactions
 
         # ---- Pluggy snapshot: credit-card bills (CREDIT accounts only) ----
         # Best-effort: a connector that doesn't expose /bills must not fail
@@ -601,6 +650,7 @@ def _sync_item_locked(
         "fetched_transactions": fetched_transactions,
         "new_transactions": new_transactions,
         "updated_transactions": updated_transactions,
+        "deleted_transactions": deleted_transactions,
         "bills_upserted": bills_upserted,
         "bill_transactions_fetched": bill_transactions_fetched,
         "bill_transactions_new": bill_transactions_new,

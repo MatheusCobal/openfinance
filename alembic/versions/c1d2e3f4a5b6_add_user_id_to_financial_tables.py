@@ -60,9 +60,7 @@ def upgrade() -> None:
 
         financial_table = sa.table(table, sa.column("user_id", sa.Integer()))
         op.execute(
-            financial_table.update()
-            .where(financial_table.c.user_id.is_(None))
-            .values(user_id=1)
+            financial_table.update().where(financial_table.c.user_id.is_(None)).values(user_id=1)
         )
 
 

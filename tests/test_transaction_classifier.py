@@ -550,5 +550,6 @@ class CreditPurchaseScopeTest(unittest.TestCase):
         body = self.client.get("/stats").json()
         self.assertAlmostEqual(body["total_spent"], 80.0)
 
+
 if __name__ == "__main__":
     unittest.main()

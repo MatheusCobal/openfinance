@@ -51,9 +51,6 @@ GET /planejamento  → tela de planejamento e controle
 GET /proximos      → tela Próximos
 GET /historico     → tela Histórico
 GET /health        → health check
-
-GET /custos-fixos  → redirect legado para /planejamento
-GET /orcamento     → redirect legado para /planejamento
 ```
 
 ### API
@@ -79,8 +76,9 @@ GET  /expected-income/by-month           receitas por mês
 GET  /credit-card/invoice/{year_month}   fatura do cartão de crédito
 GET  /credit-card/current-invoice         fatura vigente ajustada para o Dashboard
 
-GET  /history/...                        histórico financeiro (ver routes/history.py)
-GET  /rules/...                          regras de exclusão bancária; categorização legada retorna 410
+GET  /credit-card-invoices/monthly       histórico mensal de faturas
+GET  /bank-cashflow/monthly              entradas e saídas bancárias mensais
+GET  /bank-*/exclusion-rules             regras de exclusão bancária
 
 GET  /items                              conexões Pluggy
 GET  /accounts                           contas conectadas
@@ -99,7 +97,6 @@ openfinance/
 ├── alembic/                   migrações de schema
 ├── scripts/
 │   └── backup_database.py     backup manual do SQLite local
-├── seed_categories.py         no-op; seed legado de categorias desativado na 10D-A
 ├── openfinance.db             SQLite local (gitignored)
 └── app/
     ├── config.py              variáveis de ambiente via pydantic-settings
@@ -114,8 +111,8 @@ openfinance/
     │   ├── credit_card.py     fatura do cartão
     │   ├── history.py         histórico financeiro
     │   ├── transactions.py    transações e classificação Pluggy-based
-    │   ├── rules.py           regras de exclusão; categorização legada retorna 410
-    │   ├── budgets.py         metas legadas por categoria retornam 410
+    │   ├── rules.py           regras de exclusão bancária
+    │   ├── budgets.py         metas variáveis por categoria
     │   ├── sync.py            sync Pluggy e conexões
     │   └── pluggy_webhooks.py recepção de webhooks Pluggy
     ├── services/              regras de negócio
@@ -156,8 +153,6 @@ source .venv/bin/activate
 pip install -e .
 cp .env.example .env
 # editar .env com PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET para usar o Pluggy
-
-.venv/bin/python seed_categories.py   # no-op: seed legado de categorias desativado
 
 fastapi dev app/main.py
 # ou: .venv/bin/fastapi dev app/main.py
@@ -638,10 +633,9 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 
 ## Histórico recente
 
-- `/dashboard` foi reintroduzida como resumo executivo e é o destino de `/`
+- `/dashboard` é o resumo executivo e a entrada principal da área autenticada
 - `/planejamento` segue como tela de planejamento e controle mensal
 - A navegação mantém Dashboard, Planejamento, Próximos e Histórico
-- As rotas `/custos-fixos` e `/orcamento` foram mantidas apenas como redirects legados
 - O projeto passou a usar Alembic para migrações de schema
 - `seed_dev.py` foi removido do projeto
 

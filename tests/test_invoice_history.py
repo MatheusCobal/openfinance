@@ -30,7 +30,6 @@ from app.models import (
     Transaction,
 )
 from app.services.history import (
-    bank_income_history_summary,
     credit_card_invoice_purchases_monthly_summary,
     credit_card_payments_monthly_summary,
     credit_card_payments_history_summary,
@@ -1068,7 +1067,6 @@ class TestHistorySummariesAreReadOnly(unittest.TestCase):
                 ) as balance_refresh,
             ):
                 credit_card_payments_history_summary(session)
-                bank_income_history_summary(session)
                 monthly_balance_history_summary(session)
 
         credit_refresh.assert_not_called()

@@ -1,19 +1,21 @@
-export type ID = string | number;
-
 export interface ApiErrorShape {
   detail?: string | Array<{ msg?: string; loc?: string[]; type?: string }>;
   message?: string;
 }
 
-export interface ApiState<T> {
-  data: T | null;
-  loading: boolean;
-  error: string | null;
-}
+export type PlanStatus = "comfortable" | "healthy" | "tight" | "over" | "unknown";
 
-export type PlanStatus = "comfortable" | "healthy" | "tight" | "over" | "unknown" | string;
-
-export type CashflowType = "INCOME" | "EXPENSE" | "TRANSFER" | "CREDIT_CARD_PAYMENT" | string;
+type CashflowType =
+  | "expense"
+  | "income"
+  | "transfer"
+  | "credit_card_payment"
+  | "refund"
+  | "investment"
+  | "cash_withdrawal"
+  | "adjustment"
+  | "ignored"
+  | "unknown";
 
 export interface ClassificationOptions {
   internal_categories: string[];
@@ -47,5 +49,4 @@ export interface Transaction {
   installment_number?: number | null;
   total_installments?: number | null;
   amount_abs?: number | null;
-  [key: string]: any;
 }

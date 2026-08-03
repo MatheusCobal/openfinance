@@ -136,9 +136,7 @@ class TransactionClassifier:
         ignored_patterns = [
             rule.pattern_normalized
             for rule in session.exec(
-                scope_query(
-                    select(IgnoredDescriptionRule), IgnoredDescriptionRule.user_id, user_id
-                )
+                scope_query(select(IgnoredDescriptionRule), IgnoredDescriptionRule.user_id, user_id)
             ).all()
             if rule.pattern_normalized
         ]

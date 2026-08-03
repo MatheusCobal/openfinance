@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
+
 from app.config import (
     DatabaseSettings,
     MissingPluggyCredentialsError,
@@ -56,6 +58,65 @@ class SettingsTest(unittest.TestCase):
                 client = PluggyClient()
                 with self.assertRaises(PluggyCredentialError):
                     client._credentials()
+
+    def test_pluggy_client_reuses_connection_and_centralizes_pagination(self):
+        requested_pages = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/auth":
+                return httpx.Response(200, json={"apiKey": "test-api-key"})
+            requested_pages.append(request.url.params["page"])
+            page = int(request.url.params["page"])
+            return httpx.Response(
+                200,
+                json={"results": [{"id": f"item-{page}"}], "totalPages": 2},
+            )
+
+        settings = PluggySettings(
+            _env_file=None,
+            pluggy_client_id="client-id",
+            pluggy_client_secret="client-secret",
+        )
+        with httpx.Client(
+            base_url="https://api.pluggy.test",
+            transport=httpx.MockTransport(handler),
+        ) as http_client:
+            with patch("app.pluggy_client.get_pluggy_settings", return_value=settings):
+                client = PluggyClient(http_client=http_client)
+                items = client.list_items()
+
+        self.assertEqual(items, [{"id": "item-1"}, {"id": "item-2"}])
+        self.assertEqual(requested_pages, ["1", "2"])
+
+    def test_pluggy_client_refreshes_an_expired_key_once(self):
+        auth_calls = 0
+        request_keys = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal auth_calls
+            if request.url.path == "/auth":
+                auth_calls += 1
+                return httpx.Response(200, json={"apiKey": f"key-{auth_calls}"})
+            request_keys.append(request.headers["X-API-KEY"])
+            if request.headers["X-API-KEY"] == "key-1":
+                return httpx.Response(401)
+            return httpx.Response(200, json={"results": [], "totalPages": 1})
+
+        settings = PluggySettings(
+            _env_file=None,
+            pluggy_client_id="client-id",
+            pluggy_client_secret="client-secret",
+        )
+        with httpx.Client(
+            base_url="https://api.pluggy.test",
+            transport=httpx.MockTransport(handler),
+        ) as http_client:
+            with patch("app.pluggy_client.get_pluggy_settings", return_value=settings):
+                client = PluggyClient(http_client=http_client)
+                self.assertEqual(client.list_items(), [])
+
+        self.assertEqual(auth_calls, 2)
+        self.assertEqual(request_keys, ["key-1", "key-2"])
 
     def test_database_import_and_alembic_config_do_not_require_pluggy_credentials(self):
         env = os.environ.copy()

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
+from app.pluggy_client import pluggy
 from app.security import (
     OpenFinanceAuthMiddleware,
     get_security_settings,
@@ -33,7 +34,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 async def lifespan(app: FastAPI):
     validate_security_configuration(get_security_settings())
     init_db()
-    yield
+    try:
+        yield
+    finally:
+        pluggy.close()
 
 
 app = FastAPI(title="OpenFinance Collector", lifespan=lifespan)

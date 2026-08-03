@@ -31,10 +31,7 @@ from app.services.credit_card_invoice import (
     scheduled_installments_for_month,
 )
 from app.services.transaction_reports import invoice_summary
-from app.services.transactions import (
-    credit_card_spend_transactions,
-    discretionary_spend_transactions,
-)
+from app.services.transactions import credit_card_spend_transactions
 
 ITEM_ID = "item-1"
 CC_ID = "cc-1"
@@ -297,12 +294,6 @@ class SpendPickersSignTest(unittest.TestCase):
         with Session(self.engine) as session:
             self._seed_all(session)
             txs = credit_card_spend_transactions(session, TODAY, TODAY)
-        self.assertEqual([tx.id for tx in txs], ["buy-1"])
-
-    def test_discretionary_spend_excludes_refunds_and_payments(self):
-        with Session(self.engine) as session:
-            self._seed_all(session)
-            txs = discretionary_spend_transactions(session, TODAY, TODAY)
         self.assertEqual([tx.id for tx in txs], ["buy-1"])
 
 

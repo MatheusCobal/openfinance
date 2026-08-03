@@ -6,6 +6,7 @@ from typing import Optional, Union
 from urllib.parse import unquote, urlsplit
 
 DEFAULT_BACKUP_DIR = Path("backups")
+DEFAULT_BACKUPS_TO_KEEP = 14
 
 # Matches the timestamp embedded by backup_sqlite_database: .YYYYMMDD-HHMMSS-ffffff.
 _BACKUP_TS_PATTERN = re.compile(r"\.(\d{8}-\d{6}-\d+)\.")
@@ -48,6 +49,7 @@ def backup_sqlite_database(
     backup_dir: Optional[Union[str, Path]] = None,
     *,
     timestamp: Optional[datetime] = None,
+    prune: bool = True,
 ) -> Optional[Path]:
     """Create a SQLite backup and return its path.
 
@@ -71,6 +73,13 @@ def backup_sqlite_database(
     with sqlite3.connect(str(source_path)) as source:
         with sqlite3.connect(str(target_path)) as target:
             source.backup(target)
+
+    if prune:
+        prune_sqlite_backups(
+            target_dir,
+            keep_last=DEFAULT_BACKUPS_TO_KEEP,
+            keep_monthly=True,
+        )
 
     return target_path
 

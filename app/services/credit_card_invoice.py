@@ -740,7 +740,7 @@ def _pending_current_invoice_plan(
         "is_estimated": True,
         "due_dates": [],
         "cards": summary.get("cards", []),
-        "transaction_count": summary.get("category_count", 0),
+        "transaction_count": summary.get("transaction_count", 0),
         "bill_count": 0,
         "account_count": summary.get("account_count", len(credit_accounts)),
         "cycle_start": None,
@@ -778,9 +778,7 @@ def _future_month_invoice(
         return _none_result(year_month, "future_month", 0, float(bal_total))
 
     # ---- Tier 1: official CreditCardBill ----
-    bills = session.exec(
-        scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
-    ).all()
+    bills = session.exec(scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)).all()
     matched_bills = [
         b
         for b in bills
@@ -793,9 +791,7 @@ def _future_month_invoice(
     if matched_bills:
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
-        payment_status = _payment_status_for_official_bills(
-            session, matched_bills, user_id=user_id
-        )
+        payment_status = _payment_status_for_official_bills(session, matched_bills, user_id=user_id)
         return _with_payment_status(
             {
                 "year_month": year_month,
@@ -935,9 +931,7 @@ def _past_month_invoice(
         return _none_result(year_month, "past_month", 0, float(bal_total))
 
     # ---- Tier 1: official CreditCardBill ----
-    bills = session.exec(
-        scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
-    ).all()
+    bills = session.exec(scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)).all()
     matched_bills = [
         b
         for b in bills
@@ -950,9 +944,7 @@ def _past_month_invoice(
     if matched_bills:
         official_total = sum((b.total_amount for b in matched_bills), Decimal("0"))
         due_dates = sorted({b.due_date.isoformat() for b in matched_bills})
-        payment_status = _payment_status_for_official_bills(
-            session, matched_bills, user_id=user_id
-        )
+        payment_status = _payment_status_for_official_bills(session, matched_bills, user_id=user_id)
         return _with_payment_status(
             {
                 "year_month": year_month,
@@ -1041,7 +1033,9 @@ def planning_invoice_for_month(
             user_id=user_id,
         )
     elif year_month == current_ym:
-        result = _current_month_invoice(session, year_month, today, credit_accounts, user_id=user_id)
+        result = _current_month_invoice(
+            session, year_month, today, credit_accounts, user_id=user_id
+        )
     elif year_month > current_ym:
         result = _future_month_invoice(session, year_month, today, credit_accounts, user_id=user_id)
     else:

@@ -49,9 +49,7 @@ def _seed_user(db: Session, email: str) -> int:
 
 def _seed_financials(db: Session, user_id: int, suffix: str) -> None:
     """One active CREDIT item + account + a single purchase transaction."""
-    db.add(
-        Item(id=f"item-{suffix}", user_id=user_id, connector_id=1, status="UPDATED")
-    )
+    db.add(Item(id=f"item-{suffix}", user_id=user_id, connector_id=1, status="UPDATED"))
     db.add(
         Account(
             id=f"acc-{suffix}",
@@ -215,7 +213,9 @@ class IsolationTest(unittest.TestCase):
                 .order_by(BankIncomeMonth.user_id)
             ).all()
 
-        self.assertEqual([(row.user_id, float(row.total)) for row in rows], [(1, 100.0), (2, 999.0)])
+        self.assertEqual(
+            [(row.user_id, float(row.total)) for row in rows], [(1, 100.0), (2, 999.0)]
+        )
 
     def test_connect_token_derives_tenant_from_authenticated_user(self):
         self._as(self.token_a)
@@ -250,20 +250,24 @@ class IsolationTest(unittest.TestCase):
 
     def test_register_rejects_remote_item_owned_by_different_pluggy_user(self):
         self._as(self.token_a)
-        with patch(
-            "app.services.sync.pluggy.get_item",
-            return_value={
-                "id": "remote-item",
-                "clientUserId": f"openfinance-user-{self.user_b}",
-                "connector": {"id": 1, "name": "Bank"},
-                "status": "UPDATED",
-            },
-        ), patch("app.routes.sync.backup_sqlite_database"):
+        with (
+            patch(
+                "app.services.sync.pluggy.get_item",
+                return_value={
+                    "id": "remote-item",
+                    "clientUserId": f"openfinance-user-{self.user_b}",
+                    "connector": {"id": 1, "name": "Bank"},
+                    "status": "UPDATED",
+                },
+            ),
+            patch("app.routes.sync.backup_sqlite_database") as backup,
+        ):
             response = self.client.post("/items/remote-item")
             sync_response = self.client.post("/items/remote-item/sync")
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(sync_response.status_code, 404)
+        backup.assert_not_called()
 
 
 if __name__ == "__main__":

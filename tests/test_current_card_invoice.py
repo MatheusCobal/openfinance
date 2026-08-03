@@ -119,7 +119,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(summary["source"], "pending_transactions")
         self.assertEqual(summary["amount"], 600.0)
         self.assertEqual(summary["category_total"], 600.0)
-        self.assertEqual(summary["category_count"], 3)
+        self.assertEqual(summary["transaction_count"], 3)
         self.assertEqual(
             {tx["id"] for tx in summary["raw_purchase_transactions"]},
             {"may", "jun", "jul"},
@@ -221,7 +221,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             summary = current_card_invoice_summary(session, today=date(2026, 6, 20))
 
         self.assertEqual(summary["amount"], 100.0)
-        self.assertEqual(summary["category_count"], 1)
+        self.assertEqual(summary["transaction_count"], 1)
 
     def test_planning_vigente_uses_pending_even_when_official_bill_exists(self):
         with Session(self.engine) as session:
@@ -346,7 +346,9 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         with Session(self.engine) as session:
             self._add_item(session)
             self._add_credit_account(session)
-            session.add(ExpectedIncome(description="Salário", amount=Decimal("5000"), expected_day=5))
+            session.add(
+                ExpectedIncome(description="Salário", amount=Decimal("5000"), expected_day=5)
+            )
             upsert_goal(session, "2026-07", "Alimentação", 1000)
             self._add_purchase(
                 session,
@@ -371,7 +373,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
                 today=date(2026, 6, 20),
             )
 
-        capacity = planning["raw"]["spending_capacity"]
+        capacity = planning["capacity"]
         self.assertEqual(planning["credit_card_invoice"]["amount"], 500.0)
         self.assertEqual(capacity["card_invoice_source"], "pending_current_invoice")
         self.assertEqual(capacity["future_card_obligation_total"], 500.0)

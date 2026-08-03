@@ -65,12 +65,27 @@ class PasswordTest(unittest.TestCase):
 class AuthSchemaScopeTest(unittest.TestCase):
     def test_all_financial_tables_have_user_id(self):
         expected = {
-            "item", "account", "creditcardbill", "investment", "investmenttransaction",
-            "accountsync", "pluggy_webhook_events", "transaction", "ignoreddescriptionrule",
-            "creditcardinvoicemonth", "bankincomemonth",
-            "bankincomeexclusionrule", "bankcashflowexclusionrule", "monthlybalancemonth",
-            "expectedincome", "expectedincomeoverride", "fixedcostcategory", "fixedcost",
-            "fixedcostoverride", "fixedcosttransactionmatch", "variable_budgets",
+            "item",
+            "account",
+            "creditcardbill",
+            "investment",
+            "investmenttransaction",
+            "accountsync",
+            "pluggy_webhook_events",
+            "transaction",
+            "ignoreddescriptionrule",
+            "creditcardinvoicemonth",
+            "bankincomemonth",
+            "bankincomeexclusionrule",
+            "bankcashflowexclusionrule",
+            "monthlybalancemonth",
+            "expectedincome",
+            "expectedincomeoverride",
+            "fixedcostcategory",
+            "fixedcost",
+            "fixedcostoverride",
+            "fixedcosttransactionmatch",
+            "variable_budgets",
             "sessions",
         }
         tables_with_user_id = {
@@ -94,6 +109,7 @@ class SessionStoreTest(unittest.TestCase):
             row = create_session(db, self.user_id)
             self.assertTrue(row.token)
             self.assertGreater(row.expires_at, datetime.datetime.utcnow())
+            self.assertIsNone(db.get(AuthSession, row.token))
             user = resolve_current_user(db, row.token)
             self.assertIsNotNone(user)
             self.assertEqual(user.id, self.user_id)

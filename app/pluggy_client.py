@@ -1,4 +1,5 @@
 from datetime import date
+from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -10,43 +11,76 @@ PluggyCredentialError = MissingPluggyCredentialsError
 
 
 class PluggyClient:
-    def __init__(self) -> None:
+    def __init__(self, http_client: Optional[httpx.Client] = None) -> None:
         self.base_url = get_pluggy_settings().pluggy_base_url
         self._api_key: Optional[str] = None
+        self._api_key_lock = Lock()
+        self._http_client = http_client or httpx.Client(
+            base_url=self.base_url,
+            timeout=30.0,
+            transport=httpx.HTTPTransport(retries=2),
+        )
+        self._owns_http_client = http_client is None
 
     def _credentials(self) -> Tuple[str, str]:
         pluggy_settings = get_pluggy_settings().require_credentials()
         return pluggy_settings.pluggy_client_id, pluggy_settings.pluggy_client_secret
 
-    def _authenticate(self) -> None:
+    def _authenticate_locked(self) -> None:
         client_id, client_secret = self._credentials()
-        response = httpx.post(
-            f"{self.base_url}/auth",
+        response = self._http_client.post(
+            "/auth",
             json={
                 "clientId": client_id,
                 "clientSecret": client_secret,
             },
-            timeout=30.0,
         )
         response.raise_for_status()
         self._api_key = response.json()["apiKey"]
 
+    def close(self) -> None:
+        if self._owns_http_client:
+            self._http_client.close()
+
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         if self._api_key is None:
-            self._authenticate()
-        headers = {"X-API-KEY": self._api_key, **kwargs.pop("headers", {})}
-        response = httpx.request(
-            method, f"{self.base_url}{path}", headers=headers, timeout=30.0, **kwargs
-        )
+            with self._api_key_lock:
+                if self._api_key is None:
+                    self._authenticate_locked()
+        api_key = self._api_key
+        headers = {**kwargs.pop("headers", {}), "X-API-KEY": api_key}
+        response = self._http_client.request(method, path, headers=headers, **kwargs)
         # API key expires after 2h — retry once on 401/403.
         if response.status_code in (401, 403):
-            self._authenticate()
-            headers["X-API-KEY"] = self._api_key
-            response = httpx.request(
-                method, f"{self.base_url}{path}", headers=headers, timeout=30.0, **kwargs
-            )
+            with self._api_key_lock:
+                if self._api_key == api_key:
+                    self._authenticate_locked()
+                headers["X-API-KEY"] = self._api_key
+            response = self._http_client.request(method, path, headers=headers, **kwargs)
         response.raise_for_status()
         return response
+
+    def _list_paginated(
+        self,
+        path: str,
+        params: Dict[str, Any],
+        *,
+        page_size: int,
+        max_pages: int,
+    ) -> List[Dict[str, Any]]:
+        results: List[Dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            response = self._request(
+                "GET",
+                path,
+                params={**params, "pageSize": page_size, "page": page},
+            )
+            body = response.json()
+            page_results = body.get("results", []) or []
+            results.extend(page_results)
+            if not page_results or page >= body.get("totalPages", 1):
+                break
+        return results
 
     def create_connect_token(
         self,
@@ -67,19 +101,7 @@ class PluggyClient:
 
     def list_items(self) -> List[Dict[str, Any]]:
         """All Pluggy Items for the current credentials."""
-        MAX_PAGES = 20
-        results: List[Dict[str, Any]] = []
-        page = 1
-        while page <= MAX_PAGES:
-            response = self._request("GET", "/items", params={"pageSize": 100, "page": page})
-            body = response.json()
-            page_results = body.get("results", []) or []
-            results.extend(page_results)
-            total_pages = body.get("totalPages", 1)
-            if not page_results or page >= total_pages:
-                break
-            page += 1
-        return results
+        return self._list_paginated("/items", {}, page_size=100, max_pages=20)
 
     def get_item(self, item_id: str) -> Dict[str, Any]:
         return self._request("GET", f"/items/{item_id}").json()
@@ -87,10 +109,6 @@ class PluggyClient:
     def list_accounts(self, item_id: str) -> List[Dict[str, Any]]:
         response = self._request("GET", "/accounts", params={"itemId": item_id})
         return response.json()["results"]
-
-    def get_account(self, account_id: str) -> Dict[str, Any]:
-        """Single-account fetch — same payload shape as a row of list_accounts."""
-        return self._request("GET", f"/accounts/{account_id}").json()
 
     def get_account_balance(self, account_id: str) -> Dict[str, Any]:
         """Real-time balance snapshot for connectors that support it.
@@ -108,43 +126,21 @@ class PluggyClient:
         expected to handle ``HTTPStatusError`` (Pluggy returns 404 for
         connectors that don't expose bills, or for non-CREDIT accounts).
         """
-        MAX_PAGES = 24  # 2 years of monthly bills — safety net
-        results: List[Dict[str, Any]] = []
-        page = 1
-        while page <= MAX_PAGES:
-            response = self._request(
-                "GET",
-                "/bills",
-                params={"accountId": account_id, "pageSize": 100, "page": page},
-            )
-            body = response.json()
-            page_results = body.get("results", []) or []
-            results.extend(page_results)
-            total_pages = body.get("totalPages", 1)
-            if not page_results or page >= total_pages:
-                break
-            page += 1
-        return results
+        return self._list_paginated(
+            "/bills",
+            {"accountId": account_id},
+            page_size=100,
+            max_pages=24,
+        )
 
     def list_investments(self, item_id: str) -> List[Dict[str, Any]]:
         """All investment positions for the item across providers."""
-        MAX_PAGES = 20
-        results: List[Dict[str, Any]] = []
-        page = 1
-        while page <= MAX_PAGES:
-            response = self._request(
-                "GET",
-                "/investments",
-                params={"itemId": item_id, "pageSize": 100, "page": page},
-            )
-            body = response.json()
-            page_results = body.get("results", []) or []
-            results.extend(page_results)
-            total_pages = body.get("totalPages", 1)
-            if not page_results or page >= total_pages:
-                break
-            page += 1
-        return results
+        return self._list_paginated(
+            "/investments",
+            {"itemId": item_id},
+            page_size=100,
+            max_pages=20,
+        )
 
     def list_investment_transactions(
         self,
@@ -152,26 +148,15 @@ class PluggyClient:
         from_date: Optional[date] = None,
     ) -> List[Dict[str, Any]]:
         """Movements (BUY/SELL/TAX/TRANSFER) for the given investment."""
-        MAX_PAGES = 50
-        results: List[Dict[str, Any]] = []
-        page = 1
-        while page <= MAX_PAGES:
-            params: Dict[str, Any] = {
-                "investmentId": investment_id,
-                "pageSize": 500,
-                "page": page,
-            }
-            if from_date is not None:
-                params["from"] = from_date.isoformat()
-            response = self._request("GET", "/investments/transactions", params=params)
-            body = response.json()
-            page_results = body.get("results", []) or []
-            results.extend(page_results)
-            total_pages = body.get("totalPages", 1)
-            if not page_results or page >= total_pages:
-                break
-            page += 1
-        return results
+        params: Dict[str, Any] = {"investmentId": investment_id}
+        if from_date is not None:
+            params["from"] = from_date.isoformat()
+        return self._list_paginated(
+            "/investments/transactions",
+            params,
+            page_size=500,
+            max_pages=50,
+        )
 
     def list_transactions(
         self,
@@ -183,28 +168,17 @@ class PluggyClient:
         # everything; MAX_PAGES is a safety net against a runaway loop (25k
         # transactions per account is way past any realistic credit card
         # history).
-        MAX_PAGES = 50
-        all_results: List[Dict[str, Any]] = []
-        page = 1
-        while page <= MAX_PAGES:
-            params: Dict[str, Any] = {
-                "accountId": account_id,
-                "pageSize": 500,
-                "page": page,
-            }
-            if from_date is not None:
-                params["from"] = from_date.isoformat()
-            if bill_id is not None:
-                params["billId"] = bill_id
-            response = self._request("GET", "/transactions", params=params)
-            body = response.json()
-            results = body.get("results", [])
-            all_results.extend(results)
-            total_pages = body.get("totalPages", 1)
-            if not results or page >= total_pages:
-                break
-            page += 1
-        return all_results
+        params: Dict[str, Any] = {"accountId": account_id}
+        if from_date is not None:
+            params["from"] = from_date.isoformat()
+        if bill_id is not None:
+            params["billId"] = bill_id
+        return self._list_paginated(
+            "/transactions",
+            params,
+            page_size=500,
+            max_pages=50,
+        )
 
 
 pluggy = PluggyClient()

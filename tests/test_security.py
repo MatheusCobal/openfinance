@@ -86,7 +86,9 @@ class SecuritySettingsTest(unittest.TestCase):
 
 class IsProductionTest(unittest.TestCase):
     def test_is_production_reads_settings(self):
-        with patch.object(security, "get_security_settings", lambda: make_settings(env="production")):
+        with patch.object(
+            security, "get_security_settings", lambda: make_settings(env="production")
+        ):
             self.assertTrue(security.is_production())
         with patch.object(security, "get_security_settings", lambda: make_settings(env="local")):
             self.assertFalse(security.is_production())
@@ -180,9 +182,7 @@ class AuthMiddlewareTest(unittest.TestCase):
 
     def test_login_endpoint_public_even_with_auth_active(self):
         with self._use(require_auth=True), self._session(False):
-            response = self.client.post(
-                "/auth/login", json={"email": "x@y.com", "password": "z"}
-            )
+            response = self.client.post("/auth/login", json={"email": "x@y.com", "password": "z"})
         # Reached the route (returns its own 401), not blocked by the gate.
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["detail"], "Invalid email or password.")

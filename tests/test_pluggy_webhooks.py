@@ -94,6 +94,25 @@ class PluggyWebhooksTest(unittest.TestCase):
         mock_sync.assert_called_once()
         self.assertEqual(mock_sync.call_args.args[0], "item-2")
 
+    def test_duplicate_event_id_is_ignored_before_scheduling(self):
+        self._seed_item("item-idempotent")
+        payload = {
+            "event": "transactions/created",
+            "eventId": "evt-idempotent",
+            "itemId": "item-idempotent",
+        }
+
+        with patch("app.routes.pluggy_webhooks._do_sync_item") as mock_sync:
+            first = self.client.post("/webhooks/pluggy", json=payload)
+            duplicate = self.client.post("/webhooks/pluggy", json=payload)
+
+        self.assertEqual(first.json()["action"], "sync_scheduled")
+        self.assertEqual(duplicate.json()["action"], "duplicate_ignored")
+        mock_sync.assert_called_once()
+        with Session(self.engine) as session:
+            events = session.exec(select(PluggyWebhookEvent)).all()
+        self.assertEqual(len(events), 1)
+
     # --- 4. item/error with existing Item → status_recorded ---
 
     def test_item_error_records_status(self):

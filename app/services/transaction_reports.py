@@ -6,7 +6,12 @@ from typing import Any, Dict, Optional
 from sqlmodel import Session, select
 
 from app.models import Account, CreditCardBill, Item, Transaction
-from app.services.classification import TransactionClassifier, card_invoice_signed_amount
+from app.services.classification import (
+    SPENDING_ACCOUNT_TYPES,
+    TRACKED_ACCOUNT_TYPES,
+    TransactionClassifier,
+    card_invoice_signed_amount,
+)
 from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
@@ -14,8 +19,6 @@ from app.services.credit_categories import (
 from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.scoping import scope_query
 from app.services.transactions import (
-    SPENDING_ACCOUNT_TYPES,
-    TRACKED_ACCOUNT_TYPES,
     _non_duplicate_clause,
     account_ids_by_type,
     filter_ignored_transactions,
@@ -30,9 +33,7 @@ from app.services.transactions import (
 def _accounts_by_id(session: Session, user_id: Optional[int] = None) -> dict[str, Account]:
     return {
         account.id: account
-        for account in session.exec(
-            scope_query(select(Account), Account.user_id, user_id)
-        ).all()
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
 
 
@@ -260,13 +261,9 @@ def upcoming_summary(
             invoice_source_label = dashboard_invoice.get("source_label") or "Fatura vigente"
         else:
             planned_amount = planned_invoice.get("amount")
-            invoice_total = Decimal(
-                str(month_total if planned_amount is None else planned_amount)
-            )
+            invoice_total = Decimal(str(month_total if planned_amount is None else planned_amount))
             invoice_source = planned_invoice.get("source") or "scheduled_installments"
-            invoice_source_label = (
-                planned_invoice.get("source_label") or "Fatura Pluggy do mês"
-            )
+            invoice_source_label = planned_invoice.get("source_label") or "Fatura Pluggy do mês"
         serialized_transactions = []
         for tx in txs:
             classification = _classification_fields(tx, accounts)
@@ -322,12 +319,10 @@ def upcoming_summary(
         ]
         row_count = len(txs)
         if is_current_invoice:
-            serialized_transactions = list(
-                dashboard_invoice.get("raw_purchase_transactions", [])
-            )
+            serialized_transactions = list(dashboard_invoice.get("raw_purchase_transactions", []))
             categories = list(dashboard_invoice.get("categories", []))
             month_total = reported_invoice_total
-            row_count = int(dashboard_invoice.get("category_count") or 0)
+            row_count = int(dashboard_invoice.get("transaction_count") or 0)
             cards = list(dashboard_invoice.get("cards", []))
         else:
             cards = [
@@ -351,10 +346,7 @@ def upcoming_summary(
                 "reported_invoice_total": (
                     float(reported_invoice_total) if is_current_invoice else None
                 ),
-                "reported_difference": (
-                    0.0 if is_current_invoice else None
-                ),
-                "legacy_category_breakdown_removed": False,
+                "reported_difference": (0.0 if is_current_invoice else None),
             }
         )
 
@@ -373,7 +365,6 @@ def upcoming_summary(
         "total_count": sum(month["count"] for month in months_out),
         "months": months_out,
         "next_invoice": next_invoice,
-        "legacy_category_breakdown_removed": False,
     }
 
 
@@ -393,9 +384,7 @@ def monthly_stats_summary(
             user_id,
         ).order_by(Transaction.date.asc())
     ).all()
-    txs = filter_transactions_by_account_type(
-        txs, session, SPENDING_ACCOUNT_TYPES, user_id=user_id
-    )
+    txs = filter_transactions_by_account_type(txs, session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
     txs = filter_ignored_transactions(txs, session, include_ignored, user_id=user_id)
     accounts = _accounts_by_id(session, user_id=user_id)
 
@@ -450,7 +439,6 @@ def monthly_stats_summary(
                 reverse=True,
             )
         ],
-        "legacy_category_breakdown_removed": False,
     }
 
 
@@ -484,9 +472,7 @@ def invoice_summary(
     # Restrict to active credit accounts from the start so that deactivated
     # accounts (e.g. after Pluggy re-authentication) never inflate totals or
     # shift last_payment_date via stale duplicate transactions.
-    credit_account_ids = set(
-        account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id)
-    )
+    credit_account_ids = set(account_ids_by_type(session, SPENDING_ACCOUNT_TYPES, user_id=user_id))
     all_up_to = session.exec(
         scope_query(
             select(Transaction).where(
@@ -696,7 +682,6 @@ def stats_summary(
             {"type": key, "total": float(value)}
             for key, value in sorted(totals_by_cashflow.items())
         ],
-        "legacy_category_breakdown_removed": False,
         "months": months,
         "invoice_mode": invoice["invoice_mode"],
         "invoice_total": invoice["invoice_total"],

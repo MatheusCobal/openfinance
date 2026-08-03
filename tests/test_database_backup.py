@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from app.database import _configure_sqlite_connection
 from app.services.database_backup import backup_sqlite_database, sqlite_database_path
 
 
@@ -93,6 +94,38 @@ class SQLiteBackupTest(unittest.TestCase):
                     backup_dir=tmp,
                 )
             )
+
+    def test_backup_prunes_old_files_automatically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "openfinance.db"
+            backup_dir = Path(tmp) / "backups"
+            with sqlite3.connect(str(db_path)) as connection:
+                connection.execute("CREATE TABLE sample (id INTEGER PRIMARY KEY)")
+
+            for day in range(1, 17):
+                backup_sqlite_database(
+                    f"sqlite:///{db_path}",
+                    "automatic",
+                    backup_dir=backup_dir,
+                    timestamp=datetime(2026, 1, day, 10, 0),
+                )
+
+            backups = sorted(backup_dir.iterdir())
+            self.assertEqual(len(backups), 15)
+            self.assertTrue(any("20260101" in path.name for path in backups))
+            self.assertFalse(any("20260102" in path.name for path in backups))
+
+
+class SQLiteConnectionConfigurationTest(unittest.TestCase):
+    def test_file_database_enables_integrity_and_concurrency_pragmas(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "configured.db"
+            with sqlite3.connect(str(db_path)) as connection:
+                _configure_sqlite_connection(connection, None)
+                self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
+                self.assertEqual(connection.execute("PRAGMA busy_timeout").fetchone()[0], 5000)
+                self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+                self.assertEqual(connection.execute("PRAGMA synchronous").fetchone()[0], 1)
 
 
 class InitDbBackupTest(unittest.TestCase):

@@ -50,9 +50,7 @@ def spending_capacity_summary(
 
         current_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
         current_rows = current_invoice.get("raw_purchase_transactions", [])
-        current_invoice_transaction_ids = {
-            str(row["id"]) for row in current_rows if row.get("id")
-        }
+        current_invoice_transaction_ids = {str(row["id"]) for row in current_rows if row.get("id")}
         gross_total = sum(
             (Decimal(str(row.get("amount") or 0)) for row in current_rows),
             Decimal("0"),
@@ -346,15 +344,8 @@ def spending_capacity_summary(
             - card_invoice_remaining_to_include
         )
 
-    available_to_spend = budget_available_to_spend
-    discretionary_available = budget_available_to_spend
-    received_based_available_to_spend = (
-        budget_available_to_spend - income_to_receive + income_over_expected
-    )
     remaining_after_invoice = planned_after_fixed_costs - card_invoice_discretionary_total
     remaining_after_plan_and_invoice = remaining_after_plan - card_invoice_discretionary_total
-
-    projected_cash_available: Optional[float] = None
 
     if today > last_day:
         days_remaining_in_month = 0
@@ -384,14 +375,11 @@ def spending_capacity_summary(
         "is_future_month": is_future_month,
         "planning_invoice": planning_inv,
         "expected_income_total": float(expected_income_total),
-        "receita_esperada": float(expected_income_total),
         "received_income_total": float(received_income_total),
-        "valor_recebido": float(received_income_total),
         "received_income_count": len(received_income_transactions),
         "bank_inflows_total": float(bank_inflows_total),
         "bank_outflows_total": float(bank_outflows_total),
         "income_to_receive": float(income_to_receive),
-        "receita_a_receber": float(income_to_receive),
         "income_over_expected": float(income_over_expected),
         "income_received_progress_pct": income_received_progress_pct,
         "fixed_cost_total": float(fixed_cost_total),
@@ -405,7 +393,6 @@ def spending_capacity_summary(
         "fixed_cost_paid_count": fixed["paid_count"],
         "fixed_cost_pending_count": fixed["pending_count"],
         "variable_budget_total": float(variable_budget_total),
-        "planned_variable_total": float(variable_budget_total),
         "variable_budget_uncommitted": float(
             variable_uncommitted if planning_mode == "future_month" else variable_budget_reserved
         ),
@@ -418,9 +405,7 @@ def spending_capacity_summary(
         "variable_budget_free_impact": float(variable_budget_free_impact),
         "variable_budget_reserved": float(variable_budget_reserved),
         "unbudgeted_variable_spent": float(unbudgeted_variable_spent),
-        "discretionary_available": float(discretionary_available),
         "budget_available_to_spend": float(budget_available_to_spend),
-        "projected_cash_available": projected_cash_available,
         "daily_discretionary_remaining": float(daily_discretionary_remaining),
         "days_remaining_in_month": days_remaining_in_month,
         "plan_status": plan_status,
@@ -458,8 +443,6 @@ def spending_capacity_summary(
         "invoice_open_since": invoice["invoice_open_since"],
         "planned_after_fixed_costs": float(planned_after_fixed_costs),
         "remaining_after_plan": float(remaining_after_plan),
-        "available_to_spend": float(available_to_spend),
-        "received_based_available_to_spend": float(received_based_available_to_spend),
         "remaining_after_invoice": float(remaining_after_invoice),
         "remaining_after_plan_and_invoice": float(remaining_after_plan_and_invoice),
         "fixed_costs": fixed,
@@ -503,7 +486,6 @@ def spending_capacity_monthly_summary(
         "card_invoice_fixed_cost_total": Decimal("0"),
         "card_invoice_remaining_to_include": Decimal("0"),
         "budget_available_to_spend": Decimal("0"),
-        "discretionary_available": Decimal("0"),
     }
     for offset in range(months):
         year_month = _shift_year_month(start_month, offset)
@@ -532,8 +514,6 @@ def spending_capacity_monthly_summary(
             "card_invoice_fixed_cost_total": capacity["card_invoice_fixed_cost_total"],
             "card_invoice_remaining_to_include": capacity["card_invoice_remaining_to_include"],
             "budget_available_to_spend": capacity["budget_available_to_spend"],
-            "discretionary_available": capacity["discretionary_available"],
-            "projected_cash_available": capacity["projected_cash_available"],
             "daily_discretionary_remaining": capacity["daily_discretionary_remaining"],
             "days_remaining_in_month": capacity["days_remaining_in_month"],
             "plan_status": capacity["plan_status"],

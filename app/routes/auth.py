@@ -6,7 +6,7 @@ HttpOnly cookie. No JWT, no Basic Auth, no public signup.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from app.auth.cookies import clear_session_cookie, set_session_cookie
@@ -25,8 +25,10 @@ _DUMMY_HASH = hash_password("openfinance-dummy-password")
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(min_length=1, max_length=320)
+    password: str = Field(min_length=1, max_length=1024)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class UserOut(BaseModel):

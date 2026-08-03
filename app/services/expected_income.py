@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from app.models import ExpectedIncome, ExpectedIncomeOverride
 from app.services.scoping import scope_query
 from app.services.transactions import bank_income_transactions
+from app.services.year_month import InvalidYearMonth, parse_year_month, shift_year_month
 
 
 class ExpectedIncomeValidationError(ValueError):
@@ -108,9 +109,8 @@ def delete_expected_income(
 
 
 def _shift_year_month(year_month: str, months: int) -> str:
-    year, month = _parse_year_month(year_month)
-    zero_based = year * 12 + (month - 1) + months
-    return f"{zero_based // 12:04d}-{(zero_based % 12) + 1:02d}"
+    _parse_year_month(year_month)
+    return shift_year_month(year_month, months)
 
 
 def monthly_breakdown(
@@ -243,14 +243,9 @@ def delete_override(
 
 def _parse_year_month(year_month: str) -> tuple[int, int]:
     try:
-        year_str, month_str = year_month.split("-")
-        year = int(year_str)
-        month = int(month_str)
-        if not (1 <= month <= 12):
-            raise ValueError
-    except (ValueError, AttributeError):
-        raise ExpectedIncomeValidationError("year_month must be in YYYY-MM format")
-    return year, month
+        return parse_year_month(year_month)
+    except InvalidYearMonth as exc:
+        raise ExpectedIncomeValidationError(str(exc)) from exc
 
 
 def expected_income_forecast(
