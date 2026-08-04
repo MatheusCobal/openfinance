@@ -47,6 +47,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         name="Cartão",
         number=None,
         brand=None,
+        due_date=date(2026, 6, 8),
     ):
         session.add(
             Account(
@@ -57,7 +58,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
                 number=number,
                 credit_brand=brand,
                 balance=balance,
-                credit_balance_due_date=date(2026, 6, 8),
+                credit_balance_due_date=due_date,
                 balance_updated_at=datetime(2026, 6, 20, 12, 0),
                 is_active=active,
             )
@@ -332,15 +333,92 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         with Session(self.engine) as session:
             summary = upcoming_summary(session, today=date(2026, 6, 20))
 
-        july = summary["months"][0]
+        july, august = summary["months"][:2]
         transactions = {tx["id"]: tx for tx in july["transactions"]}
         self.assertEqual(transactions["itau-buy"]["institution_name"], "Itaú")
         self.assertEqual(transactions["itau-buy"]["card_last_four"], "1234")
-        self.assertEqual(transactions["caixa-buy"]["institution_name"], "CAIXA")
-        self.assertEqual(transactions["caixa-buy"]["card_brand"], "MASTERCARD")
+        self.assertNotIn("caixa-buy", transactions)
+        caixa_transaction = next(
+            tx for tx in august["transactions"] if tx["id"] == "caixa-buy"
+        )
+        self.assertEqual(caixa_transaction["institution_name"], "CAIXA")
+        self.assertEqual(caixa_transaction["card_brand"], "MASTERCARD")
         cards = {card["account_id"]: card for card in july["cards"]}
         self.assertEqual(cards["credit-1"]["pending_total"], 100.0)
-        self.assertEqual(cards["credit-caixa"]["pending_total"], 200.0)
+        self.assertNotIn("credit-caixa", cards)
+        august_cards = {card["account_id"]: card for card in august["cards"]}
+        self.assertEqual(august_cards["credit-caixa"]["total_amount"], 200.0)
+        self.assertEqual(august_cards["credit-caixa"]["closing_day"], 24)
+
+    def test_caixa_uses_official_bill_and_closing_day_without_changing_itau(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(
+                session,
+                name="LATAM PASS ITAU MASTERCARD BLACK",
+                number="3279",
+                due_date=date(2026, 7, 6),
+            )
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                number="6849",
+                brand="VISA",
+                balance=Decimal("14870.17"),
+                due_date=date(2026, 8, 3),
+            )
+            self._add_purchase(session, "itau-aug", date(2026, 8, 6), 600)
+            self._add_purchase(
+                session,
+                "caixa-before-close",
+                date(2026, 7, 24),
+                400,
+                account_id="credit-caixa",
+            )
+            self._add_purchase(
+                session,
+                "caixa-after-close",
+                date(2026, 7, 25),
+                300,
+                account_id="credit-caixa",
+            )
+            session.add(
+                CreditCardBill(
+                    id="caixa-aug-bill",
+                    account_id="credit-caixa",
+                    due_date=date(2026, 8, 3),
+                    total_amount=Decimal("1080.69"),
+                    minimum_payment_amount=Decimal("162.11"),
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 8, 4))
+
+        months = {month["month"]: month for month in summary["months"]}
+        august = months["2026-08"]
+        september = months["2026-09"]
+
+        self.assertAlmostEqual(august["total"], 1680.69)
+        self.assertAlmostEqual(august["detailed_total"], 1000.0)
+        self.assertEqual(
+            {tx["id"] for tx in august["transactions"]},
+            {"itau-aug", "caixa-before-close"},
+        )
+        august_cards = {card["account_id"]: card for card in august["cards"]}
+        self.assertEqual(august_cards["credit-1"]["total_amount"], 600.0)
+        self.assertEqual(august_cards["credit-caixa"]["total_amount"], 1080.69)
+        self.assertEqual(august_cards["credit-caixa"]["detailed_total"], 400.0)
+        self.assertEqual(august_cards["credit-caixa"]["used_credit"], 14870.17)
+        self.assertTrue(august_cards["credit-caixa"]["is_official"])
+        self.assertAlmostEqual(august["reported_difference"], 680.69)
+
+        self.assertIn("caixa-after-close", {tx["id"] for tx in september["transactions"]})
+        september_cards = {card["account_id"]: card for card in september["cards"]}
+        self.assertEqual(september_cards["credit-caixa"]["total_amount"], 300.0)
+        self.assertFalse(september_cards["credit-caixa"]["is_official"])
 
     def test_planning_capacity_and_variable_budget_use_pending_ids(self):
         with Session(self.engine) as session:

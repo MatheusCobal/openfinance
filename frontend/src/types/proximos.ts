@@ -30,6 +30,12 @@ export interface UpcomingMonth {
     total_amount?: number;
     transaction_count?: number;
     due_date?: string | null;
+    closing_day?: number;
+    invoice_source?: string;
+    is_official?: boolean;
+    detailed_total?: number;
+    used_credit?: number | null;
+    reconciliation_difference?: number;
   }>;
   transactions?: Transaction[];
   categories?: UpcomingCategory[];

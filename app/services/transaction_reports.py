@@ -30,6 +30,54 @@ from app.services.transactions import (
 )
 
 
+CAIXA_CLOSING_DAY = 24
+
+
+def _is_caixa_account(account: Optional[Account]) -> bool:
+    if account is None:
+        return False
+    identity = f"{account.marketing_name or ''} {account.name or ''}".casefold()
+    return "caixa" in identity
+
+
+def _caixa_invoice_month(purchase_date: date) -> str:
+    month_offset = 1 if purchase_date.day <= CAIXA_CLOSING_DAY else 2
+    return month_key(shift_month(purchase_date.replace(day=1), month_offset))
+
+
+def _upcoming_categories(transactions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    categories_by_name: Dict[str, dict[str, Any]] = {}
+    for tx in transactions:
+        if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
+            continue
+        name = tx.get("effective_category") or "Outros"
+        bucket = categories_by_name.setdefault(
+            name,
+            {
+                "id": name,
+                "name": name,
+                "effective_category": name,
+                "resolved_category": name,
+                "credit_category": name,
+                "total": Decimal("0"),
+                "count": 0,
+                "transactions": [],
+                "source": "pluggy_based_classification",
+            },
+        )
+        bucket["total"] += Decimal(str(tx["amount"]))
+        bucket["count"] += 1
+        bucket["transactions"].append(tx)
+    return [
+        {**bucket, "total": float(bucket["total"])}
+        for bucket in sorted(
+            categories_by_name.values(),
+            key=lambda item: item["total"],
+            reverse=True,
+        )
+    ]
+
+
 def _accounts_by_id(session: Session, user_id: Optional[int] = None) -> dict[str, Account]:
     return {
         account.id: account
@@ -349,6 +397,194 @@ def upcoming_summary(
                 "reported_difference": (0.0 if is_current_invoice else None),
             }
         )
+
+    caixa_account_ids = {
+        account_id
+        for account_id in active_credit_account_ids
+        if _is_caixa_account(accounts.get(account_id))
+    }
+    if caixa_account_ids:
+        caixa_rows = session.exec(
+            scope_query(
+                select(Transaction).where(
+                    Transaction.account_id.in_(caixa_account_ids),
+                    _non_duplicate_clause(),
+                ),
+                Transaction.user_id,
+                user_id,
+            ).order_by(Transaction.date.asc(), Transaction.description.asc())
+        ).all()
+        caixa_rows = filter_ignored_transactions(
+            caixa_rows,
+            session,
+            include_ignored,
+            user_id=user_id,
+        )
+        current_month = today.strftime("%Y-%m")
+        caixa_by_month: Dict[str, list[Transaction]] = defaultdict(list)
+        for tx in caixa_rows:
+            invoice_month = _caixa_invoice_month(tx.date)
+            if (
+                invoice_month >= current_month
+                and str(tx.status or "").upper() == "PENDING"
+                and tx.amount > 0
+                and classifier.is_card_purchase(tx)
+                and not classifier.is_invoice_payment(tx)
+                and not classifier.is_ignored(tx)
+                and not tx.ignored_from_totals
+            ):
+                caixa_by_month[invoice_month].append(tx)
+
+        caixa_bills: Dict[tuple[str, str], list[CreditCardBill]] = defaultdict(list)
+        for bill in official_bills:
+            if (
+                bill.account_id in caixa_account_ids
+                and bill.due_date is not None
+                and bill.total_amount is not None
+                and month_key(bill.due_date) >= current_month
+            ):
+                caixa_bills[(bill.account_id, month_key(bill.due_date))].append(bill)
+
+        rows_by_month = {row["month"]: row for row in months_out}
+        target_months = set(rows_by_month) | set(caixa_by_month)
+        target_months.update(month for _, month in caixa_bills)
+        for month in target_months:
+            if month not in rows_by_month:
+                rows_by_month[month] = {
+                    "month": month,
+                    "total": 0.0,
+                    "detailed_total": 0.0,
+                    "count": 0,
+                    "transaction_month": month,
+                    "invoice_total": 0.0,
+                    "invoice_source": "caixa_closing_cycle",
+                    "invoice_source_label": "Ciclo da fatura CAIXA",
+                    "is_current_invoice": month == vigente_month,
+                    "cards": [],
+                    "categories": [],
+                    "transactions": [],
+                    "reported_invoice_total": None,
+                    "reported_difference": None,
+                }
+
+        def serialize_caixa_transaction(tx: Transaction) -> dict[str, Any]:
+            classification = _classification_fields(tx, accounts)
+            effective_category = resolve_credit_internal_category(
+                tx,
+                account_type="CREDIT",
+                current_internal_category=classification.get("internal_category"),
+            )
+            return {
+                "id": tx.id,
+                "date": tx.date.isoformat(),
+                "amount": float(abs(tx.amount)),
+                "description": tx.description,
+                "pluggy_category": classification["pluggy_raw_category"],
+                **account_identity(tx.account_id),
+                **classification,
+                **credit_category_payload(effective_category),
+            }
+
+        for month in sorted(target_months):
+            row = rows_by_month[month]
+            non_caixa_transactions = [
+                tx
+                for tx in row.get("transactions", [])
+                if tx.get("account_id") not in caixa_account_ids
+            ]
+            caixa_transactions = [
+                serialize_caixa_transaction(tx) for tx in caixa_by_month.get(month, [])
+            ]
+            serialized_transactions = non_caixa_transactions + caixa_transactions
+
+            detailed_by_account: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+            counts_by_account: Dict[str, int] = defaultdict(int)
+            for tx in serialized_transactions:
+                account_id = tx.get("account_id")
+                if not account_id:
+                    continue
+                detailed_by_account[account_id] += Decimal(str(tx.get("amount") or 0))
+                counts_by_account[account_id] += 1
+
+            cards_by_account: dict[str, dict[str, Any]] = {}
+            for card in row.get("cards", []):
+                account_id = card.get("account_id")
+                if not account_id or account_id in caixa_account_ids:
+                    continue
+                cards_by_account[account_id] = {
+                    **card,
+                    **account_identity(account_id),
+                    "detailed_total": float(detailed_by_account[account_id]),
+                }
+
+            for account_id, detailed_total in detailed_by_account.items():
+                if account_id in caixa_account_ids or account_id in cards_by_account:
+                    continue
+                cards_by_account[account_id] = {
+                    **account_identity(account_id),
+                    "total_amount": float(detailed_total),
+                    "detailed_total": float(detailed_total),
+                    "transaction_count": counts_by_account[account_id],
+                    "invoice_source": "scheduled_transactions",
+                }
+
+            has_caixa_official_bill = False
+            for account_id in caixa_account_ids:
+                bills = caixa_bills.get((account_id, month), [])
+                detailed_total = detailed_by_account[account_id]
+                if not bills and not detailed_total:
+                    continue
+                official_total = sum(
+                    (bill.total_amount or Decimal("0") for bill in bills),
+                    Decimal("0"),
+                )
+                has_official_bill = bool(bills)
+                has_caixa_official_bill = has_caixa_official_bill or has_official_bill
+                invoice_total = official_total if has_official_bill else detailed_total
+                account = accounts[account_id]
+                cards_by_account[account_id] = {
+                    **account_identity(account_id),
+                    "total_amount": float(invoice_total),
+                    "detailed_total": float(detailed_total),
+                    "transaction_count": counts_by_account[account_id],
+                    "due_date": bills[0].due_date.isoformat() if bills else None,
+                    "closing_day": CAIXA_CLOSING_DAY,
+                    "invoice_source": (
+                        "caixa_official_bill" if has_official_bill else "caixa_closing_cycle"
+                    ),
+                    "is_official": has_official_bill,
+                    "used_credit": float(account.balance) if account.balance is not None else None,
+                    "reconciliation_difference": float(invoice_total - detailed_total),
+                }
+
+            cards = list(cards_by_account.values())
+
+            def card_total(card: dict[str, Any]) -> Decimal:
+                pending_total = card.get("pending_total")
+                value = pending_total if pending_total is not None else card.get("total_amount")
+                return Decimal(str(value or 0))
+
+            invoice_total = sum((card_total(card) for card in cards), Decimal("0"))
+            detailed_total = sum(detailed_by_account.values(), Decimal("0"))
+            difference = invoice_total - detailed_total
+            row.update(
+                {
+                    "total": float(invoice_total),
+                    "detailed_total": float(detailed_total),
+                    "count": len(serialized_transactions),
+                    "invoice_total": float(invoice_total),
+                    "cards": cards,
+                    "categories": _upcoming_categories(serialized_transactions),
+                    "transactions": serialized_transactions,
+                    "reported_invoice_total": float(invoice_total),
+                    "reported_difference": float(difference),
+                }
+            )
+            if has_caixa_official_bill:
+                row["invoice_source"] = "per_card_invoice"
+                row["invoice_source_label"] = "Faturas por cartão · CAIXA oficial"
+
+        months_out = [rows_by_month[month] for month in sorted(rows_by_month)]
 
     vigente_row = next(month for month in months_out if month["month"] == vigente_month)
     next_invoice = {

@@ -268,17 +268,48 @@ export function ProximosPage() {
                         {selected.cards.map((card) => (
                           <div
                             key={card.account_id}
-                            className="flex items-center justify-between gap-3 rounded-xl bg-surface-muted px-3 py-2"
+                            className="rounded-xl bg-surface-muted px-3 py-2.5"
                           >
-                            <span className="min-w-0 truncate text-xs font-medium text-ink-700">
-                              {cardLabel(card) || "Cartão de crédito"}
-                            </span>
-                            <span className="shrink-0 text-xs font-bold tabular text-ink-900">
-                              {formatMoney(card.pending_total ?? card.total_amount ?? 0)}
-                            </span>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="min-w-0 truncate text-xs font-medium text-ink-700">
+                                {cardLabel(card) || "Cartão de crédito"}
+                              </span>
+                              <span className="shrink-0 text-xs font-bold tabular text-ink-900">
+                                {formatMoney(card.pending_total ?? card.total_amount ?? 0)}
+                              </span>
+                            </div>
+                            {card.closing_day ? (
+                              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-500">
+                                <span>
+                                  {card.is_official ? "Fatura oficial" : "Estimativa pelo ciclo"}
+                                  {` · fecha dia ${card.closing_day}`}
+                                </span>
+                                {card.detailed_total !== undefined &&
+                                Math.abs(
+                                  Number(card.total_amount || 0) - Number(card.detailed_total || 0),
+                                ) > 0.009 ? (
+                                  <span>Compras detalhadas: {formatMoney(card.detailed_total)}</span>
+                                ) : null}
+                                {card.used_credit !== undefined && card.used_credit !== null ? (
+                                  <span>Limite utilizado: {formatMoney(card.used_credit)}</span>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
+                    ) : null}
+                    {selected.reported_difference !== undefined &&
+                    selected.reported_difference !== null &&
+                    Math.abs(selected.reported_difference) > 0.009 ? (
+                      <p className="mt-3 text-xs leading-relaxed text-ink-500">
+                        O total das faturas difere das compras detalhadas em{" "}
+                        <span className="font-semibold text-ink-700">
+                          {formatMoney(Math.abs(selected.reported_difference))}
+                        </span>
+                        . A diferença pode incluir compras não informadas, créditos, encargos ou ajustes
+                        do banco.
+                      </p>
                     ) : null}
                   </Card>
 
