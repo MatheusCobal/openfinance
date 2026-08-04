@@ -35,6 +35,9 @@ export interface UpcomingMonth {
     is_official?: boolean;
     detailed_total?: number;
     used_credit?: number | null;
+    projected_total?: number;
+    projected_count?: number;
+    credits_total?: number;
     reconciliation_difference?: number;
   }>;
   transactions?: Transaction[];

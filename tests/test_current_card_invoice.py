@@ -338,9 +338,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(transactions["itau-buy"]["institution_name"], "Itaú")
         self.assertEqual(transactions["itau-buy"]["card_last_four"], "1234")
         self.assertNotIn("caixa-buy", transactions)
-        caixa_transaction = next(
-            tx for tx in august["transactions"] if tx["id"] == "caixa-buy"
-        )
+        caixa_transaction = next(tx for tx in august["transactions"] if tx["id"] == "caixa-buy")
         self.assertEqual(caixa_transaction["institution_name"], "CAIXA")
         self.assertEqual(caixa_transaction["card_brand"], "MASTERCARD")
         cards = {card["account_id"]: card for card in july["cards"]}
@@ -372,14 +370,14 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             self._add_purchase(
                 session,
                 "caixa-before-close",
-                date(2026, 7, 24),
+                date(2026, 7, 23),
                 400,
                 account_id="credit-caixa",
             )
             self._add_purchase(
                 session,
                 "caixa-after-close",
-                date(2026, 7, 25),
+                date(2026, 7, 24),
                 300,
                 account_id="credit-caixa",
             )
@@ -419,6 +417,171 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         september_cards = {card["account_id"]: card for card in september["cards"]}
         self.assertEqual(september_cards["credit-caixa"]["total_amount"], 300.0)
         self.assertFalse(september_cards["credit-caixa"]["is_official"])
+
+    def test_caixa_uses_forecast_credits_and_projects_known_installments(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                number="6849",
+                brand="VISA",
+                balance=Decimal("20476.90"),
+                due_date=date(2026, 8, 3),
+            )
+            session.add_all(
+                [
+                    Transaction(
+                        id="caixa-current-purchase",
+                        account_id="credit-caixa",
+                        date=date(2026, 7, 24),
+                        amount=Decimal("200"),
+                        description="NOVA SANTA RITA",
+                        category="Gas stations",
+                        pluggy_raw_category="Gas stations",
+                        pluggy_raw_type="DEBIT",
+                        status="PENDING",
+                        bill_forecast_month="2026-08",
+                        credit_card_last_four="9755",
+                    ),
+                    Transaction(
+                        id="caixa-current-credit",
+                        account_id="credit-caixa",
+                        date=date(2026, 8, 1),
+                        amount=Decimal("-23.35"),
+                        description="IOF Zero CAIXA Visa",
+                        category="Shopping",
+                        pluggy_raw_category="Shopping",
+                        pluggy_raw_type="CREDIT",
+                        status="PENDING",
+                        bill_forecast_month="2026-08",
+                        credit_card_last_four="6849",
+                    ),
+                    Transaction(
+                        id="caixa-installment-base",
+                        account_id="credit-caixa",
+                        date=date(2026, 7, 24),
+                        purchase_date=date(2026, 7, 16),
+                        amount=Decimal("348"),
+                        description="PANVEL*DIGITAL",
+                        category="Pharmacy",
+                        pluggy_raw_category="Pharmacy",
+                        pluggy_raw_type="DEBIT",
+                        status="PENDING",
+                        bill_forecast_month="2026-07",
+                        credit_card_last_four="6849",
+                        installment_number=1,
+                        total_installments=5,
+                    ),
+                    Transaction(
+                        id="caixa-previous-total",
+                        account_id="credit-caixa",
+                        date=date(2026, 7, 24),
+                        amount=Decimal("1080.69"),
+                        description="TOTAL DA FATURA ANTERIOR",
+                        category="Other",
+                        pluggy_raw_category="Other",
+                        pluggy_raw_type="DEBIT",
+                        status="PENDING",
+                        bill_forecast_month="2026-08",
+                    ),
+                    Transaction(
+                        id="caixa-previous-payment",
+                        account_id="credit-caixa",
+                        date=date(2026, 7, 29),
+                        amount=Decimal("-1080.69"),
+                        description="PGTO.BOLETO REGISTRADO",
+                        category="Transfer - Bank Slip",
+                        pluggy_raw_category="Transfer - Bank Slip",
+                        pluggy_raw_type="CREDIT",
+                        status="PENDING",
+                        bill_forecast_month="2026-08",
+                    ),
+                ]
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 8, 4))
+
+        september = next(month for month in summary["months"] if month["month"] == "2026-09")
+        self.assertAlmostEqual(september["total"], 524.65)
+        self.assertAlmostEqual(september["detailed_total"], 524.65)
+        self.assertEqual(september["count"], 3)
+        transactions = {tx["id"]: tx for tx in september["transactions"]}
+        self.assertEqual(
+            set(transactions),
+            {
+                "caixa-current-purchase",
+                "caixa-current-credit",
+                "caixa-installment-base:projected:2",
+            },
+        )
+        projected = transactions["caixa-installment-base:projected:2"]
+        self.assertTrue(projected["is_projected"])
+        self.assertEqual(projected["installment_number"], 2)
+        self.assertEqual(projected["total_installments"], 5)
+        self.assertEqual(projected["date"], "2026-07-16")
+        self.assertEqual(transactions["caixa-current-purchase"]["card_last_four"], "9755")
+        self.assertEqual(transactions["caixa-current-credit"]["signed_amount"], -23.35)
+
+        card = next(card for card in september["cards"] if card["account_id"] == "credit-caixa")
+        self.assertEqual(card["invoice_source"], "caixa_pluggy_forecast")
+        self.assertEqual(card["projected_count"], 1)
+        self.assertEqual(card["projected_total"], 348.0)
+        self.assertEqual(card["credits_total"], 23.35)
+
+    def test_caixa_does_not_duplicate_an_installment_already_returned_by_pluggy(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                number="6849",
+                due_date=date(2026, 8, 3),
+            )
+            common = {
+                "account_id": "credit-caixa",
+                "purchase_date": date(2026, 7, 16),
+                "amount": Decimal("348"),
+                "description": "PANVEL*DIGITAL",
+                "category": "Pharmacy",
+                "pluggy_raw_category": "Pharmacy",
+                "pluggy_raw_type": "DEBIT",
+                "status": "PENDING",
+                "credit_card_last_four": "6849",
+                "total_installments": 5,
+            }
+            session.add_all(
+                [
+                    Transaction(
+                        id="caixa-installment-1",
+                        date=date(2026, 7, 24),
+                        bill_forecast_month="2026-07",
+                        installment_number=1,
+                        **common,
+                    ),
+                    Transaction(
+                        id="caixa-installment-2",
+                        date=date(2026, 8, 24),
+                        bill_forecast_month="2026-08",
+                        installment_number=2,
+                        **common,
+                    ),
+                ]
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 8, 4))
+
+        september = next(month for month in summary["months"] if month["month"] == "2026-09")
+        caixa_rows = [tx for tx in september["transactions"] if tx["account_id"] == "credit-caixa"]
+        self.assertEqual(len(caixa_rows), 1)
+        self.assertEqual(caixa_rows[0]["id"], "caixa-installment-2")
+        self.assertFalse(caixa_rows[0]["is_projected"])
 
     def test_planning_capacity_and_variable_budget_use_pending_ids(self):
         with Session(self.engine) as session:

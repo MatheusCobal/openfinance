@@ -175,6 +175,12 @@ class Transaction(SQLModel, table=True):
     installment_number: Optional[int] = None
     total_installments: Optional[int] = None
     total_amount: Optional[Decimal] = None
+    # Nested creditCardMetadata returned by Pluggy. Some connectors (notably
+    # CAIXA) expose the invoice forecast, physical card and installment data
+    # only inside this object instead of the top-level transaction payload.
+    bill_forecast_month: Optional[str] = Field(default=None, index=True)
+    credit_card_last_four: Optional[str] = Field(default=None, index=True)
+    purchase_date: Optional[datetime.date] = Field(default=None, index=True)
     # Deduplication fields (populated by mark_duplicate_transactions.py)
     # ``dedupe_key`` is a stable hash of the natural key so duplicate detection
     # works even when Pluggy assigns a new transaction ID after re-authentication.

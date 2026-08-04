@@ -211,8 +211,30 @@ def upsert_transaction(
     amount = Decimal(str(raw_tx["amount"]))
     raw_total = raw_tx.get("totalAmount")
     description = raw_tx.get("description") or ""
-    installment_number = raw_tx.get("installmentNumber")
-    total_installments = raw_tx.get("totalInstallments")
+    credit_card_metadata = raw_tx.get("creditCardMetadata")
+    if not isinstance(credit_card_metadata, dict):
+        credit_card_metadata = {}
+
+    def metadata_value(name: str) -> Any:
+        value = raw_tx.get(name)
+        return value if value is not None else credit_card_metadata.get(name)
+
+    installment_number = metadata_value("installmentNumber")
+    total_installments = metadata_value("totalInstallments")
+    raw_purchase_date = metadata_value("purchaseDate")
+    try:
+        purchase_date = (
+            date.fromisoformat(str(raw_purchase_date)[:10]) if raw_purchase_date else None
+        )
+    except ValueError:
+        purchase_date = None
+    raw_forecast = metadata_value("billForecastDate")
+    bill_forecast_month = str(raw_forecast)[:7] if raw_forecast else None
+    raw_card_number = metadata_value("cardNumber")
+    card_digits = "".join(
+        character for character in str(raw_card_number or "") if character.isdigit()
+    )
+    credit_card_last_four = card_digits[-4:] if card_digits else None
     dedupe_key = compute_dedupe_key(
         account_type,
         description,
@@ -233,6 +255,9 @@ def upsert_transaction(
         "installment_number": installment_number,
         "total_installments": total_installments,
         "total_amount": Decimal(str(raw_total)) if raw_total is not None else None,
+        "bill_forecast_month": bill_forecast_month,
+        "credit_card_last_four": credit_card_last_four,
+        "purchase_date": purchase_date,
         "dedupe_key": dedupe_key,
     }
     values.update(classification_payload_fields(raw_tx))

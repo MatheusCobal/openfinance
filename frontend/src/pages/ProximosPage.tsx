@@ -84,12 +84,19 @@ function transactionList(transactions: UpcomingMonth["transactions"]) {
               {tx.installment_number && tx.total_installments
                 ? ` · parcela ${tx.installment_number} de ${tx.total_installments}`
                 : ""}
+              {tx.is_projected ? " · projetada" : ""}
             </p>
             {cardLabel(tx) ? (
               <p className="mt-1 truncate text-xs font-medium text-primary-700">{cardLabel(tx)}</p>
             ) : null}
           </div>
-          <p className="shrink-0 text-sm font-medium tabular text-ink-900">{formatMoney(tx.amount)}</p>
+          <p
+            className={`shrink-0 text-sm font-medium tabular ${
+              Number(tx.signed_amount ?? tx.amount) < 0 ? "text-positive-700" : "text-ink-900"
+            }`}
+          >
+            {formatMoney(tx.signed_amount ?? tx.amount)}
+          </p>
         </li>
       ))}
     </ul>
@@ -281,7 +288,11 @@ export function ProximosPage() {
                             {card.closing_day ? (
                               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-500">
                                 <span>
-                                  {card.is_official ? "Fatura oficial" : "Estimativa pelo ciclo"}
+                                  {card.is_official
+                                    ? "Fatura oficial"
+                                    : card.invoice_source === "caixa_pluggy_forecast"
+                                      ? "Previsão Pluggy + parcelas"
+                                      : "Estimativa pelo ciclo"}
                                   {` · fecha dia ${card.closing_day}`}
                                 </span>
                                 {card.detailed_total !== undefined &&
@@ -292,6 +303,14 @@ export function ProximosPage() {
                                 ) : null}
                                 {card.used_credit !== undefined && card.used_credit !== null ? (
                                   <span>Limite utilizado: {formatMoney(card.used_credit)}</span>
+                                ) : null}
+                                {card.projected_count ? (
+                                  <span>
+                                    {card.projected_count} {card.projected_count === 1 ? "parcela projetada" : "parcelas projetadas"}: {formatMoney(card.projected_total)}
+                                  </span>
+                                ) : null}
+                                {card.credits_total ? (
+                                  <span>Créditos: -{formatMoney(card.credits_total)}</span>
                                 ) : null}
                               </div>
                             ) : null}
@@ -318,9 +337,10 @@ export function ProximosPage() {
                       selected.categories.map((category) => {
                         const color = categoryColor(category.name);
                         const categoryBase = Number(selected.detailed_total ?? selected.total);
+                        const categoryTotal = Number(category.total || 0);
                         const share =
                           categoryBase > 0
-                            ? Math.round((Number(category.total || 0) / categoryBase) * 100)
+                            ? Math.round((Math.abs(categoryTotal) / categoryBase) * 100)
                             : 0;
                         return (
                           <details
@@ -342,8 +362,12 @@ export function ProximosPage() {
                                   {pluralParcelas(category.count || 0)} · {share}% do mês
                                 </span>
                               </span>
-                              <span className="ml-3 text-sm font-bold tabular text-ink-900">
-                                {formatMoney(category.total || 0)}
+                              <span
+                                className={`ml-3 text-sm font-bold tabular ${
+                                  categoryTotal < 0 ? "text-positive-700" : "text-ink-900"
+                                }`}
+                              >
+                                {formatMoney(categoryTotal)}
                               </span>
                               <ChevronDown
                                 className="ml-1 size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"

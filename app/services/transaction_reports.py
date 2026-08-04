@@ -1,10 +1,12 @@
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from sqlmodel import Session, select
 
+from app.categorization import normalize_description
 from app.models import Account, CreditCardBill, Item, Transaction
 from app.services.classification import (
     SPENDING_ACCOUNT_TYPES,
@@ -31,6 +33,17 @@ from app.services.transactions import (
 
 
 CAIXA_CLOSING_DAY = 24
+CAIXA_CREDIT_CATEGORY = "Créditos / Estornos"
+
+
+@dataclass(frozen=True)
+class _CaixaInvoiceEntry:
+    transaction: Transaction
+    invoice_month: str
+    signed_amount: Decimal
+    installment_number: Optional[int]
+    total_installments: Optional[int]
+    projected: bool = False
 
 
 def _is_caixa_account(account: Optional[Account]) -> bool:
@@ -41,16 +54,55 @@ def _is_caixa_account(account: Optional[Account]) -> bool:
 
 
 def _caixa_invoice_month(purchase_date: date) -> str:
-    month_offset = 1 if purchase_date.day <= CAIXA_CLOSING_DAY else 2
+    # The CAIXA statement supplied by the user places purchases made on the
+    # closing day itself in the next open cycle.
+    month_offset = 1 if purchase_date.day < CAIXA_CLOSING_DAY else 2
     return month_key(shift_month(purchase_date.replace(day=1), month_offset))
+
+
+def _shift_year_month(year_month: str, offset: int) -> Optional[str]:
+    try:
+        year, month = (int(part) for part in year_month[:7].split("-"))
+        return month_key(shift_month(date(year, month, 1), offset))
+    except (TypeError, ValueError):
+        return None
+
+
+def _caixa_due_month_from_forecast(forecast_month: Optional[str]) -> Optional[str]:
+    # CAIXA's billForecastDate identifies the closing/statement month. The
+    # card's due date is in the following calendar month (e.g. forecast Aug ->
+    # invoice due Sep).
+    if not forecast_month:
+        return None
+    return _shift_year_month(forecast_month, 1)
+
+
+def _is_caixa_statement_marker(tx: Transaction) -> bool:
+    description = normalize_description(tx.description).replace(".", " ")
+    return "total da fatura anterior" in description or "pgto boleto registrado" in description
+
+
+def _caixa_installment_plan_key(tx: Transaction) -> tuple[Any, ...]:
+    return (
+        tx.account_id,
+        tx.credit_card_last_four,
+        tx.purchase_date or tx.date,
+        normalize_description(tx.description),
+        abs(tx.amount),
+        tx.total_installments,
+    )
 
 
 def _upcoming_categories(transactions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     categories_by_name: Dict[str, dict[str, Any]] = {}
     for tx in transactions:
-        if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
+        if tx.get("ignored_from_totals"):
             continue
-        name = tx.get("effective_category") or "Outros"
+        signed_amount = Decimal(str(tx.get("signed_amount", tx.get("amount") or 0)))
+        is_credit = signed_amount < 0
+        if not is_credit and tx.get("cashflow_type") != "expense":
+            continue
+        name = CAIXA_CREDIT_CATEGORY if is_credit else tx.get("effective_category") or "Outros"
         bucket = categories_by_name.setdefault(
             name,
             {
@@ -65,14 +117,14 @@ def _upcoming_categories(transactions: list[dict[str, Any]]) -> list[dict[str, A
                 "source": "pluggy_based_classification",
             },
         )
-        bucket["total"] += Decimal(str(tx["amount"]))
+        bucket["total"] += signed_amount
         bucket["count"] += 1
         bucket["transactions"].append(tx)
     return [
         {**bucket, "total": float(bucket["total"])}
         for bucket in sorted(
             categories_by_name.values(),
-            key=lambda item: item["total"],
+            key=lambda item: abs(item["total"]),
             reverse=True,
         )
     ]
@@ -421,19 +473,75 @@ def upcoming_summary(
             user_id=user_id,
         )
         current_month = today.strftime("%Y-%m")
-        caixa_by_month: Dict[str, list[Transaction]] = defaultdict(list)
+        caixa_by_month: Dict[str, list[_CaixaInvoiceEntry]] = defaultdict(list)
+        installment_anchors: dict[tuple[Any, ...], Transaction] = {}
+        actual_installments: set[tuple[tuple[Any, ...], int]] = set()
         for tx in caixa_rows:
-            invoice_month = _caixa_invoice_month(tx.date)
+            if str(tx.status or "").upper() != "PENDING":
+                continue
             if (
-                invoice_month >= current_month
-                and str(tx.status or "").upper() == "PENDING"
-                and tx.amount > 0
-                and classifier.is_card_purchase(tx)
-                and not classifier.is_invoice_payment(tx)
-                and not classifier.is_ignored(tx)
-                and not tx.ignored_from_totals
+                classifier.is_ignored(tx)
+                or tx.ignored_from_totals
+                or _is_caixa_statement_marker(tx)
             ):
-                caixa_by_month[invoice_month].append(tx)
+                continue
+            classification = classifier.classify(tx)
+            signed_amount = card_invoice_signed_amount(tx, classification)
+            if signed_amount == 0:
+                continue
+
+            invoice_month = _caixa_due_month_from_forecast(tx.bill_forecast_month)
+            invoice_month = invoice_month or _caixa_invoice_month(tx.date)
+            if invoice_month >= current_month:
+                caixa_by_month[invoice_month].append(
+                    _CaixaInvoiceEntry(
+                        transaction=tx,
+                        invoice_month=invoice_month,
+                        signed_amount=signed_amount,
+                        installment_number=tx.installment_number,
+                        total_installments=tx.total_installments,
+                    )
+                )
+
+            if (
+                signed_amount > 0
+                and tx.bill_forecast_month
+                and tx.installment_number
+                and tx.total_installments
+                and tx.installment_number <= tx.total_installments
+            ):
+                plan_key = _caixa_installment_plan_key(tx)
+                actual_installments.add((plan_key, tx.installment_number))
+                current_anchor = installment_anchors.get(plan_key)
+                if (
+                    current_anchor is None
+                    or (current_anchor.installment_number or 0) < tx.installment_number
+                ):
+                    installment_anchors[plan_key] = tx
+
+        for plan_key, tx in installment_anchors.items():
+            current_installment = tx.installment_number or 0
+            total_installments = tx.total_installments or 0
+            for installment_number in range(current_installment + 1, total_installments + 1):
+                if (plan_key, installment_number) in actual_installments:
+                    continue
+                forecast_month = _shift_year_month(
+                    tx.bill_forecast_month or "",
+                    installment_number - current_installment,
+                )
+                invoice_month = _caixa_due_month_from_forecast(forecast_month)
+                if invoice_month is None or invoice_month < current_month:
+                    continue
+                caixa_by_month[invoice_month].append(
+                    _CaixaInvoiceEntry(
+                        transaction=tx,
+                        invoice_month=invoice_month,
+                        signed_amount=abs(tx.amount),
+                        installment_number=installment_number,
+                        total_installments=total_installments,
+                        projected=True,
+                    )
+                )
 
         caixa_bills: Dict[tuple[str, str], list[CreditCardBill]] = defaultdict(list)
         for bill in official_bills:
@@ -467,20 +575,45 @@ def upcoming_summary(
                     "reported_difference": None,
                 }
 
-        def serialize_caixa_transaction(tx: Transaction) -> dict[str, Any]:
+        def serialize_caixa_transaction(entry: _CaixaInvoiceEntry) -> dict[str, Any]:
+            tx = entry.transaction
             classification = _classification_fields(tx, accounts)
-            effective_category = resolve_credit_internal_category(
-                tx,
-                account_type="CREDIT",
-                current_internal_category=classification.get("internal_category"),
-            )
+            if entry.signed_amount < 0:
+                classification = {
+                    **classification,
+                    "internal_category": "Estorno",
+                    "cashflow_type": "refund",
+                }
+                effective_category = CAIXA_CREDIT_CATEGORY
+            else:
+                effective_category = resolve_credit_internal_category(
+                    tx,
+                    account_type="CREDIT",
+                    current_internal_category=classification.get("internal_category"),
+                )
+            identity = account_identity(tx.account_id)
+            if tx.credit_card_last_four:
+                identity["card_last_four"] = tx.credit_card_last_four
             return {
-                "id": tx.id,
-                "date": tx.date.isoformat(),
-                "amount": float(abs(tx.amount)),
+                "id": (
+                    f"{tx.id}:projected:{entry.installment_number}" if entry.projected else tx.id
+                ),
+                "date": (tx.purchase_date or tx.date).isoformat(),
+                "amount": float(abs(entry.signed_amount)),
+                "signed_amount": float(entry.signed_amount),
                 "description": tx.description,
                 "pluggy_category": classification["pluggy_raw_category"],
-                **account_identity(tx.account_id),
+                "installment_number": entry.installment_number,
+                "total_installments": entry.total_installments,
+                "is_projected": entry.projected,
+                "invoice_assignment_source": (
+                    "installment_projection"
+                    if entry.projected
+                    else "pluggy_forecast"
+                    if tx.bill_forecast_month
+                    else "closing_cycle"
+                ),
+                **identity,
                 **classification,
                 **credit_category_payload(effective_category),
             }
@@ -493,18 +626,33 @@ def upcoming_summary(
                 if tx.get("account_id") not in caixa_account_ids
             ]
             caixa_transactions = [
-                serialize_caixa_transaction(tx) for tx in caixa_by_month.get(month, [])
+                serialize_caixa_transaction(entry) for entry in caixa_by_month.get(month, [])
             ]
             serialized_transactions = non_caixa_transactions + caixa_transactions
 
             detailed_by_account: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
             counts_by_account: Dict[str, int] = defaultdict(int)
+            projected_by_account: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+            projected_counts_by_account: Dict[str, int] = defaultdict(int)
+            credits_by_account: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+            forecast_accounts: set[str] = set()
             for tx in serialized_transactions:
                 account_id = tx.get("account_id")
                 if not account_id:
                     continue
-                detailed_by_account[account_id] += Decimal(str(tx.get("amount") or 0))
+                signed_amount = Decimal(str(tx.get("signed_amount", tx.get("amount") or 0)))
+                detailed_by_account[account_id] += signed_amount
                 counts_by_account[account_id] += 1
+                if tx.get("is_projected"):
+                    projected_by_account[account_id] += signed_amount
+                    projected_counts_by_account[account_id] += 1
+                if signed_amount < 0:
+                    credits_by_account[account_id] += abs(signed_amount)
+                if tx.get("invoice_assignment_source") in {
+                    "pluggy_forecast",
+                    "installment_projection",
+                }:
+                    forecast_accounts.add(account_id)
 
             cards_by_account: dict[str, dict[str, Any]] = {}
             for card in row.get("cards", []):
@@ -550,10 +698,17 @@ def upcoming_summary(
                     "due_date": bills[0].due_date.isoformat() if bills else None,
                     "closing_day": CAIXA_CLOSING_DAY,
                     "invoice_source": (
-                        "caixa_official_bill" if has_official_bill else "caixa_closing_cycle"
+                        "caixa_official_bill"
+                        if has_official_bill
+                        else "caixa_pluggy_forecast"
+                        if account_id in forecast_accounts
+                        else "caixa_closing_cycle"
                     ),
                     "is_official": has_official_bill,
                     "used_credit": float(account.balance) if account.balance is not None else None,
+                    "projected_total": float(projected_by_account[account_id]),
+                    "projected_count": projected_counts_by_account[account_id],
+                    "credits_total": float(credits_by_account[account_id]),
                     "reconciliation_difference": float(invoice_total - detailed_total),
                 }
 
@@ -583,6 +738,9 @@ def upcoming_summary(
             if has_caixa_official_bill:
                 row["invoice_source"] = "per_card_invoice"
                 row["invoice_source_label"] = "Faturas por cartão · CAIXA oficial"
+            elif forecast_accounts.intersection(caixa_account_ids):
+                row["invoice_source"] = "caixa_pluggy_forecast"
+                row["invoice_source_label"] = "Previsão Pluggy + parcelas projetadas"
 
         months_out = [rows_by_month[month] for month in sorted(rows_by_month)]
 

@@ -49,4 +49,6 @@ export interface Transaction {
   installment_number?: number | null;
   total_installments?: number | null;
   amount_abs?: number | null;
+  signed_amount?: number | null;
+  is_projected?: boolean | null;
 }

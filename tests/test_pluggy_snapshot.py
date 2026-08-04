@@ -798,6 +798,38 @@ class TransactionBillInstallmentTest(unittest.TestCase):
             self.assertEqual(tx.total_installments, 12)
             self.assertEqual(tx.total_amount, Decimal("-3600.0000000000"))
 
+    def test_upsert_transaction_persists_nested_credit_card_metadata(self):
+        from app.services.sync import upsert_transaction
+
+        raw = {
+            "id": "tx-caixa-installment",
+            "date": "2026-07-24T03:00:00.000Z",
+            "amount": 137.50,
+            "description": "ANUIDADE NAC DIFERENCIADA",
+            "category": "Credit card fees",
+            "currencyCode": "BRL",
+            "status": "PENDING",
+            "type": "DEBIT",
+            "creditCardMetadata": {
+                "billForecastDate": "2026-07",
+                "cardNumber": "421960XXXXXX6849",
+                "purchaseDate": "2026-07-24T00:46:04.000Z",
+                "installmentNumber": 1,
+                "totalInstallments": 12,
+            },
+        }
+        with Session(self.engine) as session:
+            is_new, _, _ = upsert_transaction(raw, "credit-1", session)
+            session.commit()
+
+            tx = session.get(Transaction, "tx-caixa-installment")
+            self.assertTrue(is_new)
+            self.assertEqual(tx.installment_number, 1)
+            self.assertEqual(tx.total_installments, 12)
+            self.assertEqual(tx.bill_forecast_month, "2026-07")
+            self.assertEqual(tx.credit_card_last_four, "6849")
+            self.assertEqual(tx.purchase_date, date(2026, 7, 24))
+
     def test_upsert_transaction_null_fields_when_absent(self):
         from app.services.sync import upsert_transaction
 
