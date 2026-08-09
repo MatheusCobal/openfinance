@@ -16,7 +16,7 @@ interface BarChartProps {
   datasets: BarDataset[];
   stacked?: boolean;
   ariaLabel?: string;
-  onBarClick?: (index: number) => void;
+  onBarClick?: (index: number, datasetIndex: number) => void;
   showValueLabels?: boolean;
   /** Show only the currency value in the tooltip, without the dataset label. */
   tooltipValueOnly?: boolean;
@@ -90,7 +90,9 @@ export function BarChart({
         maintainAspectRatio: false,
         layout: showValueLabels ? { padding: { top: 16 } } : undefined,
         onClick: (_event, elements) => {
-          if (elements.length > 0) onBarClick?.(elements[0].index);
+          if (elements.length > 0) {
+            onBarClick?.(elements[0].index, elements[0].datasetIndex);
+          }
         },
         onHover: (event, elements) => {
           const target = event.native?.target as HTMLElement | undefined;

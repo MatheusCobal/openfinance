@@ -668,13 +668,17 @@ function CashflowTab({
               backgroundColor: CHART_COLORS.negative,
             },
           ]}
-          onBarClick={(index) => {
+          onBarClick={(index, datasetIndex) => {
             const month = summary.months[index];
             if (!month) return;
+            const showingIncome = datasetIndex === 0;
+            const flowLabel = showingIncome ? "Entradas" : "Saídas";
+            const flowTotal = showingIncome ? month.entradas : month.saidas;
+            const transactions = showingIncome ? month.entradas_txs : month.saidas_txs;
             onOpenTransactions(
-              `Entradas e saídas · ${formatMonthLong(month.month)}`,
-              `Entradas ${formatMoney(month.entradas)} · Saídas ${formatMoney(month.saidas)}`,
-              [...month.entradas_txs, ...month.saidas_txs],
+              `${flowLabel} · ${formatMonthLong(month.month)}`,
+              `${flowLabel} ${formatMoney(flowTotal)}`,
+              transactions,
             );
           }}
         />
