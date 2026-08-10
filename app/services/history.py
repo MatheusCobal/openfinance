@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
@@ -20,7 +20,11 @@ from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
 )
-from app.services.classification import BANK_ACCOUNT_TYPES, SPENDING_ACCOUNT_TYPES
+from app.services.classification import (
+    BANK_ACCOUNT_TYPES,
+    SPENDING_ACCOUNT_TYPES,
+    TransactionClassifier,
+)
 from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.scoping import scope_query
 from app.services.transactions import (
@@ -250,15 +254,63 @@ def _credit_card_official_bill_totals_by_month(
         return {}
 
     bills = session.exec(scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)).all()
+    selected_bills = [
+        bill
+        for bill in bills
+        if bill.account_id in credit_account_ids
+        and bill.due_date is not None
+        and month_key(bill.due_date) in selected_months
+    ]
+    payment_rows: list[Transaction] = []
+    if selected_bills:
+        payment_window_start = min(bill.due_date for bill in selected_bills) - timedelta(days=10)
+        payment_window_end = max(bill.due_date for bill in selected_bills) + timedelta(days=5)
+        payment_rows = session.exec(
+            scope_query(
+                select(Transaction).where(
+                    Transaction.account_id.in_(credit_account_ids),
+                    Transaction.date >= payment_window_start,
+                    Transaction.date <= payment_window_end,
+                    Transaction.amount < 0,
+                    _non_duplicate_clause(),
+                ),
+                Transaction.user_id,
+                user_id,
+            )
+        ).all()
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
+
+    def matched_credit_payment_total(bill: CreditCardBill) -> Decimal:
+        if bill.due_date is None:
+            return Decimal("0")
+        window_start = bill.due_date - timedelta(days=10)
+        window_end = bill.due_date + timedelta(days=5)
+        return sum(
+            (
+                abs(tx.amount)
+                for tx in payment_rows
+                if tx.account_id == bill.account_id
+                and window_start <= tx.date <= window_end
+                and classifier.is_invoice_payment(tx)
+            ),
+            Decimal("0"),
+        )
+
     totals_by_month: dict[str, dict[str, Any]] = {}
-    for bill in bills:
-        if bill.account_id not in credit_account_ids:
-            continue
-        if bill.due_date is None or bill.total_amount is None:
-            continue
+    for bill in selected_bills:
         bill_month = month_key(bill.due_date)
-        if bill_month not in selected_months:
+        reported_total = Decimal(bill.total_amount or 0)
+        recovered_payment_total = (
+            matched_credit_payment_total(bill) if reported_total <= 0 else Decimal("0")
+        )
+        effective_total = reported_total if reported_total > 0 else recovered_payment_total
+        if bill.total_amount is None and effective_total <= 0:
             continue
+        total_source = (
+            "matched_credit_payment"
+            if recovered_payment_total > 0
+            else "pluggy_official_bill"
+        )
 
         bucket = totals_by_month.setdefault(
             bill_month,
@@ -267,17 +319,22 @@ def _credit_card_official_bill_totals_by_month(
                 "bill_count": 0,
                 "due_dates": set(),
                 "bills": [],
+                "total_sources": set(),
             },
         )
-        bucket["total"] += Decimal(bill.total_amount)
+        bucket["total"] += effective_total
         bucket["bill_count"] += 1
         bucket["due_dates"].add(bill.due_date.isoformat())
+        bucket["total_sources"].add(total_source)
         bucket["bills"].append(
             {
                 "id": bill.id,
                 "account_id": bill.account_id,
                 "due_date": bill.due_date.isoformat(),
-                "total_amount": float(bill.total_amount),
+                "total_amount": float(effective_total),
+                "reported_total_amount": float(reported_total),
+                "recovered_payment_total": float(recovered_payment_total),
+                "total_source": total_source,
                 "minimum_payment_amount": float(bill.minimum_payment_amount or 0),
             }
         )
@@ -286,6 +343,7 @@ def _credit_card_official_bill_totals_by_month(
         month: {
             **bucket,
             "due_dates": sorted(bucket["due_dates"]),
+            "total_sources": sorted(bucket["total_sources"]),
         }
         for month, bucket in totals_by_month.items()
     }

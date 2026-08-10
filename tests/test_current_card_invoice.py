@@ -348,7 +348,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(august_cards["credit-caixa"]["total_amount"], 200.0)
         self.assertEqual(august_cards["credit-caixa"]["closing_day"], 24)
 
-    def test_caixa_uses_official_bill_and_closing_day_without_changing_itau(self):
+    def test_caixa_starts_at_vigente_month_without_changing_itau(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")
             self._add_credit_account(
@@ -399,19 +399,13 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         august = months["2026-08"]
         september = months["2026-09"]
 
-        self.assertAlmostEqual(august["total"], 1680.69)
-        self.assertAlmostEqual(august["detailed_total"], 1000.0)
-        self.assertEqual(
-            {tx["id"] for tx in august["transactions"]},
-            {"itau-aug", "caixa-before-close"},
-        )
+        self.assertAlmostEqual(august["total"], 600.0)
+        self.assertAlmostEqual(august["detailed_total"], 600.0)
+        self.assertEqual({tx["id"] for tx in august["transactions"]}, {"itau-aug"})
         august_cards = {card["account_id"]: card for card in august["cards"]}
         self.assertEqual(august_cards["credit-1"]["total_amount"], 600.0)
-        self.assertEqual(august_cards["credit-caixa"]["total_amount"], 1080.69)
-        self.assertEqual(august_cards["credit-caixa"]["detailed_total"], 400.0)
-        self.assertEqual(august_cards["credit-caixa"]["used_credit"], 14870.17)
-        self.assertTrue(august_cards["credit-caixa"]["is_official"])
-        self.assertAlmostEqual(august["reported_difference"], 680.69)
+        self.assertNotIn("credit-caixa", august_cards)
+        self.assertAlmostEqual(august["reported_difference"], 0.0)
 
         self.assertIn("caixa-after-close", {tx["id"] for tx in september["transactions"]})
         september_cards = {card["account_id"]: card for card in september["cards"]}

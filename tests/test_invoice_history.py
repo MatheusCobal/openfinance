@@ -766,6 +766,78 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertEqual(june["categories"][0]["name"], "Alimentação")
         self.assertAlmostEqual(june["categories"][0]["total"], 164.0, places=2)
 
+    def test_historical_month_recovers_zeroed_bill_from_card_payment_and_sums_cards(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 8, 6))
+            caixa_account_id = "cc-caixa-history"
+            session.add(
+                Account(
+                    id=caixa_account_id,
+                    item_id=ITEM_ID,
+                    name="CAIXA ICONE VISA",
+                    type="CREDIT",
+                    currency_code="BRL",
+                    is_active=True,
+                    balance=Decimal("0"),
+                    credit_balance_due_date=datetime.date(2026, 8, 3),
+                )
+            )
+            session.commit()
+            _add_credit_card_bill(
+                session,
+                bill_id="itau-aug-zeroed",
+                due_date=datetime.date(2026, 8, 6),
+                total=Decimal("0"),
+            )
+            _add_credit_card_bill(
+                session,
+                bill_id="caixa-aug-official",
+                due_date=datetime.date(2026, 8, 3),
+                total=Decimal("1080.69"),
+                account_id=caixa_account_id,
+            )
+            _add_payment(
+                session,
+                tx_id="itau-card-payment-aug",
+                payment_date=datetime.date(2026, 7, 28),
+                amount=Decimal("13992.62"),
+            )
+            _add_bank_account(session)
+            _add_bank_transaction(
+                session,
+                tx_id="itau-bank-payment-aug",
+                payment_date=datetime.date(2026, 7, 28),
+                amount=Decimal("13992.62"),
+                description="Pagamento de fatura FATURA PAGA LATAM PASS",
+                category="Credit card payment",
+            )
+
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 8, 10)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        august = {month["month"]: month for month in result["months"]}["2026-08"]
+        self.assertEqual(august["invoice_total_source"], "pluggy_official_bill")
+        self.assertEqual(august["official_bill_count"], 2)
+        self.assertAlmostEqual(august["official_bill_total"], 15073.31, places=2)
+        self.assertAlmostEqual(august["invoice_display_total"], 15073.31, places=2)
+        bills = {bill["id"]: bill for bill in august["official_bills"]}
+        self.assertEqual(bills["itau-aug-zeroed"]["total_source"], "matched_credit_payment")
+        self.assertEqual(bills["itau-aug-zeroed"]["reported_total_amount"], 0.0)
+        self.assertAlmostEqual(
+            bills["itau-aug-zeroed"]["recovered_payment_total"],
+            13992.62,
+            places=2,
+        )
+        self.assertEqual(
+            bills["caixa-aug-official"]["total_source"],
+            "pluggy_official_bill",
+        )
+
     def test_historical_month_uses_invoice_snapshot_when_official_bill_is_missing(self):
         with Session(self.engine) as session:
             _seed_base(session, due_date=datetime.date(2026, 6, 8))

@@ -472,7 +472,10 @@ def upcoming_summary(
             include_ignored,
             user_id=user_id,
         )
-        current_month = today.strftime("%Y-%m")
+        # "Próximos" starts at the vigente invoice (next calendar month) for
+        # every card.  Keeping CAIXA at the current calendar month made an
+        # already-paid official bill linger after Itaú had rolled forward.
+        minimum_invoice_month = vigente_month
         caixa_by_month: Dict[str, list[_CaixaInvoiceEntry]] = defaultdict(list)
         installment_anchors: dict[tuple[Any, ...], Transaction] = {}
         actual_installments: set[tuple[tuple[Any, ...], int]] = set()
@@ -492,7 +495,7 @@ def upcoming_summary(
 
             invoice_month = _caixa_due_month_from_forecast(tx.bill_forecast_month)
             invoice_month = invoice_month or _caixa_invoice_month(tx.date)
-            if invoice_month >= current_month:
+            if invoice_month >= minimum_invoice_month:
                 caixa_by_month[invoice_month].append(
                     _CaixaInvoiceEntry(
                         transaction=tx,
@@ -530,7 +533,7 @@ def upcoming_summary(
                     installment_number - current_installment,
                 )
                 invoice_month = _caixa_due_month_from_forecast(forecast_month)
-                if invoice_month is None or invoice_month < current_month:
+                if invoice_month is None or invoice_month < minimum_invoice_month:
                     continue
                 caixa_by_month[invoice_month].append(
                     _CaixaInvoiceEntry(
@@ -549,7 +552,7 @@ def upcoming_summary(
                 bill.account_id in caixa_account_ids
                 and bill.due_date is not None
                 and bill.total_amount is not None
-                and month_key(bill.due_date) >= current_month
+                and month_key(bill.due_date) >= minimum_invoice_month
             ):
                 caixa_bills[(bill.account_id, month_key(bill.due_date))].append(bill)
 
