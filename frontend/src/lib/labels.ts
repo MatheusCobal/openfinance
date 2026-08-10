@@ -31,6 +31,7 @@ const INVOICE_SOURCE_LABELS: Record<string, string> = {
   dashboard_current_invoice: "Fatura vigente",
   pending_current_invoice: "Fatura vigente por compras PENDING",
   pending_transactions: "Compras PENDING da fatura vigente",
+  canonical_invoice_schedule: "Fatura vigente por ciclo e previsão",
   missing_official_bill_fallback: "Sem fatura oficial",
 };
 

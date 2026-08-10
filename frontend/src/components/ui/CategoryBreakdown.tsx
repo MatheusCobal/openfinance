@@ -25,15 +25,16 @@ interface CategoryBreakdownProps {
  * heaviest categories read instantly instead of looking like a flat list.
  */
 export function CategoryBreakdown({ items, onSelect, className }: CategoryBreakdownProps) {
-  const max = items.reduce((best, item) => Math.max(best, Number(item.total) || 0), 0);
-  const grandTotal = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
+  const max = items.reduce((best, item) => Math.max(best, Math.abs(Number(item.total) || 0)), 0);
+  const grandTotal = items.reduce((sum, item) => sum + Math.abs(Number(item.total) || 0), 0);
 
   return (
     <div className={classNames("grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3", className)}>
       {items.map((item) => {
         const color = categoryColor(item.name, item.color);
-        const share = grandTotal > 0 ? (Number(item.total) / grandTotal) * 100 : 0;
-        const widthPct = max > 0 ? Math.max((Number(item.total) / max) * 100, 4) : 0;
+        const absoluteTotal = Math.abs(Number(item.total) || 0);
+        const share = grandTotal > 0 ? (absoluteTotal / grandTotal) * 100 : 0;
+        const widthPct = max > 0 ? Math.max((absoluteTotal / max) * 100, 4) : 0;
         const content = (
           <>
             <div className="flex items-start justify-between gap-4">

@@ -1,6 +1,7 @@
 import unittest
 from datetime import date, datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -8,6 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.models import Account, CreditCardBill, ExpectedIncome, Item, Transaction
 from app.services.credit_card_invoice import planning_invoice_for_month
 from app.services.current_card_invoice import current_card_invoice_summary
+from app.services.history import credit_card_invoice_purchases_monthly_summary
 from app.services.planning import planning_month_summary
 from app.services.transaction_reports import upcoming_summary
 from app.services.variable_budgets import upsert_goal
@@ -302,6 +304,26 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(august["total"], 500.0)
         self.assertEqual({tx["id"] for tx in august["transactions"]}, {"aug"})
 
+    def test_future_dated_current_month_purchase_only_appears_in_vigente_invoice(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session)
+            self._add_purchase(session, "itau-aug", date(2026, 8, 6), 600)
+            session.commit()
+
+        with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 8, 4))
+            upcoming = upcoming_summary(session, today=date(2026, 8, 4))
+
+        appearances = [
+            month["month"]
+            for month in upcoming["months"]
+            if "itau-aug" in {tx["id"] for tx in month["transactions"]}
+        ]
+        self.assertEqual(current["amount"], 600.0)
+        self.assertEqual(upcoming["next_invoice"]["amount"], 600.0)
+        self.assertEqual(appearances, ["2026-09"])
+
     def test_upcoming_identifies_each_card_and_institution(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="Itaú")
@@ -348,7 +370,205 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(august_cards["credit-caixa"]["total_amount"], 200.0)
         self.assertEqual(august_cards["credit-caixa"]["closing_day"], 24)
 
-    def test_caixa_starts_at_vigente_month_without_changing_itau(self):
+    def test_caixa_statement_markers_are_exact_normalized_and_caixa_scoped(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_item(session, item_id="item-caixa", connector_name="MeuPluggy")
+            self._add_credit_account(session, name="LATAM PASS ITAU MASTERCARD BLACK")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                item_id="item-caixa",
+                name="CAIXA ICONE VISA",
+                due_date=date(2026, 9, 3),
+            )
+            self._add_purchase(
+                session,
+                "caixa-marker-spaces",
+                date(2026, 7, 24),
+                1080.69,
+                account_id="credit-caixa",
+                description="  Total   da Fátura Anterior  ",
+            )
+            self._add_purchase(
+                session,
+                "caixa-marker-punctuation",
+                date(2026, 7, 24),
+                1080.69,
+                account_id="credit-caixa",
+                description="TOTAL.DA/FATURA-ANTERIOR",
+            )
+            self._add_purchase(
+                session,
+                "caixa-similar-legitimate",
+                date(2026, 7, 24),
+                90,
+                account_id="credit-caixa",
+                description="Compra total da fatura anterior na livraria",
+            )
+            self._add_purchase(
+                session,
+                "caixa-normal",
+                date(2026, 7, 24),
+                200,
+                account_id="credit-caixa",
+                description="Compra normal CAIXA",
+            )
+            self._add_purchase(
+                session,
+                "itau-same-description",
+                date(2026, 8, 1),
+                80,
+                description="TOTAL DA FATURA ANTERIOR",
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 8, 4))
+            upcoming = upcoming_summary(session, today=date(2026, 8, 4))
+
+        expected_ids = {
+            "caixa-similar-legitimate",
+            "caixa-normal",
+            "itau-same-description",
+        }
+        self.assertEqual(current["amount"], 370.0)
+        self.assertEqual(
+            {tx["id"] for tx in current["raw_purchase_transactions"]},
+            expected_ids,
+        )
+        self.assertEqual(upcoming["next_invoice"]["amount"], 370.0)
+        september = next(month for month in upcoming["months"] if month["month"] == "2026-09")
+        self.assertEqual({tx["id"] for tx in september["transactions"]}, expected_ids)
+        self.assertEqual(sum(category["total"] for category in current["categories"]), 370.0)
+
+    def test_caixa_previous_bill_marker_does_not_change_closed_history_or_payment(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                due_date=date(2026, 8, 3),
+            )
+            session.add(
+                CreditCardBill(
+                    id="caixa-august-official",
+                    account_id="credit-caixa",
+                    due_date=date(2026, 8, 3),
+                    total_amount=Decimal("1080.69"),
+                )
+            )
+            session.add_all(
+                [
+                    Transaction(
+                        id="caixa-closed-purchase",
+                        account_id="credit-caixa",
+                        date=date(2026, 7, 20),
+                        amount=Decimal("1080.69"),
+                        description="Compras da fatura fechada",
+                        category="Shopping",
+                        status="POSTED",
+                        bill_id="caixa-august-official",
+                    ),
+                    Transaction(
+                        id="caixa-closed-payment",
+                        account_id="credit-caixa",
+                        date=date(2026, 8, 3),
+                        amount=Decimal("-1080.69"),
+                        description="Pagamento recebido",
+                        category="Credit card payment",
+                        status="POSTED",
+                        bill_id="caixa-august-official",
+                    ),
+                    Transaction(
+                        id="caixa-previous-total-current",
+                        account_id="credit-caixa",
+                        date=date(2026, 7, 24),
+                        amount=Decimal("1080.69"),
+                        description="TOTAL DA FATURA ANTERIOR",
+                        category="Other",
+                        status="PENDING",
+                        bill_forecast_month="2026-08",
+                    ),
+                    Transaction(
+                        id="caixa-current-purchase",
+                        account_id="credit-caixa",
+                        date=date(2026, 7, 24),
+                        amount=Decimal("300"),
+                        description="Compra da fatura vigente",
+                        category="Shopping",
+                        status="PENDING",
+                        bill_forecast_month="2026-08",
+                    ),
+                ]
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 8, 10))
+            upcoming = upcoming_summary(session, today=date(2026, 8, 10))
+            marker_is_preserved = (
+                session.get(Transaction, "caixa-previous-total-current") is not None
+            )
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = date(2026, 8, 10)
+                history_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+                history = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        months = {month["month"]: month for month in history["months"]}
+        self.assertEqual(current["amount"], 300.0)
+        self.assertEqual(upcoming["next_invoice"]["amount"], 300.0)
+        self.assertTrue(marker_is_preserved)
+        self.assertEqual(
+            {tx["id"] for tx in current["raw_purchase_transactions"]}, {"caixa-current-purchase"}
+        )
+        self.assertEqual(months["2026-08"]["invoice_total_source"], "pluggy_official_bill")
+        self.assertEqual(months["2026-08"]["invoice_display_total"], 1080.69)
+        self.assertEqual(months["2026-09"]["invoice_display_total"], 300.0)
+
+    def test_caixa_marker_is_excluded_from_available_to_spend(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                due_date=date(2026, 9, 3),
+            )
+            session.add(
+                ExpectedIncome(description="Salário", amount=Decimal("5000"), expected_day=5)
+            )
+            self._add_purchase(
+                session,
+                "caixa-current",
+                date(2026, 7, 24),
+                300,
+                account_id="credit-caixa",
+                description="Compra vigente",
+            )
+            self._add_purchase(
+                session,
+                "caixa-previous-total",
+                date(2026, 7, 24),
+                1080.69,
+                account_id="credit-caixa",
+                description="TOTAL DA FATURA ANTERIOR",
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            planning = planning_month_summary(
+                session,
+                "2026-09",
+                today=date(2026, 8, 10),
+            )
+
+        self.assertEqual(planning["credit_card_invoice"]["amount"], 300.0)
+        self.assertEqual(planning["capacity"]["future_card_obligation_total"], 300.0)
+        self.assertEqual(planning["capacity"]["budget_available_to_spend"], 4700.0)
+
+    def test_caixa_current_invoice_reconciles_dashboard_history_and_upcoming(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")
             self._add_credit_account(
@@ -393,24 +613,74 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 8, 4))
             summary = upcoming_summary(session, today=date(2026, 8, 4))
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = date(2026, 8, 4)
+                history_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+                history = credit_card_invoice_purchases_monthly_summary(session, months=1)
 
         months = {month["month"]: month for month in summary["months"]}
-        august = months["2026-08"]
         september = months["2026-09"]
+        transaction_ids = {tx["id"] for tx in september["transactions"]}
 
-        self.assertAlmostEqual(august["total"], 600.0)
-        self.assertAlmostEqual(august["detailed_total"], 600.0)
-        self.assertEqual({tx["id"] for tx in august["transactions"]}, {"itau-aug"})
-        august_cards = {card["account_id"]: card for card in august["cards"]}
-        self.assertEqual(august_cards["credit-1"]["total_amount"], 600.0)
-        self.assertNotIn("credit-caixa", august_cards)
-        self.assertAlmostEqual(august["reported_difference"], 0.0)
-
-        self.assertIn("caixa-after-close", {tx["id"] for tx in september["transactions"]})
+        self.assertNotIn("2026-08", months)
+        self.assertEqual(current["amount"], 900.0)
+        self.assertEqual(summary["next_invoice"]["amount"], 900.0)
+        self.assertEqual(history["months"][0]["invoice_display_total"], 900.0)
+        self.assertEqual(transaction_ids, {"itau-aug", "caixa-after-close"})
+        self.assertNotIn("caixa-before-close", transaction_ids)
         september_cards = {card["account_id"]: card for card in september["cards"]}
+        self.assertEqual(september_cards["credit-1"]["pending_total"], 600.0)
         self.assertEqual(september_cards["credit-caixa"]["total_amount"], 300.0)
         self.assertFalse(september_cards["credit-caixa"]["is_official"])
+
+    def test_caixa_official_vigente_bill_has_same_priority_everywhere(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="CAIXA")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                due_date=date(2026, 9, 3),
+            )
+            session.add(
+                Transaction(
+                    id="caixa-september-purchase",
+                    account_id="credit-caixa",
+                    date=date(2026, 7, 24),
+                    amount=Decimal("200"),
+                    description="Compra CAIXA",
+                    category="Shopping",
+                    status="PENDING",
+                    bill_forecast_month="2026-08",
+                )
+            )
+            session.add(
+                CreditCardBill(
+                    id="caixa-september-bill",
+                    account_id="credit-caixa",
+                    due_date=date(2026, 9, 3),
+                    total_amount=Decimal("777"),
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 8, 4))
+            upcoming = upcoming_summary(session, today=date(2026, 8, 4))
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = date(2026, 8, 4)
+                history_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+                history = credit_card_invoice_purchases_monthly_summary(session, months=1)
+
+        self.assertEqual(current["amount"], 777.0)
+        self.assertEqual(upcoming["next_invoice"]["amount"], 777.0)
+        self.assertEqual(history["months"][0]["invoice_display_total"], 777.0)
+        self.assertEqual(current["reconciliation"]["detailed_total"], 200.0)
+        self.assertEqual(current["reconciliation"]["unreconciled_amount"], 577.0)
+        self.assertEqual(current["cards"][0]["invoice_source"], "caixa_official_bill")
+        self.assertTrue(current["cards"][0]["is_official"])
 
     def test_caixa_uses_forecast_credits_and_projects_known_installments(self):
         with Session(self.engine) as session:
@@ -497,9 +767,22 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             session.commit()
 
         with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 8, 4))
             summary = upcoming_summary(session, today=date(2026, 8, 4))
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = date(2026, 8, 4)
+                history_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+                history = credit_card_invoice_purchases_monthly_summary(session, months=1)
 
         september = next(month for month in summary["months"] if month["month"] == "2026-09")
+        self.assertAlmostEqual(current["amount"], 524.65)
+        self.assertAlmostEqual(summary["next_invoice"]["amount"], 524.65)
+        self.assertAlmostEqual(history["months"][0]["invoice_display_total"], 524.65)
+        self.assertAlmostEqual(history["months"][0]["classified_purchase_total"], 524.65)
+        self.assertEqual(
+            history["months"][0]["invoice_total_source"],
+            "canonical_invoice_schedule",
+        )
         self.assertAlmostEqual(september["total"], 524.65)
         self.assertAlmostEqual(september["detailed_total"], 524.65)
         self.assertEqual(september["count"], 3)
@@ -519,6 +802,14 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(projected["date"], "2026-07-16")
         self.assertEqual(transactions["caixa-current-purchase"]["card_last_four"], "9755")
         self.assertEqual(transactions["caixa-current-credit"]["signed_amount"], -23.35)
+        self.assertEqual(
+            {tx["id"] for tx in current["raw_purchase_transactions"]},
+            set(transactions),
+        )
+        history_categories = {
+            category["name"]: category for category in history["months"][0]["categories"]
+        }
+        self.assertAlmostEqual(history_categories["Créditos / Estornos"]["total"], -23.35)
 
         card = next(card for card in september["cards"] if card["account_id"] == "credit-caixa")
         self.assertEqual(card["invoice_source"], "caixa_pluggy_forecast")
@@ -563,9 +854,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         months = {month["month"]: month for month in summary["months"]}
         for month, installment_number in (("2026-09", 2), ("2026-10", 3)):
             row = months[month]
-            caixa_card = next(
-                card for card in row["cards"] if card["account_id"] == "credit-caixa"
-            )
+            caixa_card = next(card for card in row["cards"] if card["account_id"] == "credit-caixa")
             self.assertEqual(caixa_card["total_amount"], 125.0)
             self.assertEqual(caixa_card["projected_total"], 125.0)
             self.assertEqual(caixa_card["projected_count"], 1)

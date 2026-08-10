@@ -1,13 +1,19 @@
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from sqlmodel import Session, select
 
-from app.categorization import normalize_description
 from app.models import Account, CreditCardBill, Item, Transaction
+from app.services.caixa_invoice import (
+    CAIXA_CLOSING_DAY,
+    CAIXA_CREDIT_CATEGORY,
+    CaixaInvoiceEntry,
+    caixa_invoice_entries_by_month,
+    is_caixa_account,
+    serialize_caixa_invoice_entry,
+)
 from app.services.classification import (
     SPENDING_ACCOUNT_TYPES,
     TRACKED_ACCOUNT_TYPES,
@@ -30,67 +36,6 @@ from app.services.transactions import (
     month_key,
     shift_month,
 )
-
-
-CAIXA_CLOSING_DAY = 24
-CAIXA_CREDIT_CATEGORY = "Créditos / Estornos"
-
-
-@dataclass(frozen=True)
-class _CaixaInvoiceEntry:
-    transaction: Transaction
-    invoice_month: str
-    signed_amount: Decimal
-    installment_number: Optional[int]
-    total_installments: Optional[int]
-    projected: bool = False
-
-
-def _is_caixa_account(account: Optional[Account]) -> bool:
-    if account is None:
-        return False
-    identity = f"{account.marketing_name or ''} {account.name or ''}".casefold()
-    return "caixa" in identity
-
-
-def _caixa_invoice_month(purchase_date: date) -> str:
-    # The CAIXA statement supplied by the user places purchases made on the
-    # closing day itself in the next open cycle.
-    month_offset = 1 if purchase_date.day < CAIXA_CLOSING_DAY else 2
-    return month_key(shift_month(purchase_date.replace(day=1), month_offset))
-
-
-def _shift_year_month(year_month: str, offset: int) -> Optional[str]:
-    try:
-        year, month = (int(part) for part in year_month[:7].split("-"))
-        return month_key(shift_month(date(year, month, 1), offset))
-    except (TypeError, ValueError):
-        return None
-
-
-def _caixa_due_month_from_forecast(forecast_month: Optional[str]) -> Optional[str]:
-    # CAIXA's billForecastDate identifies the closing/statement month. The
-    # card's due date is in the following calendar month (e.g. forecast Aug ->
-    # invoice due Sep).
-    if not forecast_month:
-        return None
-    return _shift_year_month(forecast_month, 1)
-
-
-def _is_caixa_statement_marker(tx: Transaction) -> bool:
-    description = normalize_description(tx.description).replace(".", " ")
-    return "total da fatura anterior" in description or "pgto boleto registrado" in description
-
-
-def _caixa_installment_plan_key(tx: Transaction) -> tuple[Any, ...]:
-    return (
-        tx.account_id,
-        tx.credit_card_last_four,
-        tx.purchase_date or tx.date,
-        normalize_description(tx.description),
-        abs(tx.amount),
-        tx.total_installments,
-    )
 
 
 def _upcoming_categories(transactions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -315,8 +260,16 @@ def upcoming_summary(
         }
 
     classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    from app.services.current_card_invoice import current_card_invoice_summary
+
+    dashboard_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
+    current_invoice_transaction_ids = {
+        str(tx["id"])
+        for tx in dashboard_invoice.get("raw_purchase_transactions", [])
+        if tx.get("id") is not None
+    }
     for tx in candidate_txs:
-        if not classifier.is_card_purchase(tx):
+        if tx.id in current_invoice_transaction_ids or not classifier.is_card_purchase(tx):
             continue
         invoice_month = month_key(tx.date)
         by_month[invoice_month].append(tx)
@@ -339,10 +292,8 @@ def upcoming_summary(
         if bill_month >= vigente_month and bill_month not in by_month:
             by_month[bill_month] = []
 
-    from app.services.current_card_invoice import current_card_invoice_summary
     from app.services.credit_card_invoice import planning_invoice_for_month
 
-    dashboard_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
     reported_invoice_total = Decimal(str(dashboard_invoice.get("amount") or 0))
 
     for month in sorted(by_month):
@@ -453,104 +404,22 @@ def upcoming_summary(
     caixa_account_ids = {
         account_id
         for account_id in active_credit_account_ids
-        if _is_caixa_account(accounts.get(account_id))
+        if is_caixa_account(accounts.get(account_id))
     }
     if caixa_account_ids:
-        caixa_rows = session.exec(
-            scope_query(
-                select(Transaction).where(
-                    Transaction.account_id.in_(caixa_account_ids),
-                    _non_duplicate_clause(),
-                ),
-                Transaction.user_id,
-                user_id,
-            ).order_by(Transaction.date.asc(), Transaction.description.asc())
-        ).all()
-        caixa_rows = filter_ignored_transactions(
-            caixa_rows,
-            session,
-            include_ignored,
-            user_id=user_id,
-        )
         # "Próximos" starts at the vigente invoice (next calendar month) for
         # every card.  Keeping CAIXA at the current calendar month made an
         # already-paid official bill linger after Itaú had rolled forward.
         minimum_invoice_month = vigente_month
-        caixa_by_month: Dict[str, list[_CaixaInvoiceEntry]] = defaultdict(list)
-        installment_anchors: dict[tuple[Any, ...], Transaction] = {}
-        actual_installments: set[tuple[tuple[Any, ...], int]] = set()
-        for tx in caixa_rows:
-            if (
-                classifier.is_ignored(tx)
-                or tx.ignored_from_totals
-                or _is_caixa_statement_marker(tx)
-            ):
-                continue
-            classification = classifier.classify(tx)
-            signed_amount = card_invoice_signed_amount(tx, classification)
-            if signed_amount == 0:
-                continue
-
-            if (
-                signed_amount > 0
-                and tx.bill_forecast_month
-                and tx.installment_number
-                and tx.total_installments
-                and tx.installment_number <= tx.total_installments
-            ):
-                plan_key = _caixa_installment_plan_key(tx)
-                actual_installments.add((plan_key, tx.installment_number))
-                current_anchor = installment_anchors.get(plan_key)
-                if (
-                    current_anchor is None
-                    or (current_anchor.installment_number or 0) < tx.installment_number
-                ):
-                    installment_anchors[plan_key] = tx
-
-            # Unlike Itaú, CAIXA may keep the first installment as POSTED and
-            # expose the installment plan only on that historical row.  Use it
-            # as the projection anchor, but add only open PENDING purchases or
-            # actual future-dated installments to upcoming invoices.
-            is_pending = str(tx.status or "").upper() == "PENDING"
-            if not is_pending and tx.date <= today:
-                continue
-
-            invoice_month = _caixa_due_month_from_forecast(tx.bill_forecast_month)
-            invoice_month = invoice_month or _caixa_invoice_month(tx.date)
-            if invoice_month >= minimum_invoice_month:
-                caixa_by_month[invoice_month].append(
-                    _CaixaInvoiceEntry(
-                        transaction=tx,
-                        invoice_month=invoice_month,
-                        signed_amount=signed_amount,
-                        installment_number=tx.installment_number,
-                        total_installments=tx.total_installments,
-                    )
-                )
-
-        for plan_key, tx in installment_anchors.items():
-            current_installment = tx.installment_number or 0
-            total_installments = tx.total_installments or 0
-            for installment_number in range(current_installment + 1, total_installments + 1):
-                if (plan_key, installment_number) in actual_installments:
-                    continue
-                forecast_month = _shift_year_month(
-                    tx.bill_forecast_month or "",
-                    installment_number - current_installment,
-                )
-                invoice_month = _caixa_due_month_from_forecast(forecast_month)
-                if invoice_month is None or invoice_month < minimum_invoice_month:
-                    continue
-                caixa_by_month[invoice_month].append(
-                    _CaixaInvoiceEntry(
-                        transaction=tx,
-                        invoice_month=invoice_month,
-                        signed_amount=abs(tx.amount),
-                        installment_number=installment_number,
-                        total_installments=total_installments,
-                        projected=True,
-                    )
-                )
+        caixa_by_month = caixa_invoice_entries_by_month(
+            session,
+            caixa_account_ids,
+            minimum_invoice_month,
+            classifier,
+            today=today,
+            include_ignored=include_ignored,
+            user_id=user_id,
+        )
 
         caixa_bills: Dict[tuple[str, str], list[CreditCardBill]] = defaultdict(list)
         for bill in official_bills:
@@ -584,47 +453,14 @@ def upcoming_summary(
                     "reported_difference": None,
                 }
 
-        def serialize_caixa_transaction(entry: _CaixaInvoiceEntry) -> dict[str, Any]:
+        def serialize_caixa_transaction(entry: CaixaInvoiceEntry) -> dict[str, Any]:
             tx = entry.transaction
-            classification = _classification_fields(tx, accounts)
-            if entry.signed_amount < 0:
-                classification = {
-                    **classification,
-                    "internal_category": "Estorno",
-                    "cashflow_type": "refund",
-                }
-                effective_category = CAIXA_CREDIT_CATEGORY
-            else:
-                effective_category = resolve_credit_internal_category(
-                    tx,
-                    account_type="CREDIT",
-                    current_internal_category=classification.get("internal_category"),
-                )
             identity = account_identity(tx.account_id)
             if tx.credit_card_last_four:
                 identity["card_last_four"] = tx.credit_card_last_four
             return {
-                "id": (
-                    f"{tx.id}:projected:{entry.installment_number}" if entry.projected else tx.id
-                ),
-                "date": (tx.purchase_date or tx.date).isoformat(),
-                "amount": float(abs(entry.signed_amount)),
-                "signed_amount": float(entry.signed_amount),
-                "description": tx.description,
-                "pluggy_category": classification["pluggy_raw_category"],
-                "installment_number": entry.installment_number,
-                "total_installments": entry.total_installments,
-                "is_projected": entry.projected,
-                "invoice_assignment_source": (
-                    "installment_projection"
-                    if entry.projected
-                    else "pluggy_forecast"
-                    if tx.bill_forecast_month
-                    else "closing_cycle"
-                ),
+                **serialize_caixa_invoice_entry(entry),
                 **identity,
-                **classification,
-                **credit_category_payload(effective_category),
             }
 
         for month in sorted(target_months):

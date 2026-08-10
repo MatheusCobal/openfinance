@@ -17,7 +17,7 @@ def current_card_invoice(
     session: Session = Depends(get_session),
     user_id: Optional[int] = Depends(current_scope_user_id),
 ):
-    """Dashboard-only current invoice based on adjusted Account.balance."""
+    """Canonical current invoice shared by Dashboard, Próximos and Histórico."""
     return current_card_invoice_summary(session, user_id=user_id)
 
 

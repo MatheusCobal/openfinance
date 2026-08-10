@@ -477,7 +477,9 @@ export function DashboardPage() {
                     </span>
                   </div>
                   <p className="mt-3 text-xs leading-relaxed text-ink-500">
-                    Soma das compras PENDING até o fim do mês da fatura vigente.
+                    {data.currentInvoice.source === "canonical_invoice_schedule"
+                      ? "Total consolidado pelo ciclo de cada cartão, incluindo previsões e créditos."
+                      : "Soma das compras PENDING até o fim do mês da fatura vigente."}
                   </p>
                   {nextInvoice ? (
                     <div className="mt-4 flex items-start gap-2.5 rounded-control border border-ink-100 bg-surface-muted p-3.5">
@@ -514,7 +516,10 @@ export function DashboardPage() {
                         total: Number(category.total),
                         count: category.count ?? 0,
                         color: category.color,
-                        subtitle: undefined,
+                        subtitle:
+                          category.name === "Créditos / Estornos"
+                            ? pluralize(category.count ?? 0, "crédito", "créditos")
+                            : undefined,
                       }))}
                       onSelect={(id) =>
                         setSelectedCategory(
@@ -613,7 +618,11 @@ export function DashboardPage() {
         title={selectedCategory?.name || ""}
         subtitle={
           selectedCategory
-            ? `${pluralCompras(selectedCategory.count ?? 0)} · ${formatMoney(selectedCategory.total)}`
+            ? `${
+                selectedCategory.name === "Créditos / Estornos"
+                  ? pluralize(selectedCategory.count ?? 0, "crédito", "créditos")
+                  : pluralCompras(selectedCategory.count ?? 0)
+              } · ${formatMoney(selectedCategory.total)}`
             : undefined
         }
         onClose={() => setSelectedCategory(null)}
@@ -634,7 +643,7 @@ export function DashboardPage() {
                 </p>
               </div>
               <span className="shrink-0 text-sm font-semibold tabular text-ink-900">
-                {formatMoney(tx.amount)}
+                {formatMoney(tx.signed_amount ?? tx.amount)}
               </span>
             </li>
           ))}

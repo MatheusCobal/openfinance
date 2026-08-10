@@ -727,7 +727,7 @@ def _pending_current_invoice_plan(
     credit_accounts: list[Account],
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Planning representation of the shared PENDING-only current invoice."""
+    """Planning representation of the shared canonical current invoice."""
     from app.services.current_card_invoice import current_card_invoice_summary
 
     summary = current_card_invoice_summary(session, today=today, user_id=user_id)
@@ -736,7 +736,7 @@ def _pending_current_invoice_plan(
         "planning_mode": "future_month",
         "amount": float(summary.get("amount") or 0),
         "source": "pending_current_invoice",
-        "source_label": "Compras PENDING da fatura vigente",
+        "source_label": summary.get("source_label") or "Fatura vigente",
         "is_estimated": True,
         "due_dates": [],
         "cards": summary.get("cards", []),

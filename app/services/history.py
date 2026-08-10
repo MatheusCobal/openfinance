@@ -12,6 +12,7 @@ from app.models import (
     MonthlyBalanceMonth,
     Transaction,
 )
+from app.services.caixa_invoice import CAIXA_CREDIT_CATEGORY
 from app.services.invoice_month import (
     DEFAULT_CREDIT_CARD_DUE_DAY,
     invoice_month_from_payment,
@@ -450,6 +451,14 @@ def credit_card_invoice_purchases_monthly_summary(
             {
                 **tx,
                 "amount_abs": float(tx.get("amount") or 0),
+                "invoice_contribution_amount": float(
+                    tx.get("signed_amount", tx.get("amount") or 0)
+                ),
+                "effective_category": (
+                    CAIXA_CREDIT_CATEGORY
+                    if float(tx.get("signed_amount", tx.get("amount") or 0)) < 0
+                    else tx.get("effective_category")
+                ),
             }
             for tx in current_invoice.get("raw_purchase_transactions", [])
         ]
@@ -469,7 +478,10 @@ def credit_card_invoice_purchases_monthly_summary(
     for selected_month in selected_months:
         txs = selected_transactions_by_month[selected_month]
         month_classified_total = sum(
-            (Decimal(str(tx["amount_abs"])) for tx in txs),
+            (
+                Decimal(str(tx.get("invoice_contribution_amount", tx["amount_abs"])))
+                for tx in txs
+            ),
             Decimal("0"),
         )
         classified_purchase_total += month_classified_total
@@ -485,7 +497,11 @@ def credit_card_invoice_purchases_monthly_summary(
         is_current_invoice = selected_month == vigente_month
         if is_current_invoice:
             month_invoice_display_total = current_invoice_total
-            invoice_total_source = "pending_current_invoice"
+            invoice_total_source = (
+                "canonical_invoice_schedule"
+                if current_invoice.get("source") == "canonical_invoice_schedule"
+                else "pending_current_invoice"
+            )
         elif official_bill_total is not None:
             month_invoice_display_total = official_bill_total
             invoice_total_source = "pluggy_official_bill"
@@ -499,6 +515,9 @@ def credit_card_invoice_purchases_monthly_summary(
 
         categories_by_name: Dict[str, dict[str, Any]] = {}
         for tx in txs:
+            contribution = Decimal(
+                str(tx.get("invoice_contribution_amount", tx["amount_abs"]))
+            )
             category_name = tx.get("effective_category") or "Outros"
             bucket = categories_by_name.setdefault(
                 category_name,
@@ -510,12 +529,12 @@ def credit_card_invoice_purchases_monthly_summary(
                     "credit_category": category_name,
                     "total": Decimal("0"),
                     "count": 0,
-                    "cashflow_type": "expense",
+                    "cashflow_type": "refund" if contribution < 0 else "expense",
                     "source": "pluggy_based_classification",
                     "transactions": [],
                 },
             )
-            bucket["total"] += Decimal(str(tx["amount_abs"]))
+            bucket["total"] += contribution
             bucket["count"] += 1
             bucket["transactions"].append(tx)
 
