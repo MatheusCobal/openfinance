@@ -526,6 +526,57 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(card["projected_total"], 348.0)
         self.assertEqual(card["credits_total"], 23.35)
 
+    def test_caixa_projects_future_invoices_from_posted_installment_anchor(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="CAIXA")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                number="6849",
+                brand="VISA",
+                due_date=date(2026, 8, 3),
+            )
+            session.add(
+                Transaction(
+                    id="caixa-posted-installment-1",
+                    account_id="credit-caixa",
+                    date=date(2026, 7, 24),
+                    purchase_date=date(2026, 7, 24),
+                    amount=Decimal("125"),
+                    description="COMPRA PARCELADA",
+                    category="Shopping",
+                    pluggy_raw_category="Shopping",
+                    pluggy_raw_type="DEBIT",
+                    status="POSTED",
+                    bill_forecast_month="2026-07",
+                    credit_card_last_four="6849",
+                    installment_number=1,
+                    total_installments=3,
+                )
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            summary = upcoming_summary(session, today=date(2026, 8, 4))
+
+        months = {month["month"]: month for month in summary["months"]}
+        for month, installment_number in (("2026-09", 2), ("2026-10", 3)):
+            row = months[month]
+            caixa_card = next(
+                card for card in row["cards"] if card["account_id"] == "credit-caixa"
+            )
+            self.assertEqual(caixa_card["total_amount"], 125.0)
+            self.assertEqual(caixa_card["projected_total"], 125.0)
+            self.assertEqual(caixa_card["projected_count"], 1)
+            self.assertEqual(row["total"], 125.0)
+            transaction = next(
+                tx for tx in row["transactions"] if tx["account_id"] == "credit-caixa"
+            )
+            self.assertTrue(transaction["is_projected"])
+            self.assertEqual(transaction["installment_number"], installment_number)
+            self.assertEqual(transaction["total_installments"], 3)
+
     def test_caixa_does_not_duplicate_an_installment_already_returned_by_pluggy(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")

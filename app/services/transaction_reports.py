@@ -480,8 +480,6 @@ def upcoming_summary(
         installment_anchors: dict[tuple[Any, ...], Transaction] = {}
         actual_installments: set[tuple[tuple[Any, ...], int]] = set()
         for tx in caixa_rows:
-            if str(tx.status or "").upper() != "PENDING":
-                continue
             if (
                 classifier.is_ignored(tx)
                 or tx.ignored_from_totals
@@ -492,19 +490,6 @@ def upcoming_summary(
             signed_amount = card_invoice_signed_amount(tx, classification)
             if signed_amount == 0:
                 continue
-
-            invoice_month = _caixa_due_month_from_forecast(tx.bill_forecast_month)
-            invoice_month = invoice_month or _caixa_invoice_month(tx.date)
-            if invoice_month >= minimum_invoice_month:
-                caixa_by_month[invoice_month].append(
-                    _CaixaInvoiceEntry(
-                        transaction=tx,
-                        invoice_month=invoice_month,
-                        signed_amount=signed_amount,
-                        installment_number=tx.installment_number,
-                        total_installments=tx.total_installments,
-                    )
-                )
 
             if (
                 signed_amount > 0
@@ -521,6 +506,27 @@ def upcoming_summary(
                     or (current_anchor.installment_number or 0) < tx.installment_number
                 ):
                     installment_anchors[plan_key] = tx
+
+            # Unlike Itaú, CAIXA may keep the first installment as POSTED and
+            # expose the installment plan only on that historical row.  Use it
+            # as the projection anchor, but add only open PENDING purchases or
+            # actual future-dated installments to upcoming invoices.
+            is_pending = str(tx.status or "").upper() == "PENDING"
+            if not is_pending and tx.date <= today:
+                continue
+
+            invoice_month = _caixa_due_month_from_forecast(tx.bill_forecast_month)
+            invoice_month = invoice_month or _caixa_invoice_month(tx.date)
+            if invoice_month >= minimum_invoice_month:
+                caixa_by_month[invoice_month].append(
+                    _CaixaInvoiceEntry(
+                        transaction=tx,
+                        invoice_month=invoice_month,
+                        signed_amount=signed_amount,
+                        installment_number=tx.installment_number,
+                        total_installments=tx.total_installments,
+                    )
+                )
 
         for plan_key, tx in installment_anchors.items():
             current_installment = tx.installment_number or 0
