@@ -14,6 +14,17 @@ interface InvoiceHistoryCategory {
   difference_percent?: number;
 }
 
+export interface InvoiceHistoryCard {
+  account_id: string;
+  account_name?: string | null;
+  institution_name?: string | null;
+  card_brand?: string | null;
+  card_last_four?: string | null;
+  total: number;
+  count?: number;
+  source?: string;
+}
+
 export interface InvoiceHistoryMonth {
   month: string;
   total: number;
@@ -21,6 +32,9 @@ export interface InvoiceHistoryMonth {
   invoice_display_total?: number;
   classified_purchase_total?: number;
   invoice_total_source?: string;
+  cards?: InvoiceHistoryCard[];
+  card_breakdown_total?: number;
+  card_breakdown_source?: string;
   categories?: InvoiceHistoryCategory[];
   transactions?: Transaction[];
 }

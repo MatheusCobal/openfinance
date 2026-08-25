@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BarChart3, RefreshCw, Tags } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  BarChart3,
+  CreditCard,
+  RefreshCw,
+  Tags,
+} from "lucide-react";
 import {
   getCashflow,
   getClassificationOptions,
@@ -39,6 +46,7 @@ import { formatMoney } from "../lib/money";
 import type { ClassificationOptions, Transaction } from "../types/common";
 import type {
   CashflowSummary,
+  InvoiceHistoryCard,
   InvoiceHistoryMonth,
   InvoiceHistorySummary,
 } from "../types/historico";
@@ -70,6 +78,88 @@ function classifiedPurchaseTotal(item?: Partial<InvoiceHistoryMonth | InvoiceHis
 
 function hasInvoiceMonthData(item: InvoiceHistoryMonth) {
   return invoiceDisplayTotal(item) > 0 || Number(item.count || 0) > 0;
+}
+
+function invoiceCardLabel(card: InvoiceHistoryCard) {
+  const candidates = [card.institution_name, card.account_name].filter(Boolean) as string[];
+  const normalized = candidates
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  if (normalized.includes("ITAU")) return "ITAÚ";
+  if (normalized.includes("CAIXA")) return "CAIXA";
+  return (candidates[0] || "Cartão").toLocaleUpperCase("pt-BR");
+}
+
+function InvoiceCardDetails({
+  month,
+  compact = false,
+}: {
+  month: InvoiceHistoryMonth;
+  compact?: boolean;
+}) {
+  const cards = month.cards || [];
+
+  if (compact) {
+    if (!cards.length) return null;
+    return (
+      <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-primary-100 px-5 py-3 text-xs">
+        {cards.map((card) => (
+          <span key={card.account_id} className="text-ink-600">
+            <strong className="font-semibold text-ink-900">{invoiceCardLabel(card)}:</strong>{" "}
+            {formatMoney(card.total)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <Card className="overflow-hidden border-primary-200/80" elevation="flat">
+      <div className="flex items-center gap-3 border-b border-ink-100 bg-primary-50/50 px-5 py-4">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-control bg-primary-100 text-primary-700">
+          <CreditCard className="size-4.5" aria-hidden="true" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-ink-900">
+            Cartões usados em {formatMonthLong(month.month)}
+          </h2>
+          <p className="mt-0.5 text-xs text-ink-500">Detalhamento da fatura selecionada</p>
+        </div>
+      </div>
+      {cards.length ? (
+        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+          {cards.map((card) => {
+            const cardMeta = [
+              card.card_brand,
+              card.card_last_four ? `final ${card.card_last_four}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <div
+                key={card.account_id}
+                className="flex items-center justify-between gap-4 rounded-control border border-ink-200/70 bg-surface-muted px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink-900">{invoiceCardLabel(card)}</p>
+                  {cardMeta ? <p className="mt-0.5 text-xs text-ink-500">{cardMeta}</p> : null}
+                </div>
+                <p className="shrink-0 text-base font-bold tabular text-ink-900">
+                  {formatMoney(card.total)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="px-5 py-4 text-sm text-ink-500">
+          Não há dados suficientes para separar esta fatura por cartão.
+        </p>
+      )}
+    </Card>
+  );
 }
 
 function monthSourceBadge(item?: Partial<InvoiceHistoryMonth> | null) {
@@ -340,6 +430,8 @@ function InvoiceTab({ data }: { data: InvoiceHistorySummary }) {
         />
       </ChartCard>
 
+      <InvoiceCardDetails month={active} />
+
       <Card className="overflow-hidden">
         <div className="border-b border-ink-100 px-5 py-4">
           <h2 className="text-sm font-semibold text-ink-900">Mês a mês</h2>
@@ -368,6 +460,7 @@ function InvoiceTab({ data }: { data: InvoiceHistorySummary }) {
                     {hasInvoiceMonthData(item) ? formatMoney(invoiceDisplayTotal(item)) : "Sem fatura"}
                   </span>
                 </button>
+                {activeRow ? <InvoiceCardDetails month={item} compact /> : null}
               </li>
             );
           })}

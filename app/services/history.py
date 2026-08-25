@@ -9,6 +9,7 @@ from app.models import (
     Account,
     CreditCardBill,
     CreditCardInvoiceMonth,
+    Item,
     MonthlyBalanceMonth,
     Transaction,
 )
@@ -245,6 +246,35 @@ def _history_card_purchase_transaction(
     }
 
 
+def _history_invoice_card(
+    account_id: str,
+    total: Decimal,
+    count: int,
+    source: str,
+    accounts_by_id: Dict[str, Account],
+    items_by_id: Dict[str, Item],
+) -> dict[str, Any]:
+    account = accounts_by_id.get(account_id)
+    item = items_by_id.get(account.item_id) if account is not None else None
+    account_name = account_id
+    number = ""
+    if account is not None:
+        account_name = account.marketing_name or account.name
+        number = "".join(
+            character for character in str(account.number or "") if character.isdigit()
+        )
+    return {
+        "account_id": account_id,
+        "account_name": account_name,
+        "institution_name": item.connector_name if item is not None else None,
+        "card_brand": account.credit_brand if account is not None else None,
+        "card_last_four": number[-4:] if number else None,
+        "total": float(total),
+        "count": count,
+        "source": source,
+    }
+
+
 def _credit_card_official_bill_totals_by_month(
     session: Session,
     selected_months: set[str],
@@ -419,6 +449,35 @@ def credit_card_invoice_purchases_monthly_summary(
         account.id: account
         for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
+    items_by_id = {
+        item.id: item
+        for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
+    }
+    payment_cards_by_month: Dict[str, Dict[str, dict[str, Any]]] = defaultdict(dict)
+    payment_window_start = shift_month(first_selected_month, -1)
+    for payment in credit_card_payment_transactions(
+        session,
+        payment_window_start,
+        today,
+        user_id=user_id,
+    ):
+        account = accounts_by_id.get(payment.account_id)
+        if account is None or account.type != "CREDIT":
+            continue
+        due_day = (
+            account.credit_balance_due_date.day
+            if account.credit_balance_due_date is not None
+            else DEFAULT_CREDIT_CARD_DUE_DAY
+        )
+        payment_month = invoice_month_from_payment(payment.date, due_day)
+        if payment_month not in selected_month_set:
+            continue
+        bucket = payment_cards_by_month[payment_month].setdefault(
+            payment.account_id,
+            {"total": Decimal("0"), "count": 0, "source": "invoice_payments"},
+        )
+        bucket["total"] += abs(payment.amount)
+        bucket["count"] += 1
     selected_transactions_by_month: Dict[str, list[dict[str, Any]]] = {
         month: [] for month in selected_months
     }
@@ -513,6 +572,105 @@ def credit_card_invoice_purchases_monthly_summary(
             invoice_total_source = "missing_official_bill_fallback"
         invoice_display_total += month_invoice_display_total
 
+        card_buckets: dict[str, dict[str, Any]] = {}
+        card_breakdown_source = "classified_purchases"
+        if is_current_invoice:
+            card_breakdown_source = "current_invoice"
+            for card in current_invoice.get("cards", []):
+                account_id = str(card.get("account_id") or "")
+                card_total = Decimal(str(card.get("total_amount") or 0))
+                card_count = int(card.get("transaction_count") or 0)
+                if not account_id or (card_total == 0 and card_count == 0):
+                    continue
+                card_buckets[account_id] = {
+                    "total": card_total,
+                    "count": card_count,
+                    "source": str(card.get("invoice_source") or card_breakdown_source),
+                    "card": card,
+                }
+        elif bill_bucket is not None:
+            card_breakdown_source = "official_bills"
+            for bill in bill_bucket["bills"]:
+                account_id = str(bill["account_id"])
+                bucket = card_buckets.setdefault(
+                    account_id,
+                    {
+                        "total": Decimal("0"),
+                        "count": 0,
+                        "source": card_breakdown_source,
+                    },
+                )
+                bucket["total"] += Decimal(str(bill["total_amount"]))
+                bucket["count"] += 1
+        elif snapshot_bucket is not None:
+            snapshot_cards = payment_cards_by_month.get(selected_month, {})
+            snapshot_cards_total = sum(
+                (bucket["total"] for bucket in snapshot_cards.values()),
+                Decimal("0"),
+            )
+            if snapshot_cards and abs(snapshot_cards_total - snapshot_invoice_total) <= Decimal(
+                "0.01"
+            ):
+                card_breakdown_source = "invoice_payments"
+                card_buckets = {
+                    account_id: dict(bucket) for account_id, bucket in snapshot_cards.items()
+                }
+            else:
+                card_breakdown_source = "unavailable"
+        else:
+            for tx in txs:
+                account_id = str(tx.get("account_id") or "")
+                if not account_id:
+                    continue
+                bucket = card_buckets.setdefault(
+                    account_id,
+                    {
+                        "total": Decimal("0"),
+                        "count": 0,
+                        "source": card_breakdown_source,
+                    },
+                )
+                bucket["total"] += Decimal(
+                    str(tx.get("invoice_contribution_amount", tx["amount_abs"]))
+                )
+                bucket["count"] += 1
+
+        cards = []
+        for account_id, bucket in card_buckets.items():
+            current_card = bucket.get("card") or {}
+            card = _history_invoice_card(
+                account_id,
+                bucket["total"],
+                bucket["count"],
+                bucket["source"],
+                accounts_by_id,
+                items_by_id,
+            )
+            if current_card:
+                card.update(
+                    {
+                        "account_name": current_card.get("account_name")
+                        or current_card.get("name")
+                        or card["account_name"],
+                        "institution_name": current_card.get("institution_name")
+                        or card["institution_name"],
+                        "card_brand": current_card.get("card_brand") or card["card_brand"],
+                        "card_last_four": current_card.get("card_last_four")
+                        or card["card_last_four"],
+                    }
+                )
+            cards.append(card)
+        cards.sort(
+            key=lambda card: (
+                -abs(card["total"]),
+                str(card.get("institution_name") or card.get("account_name") or ""),
+            )
+        )
+        card_breakdown_total = sum(
+            (Decimal(str(card["total"])) for card in cards),
+            Decimal("0"),
+        )
+
         categories_by_name: Dict[str, dict[str, Any]] = {}
         for tx in txs:
             contribution = Decimal(
@@ -594,6 +752,9 @@ def credit_card_invoice_purchases_monthly_summary(
                 "classified_purchase_difference_from_invoice": float(
                     month_classified_total - month_invoice_display_total
                 ),
+                "cards": cards,
+                "card_breakdown_total": float(card_breakdown_total),
+                "card_breakdown_source": card_breakdown_source,
                 "is_current_invoice": is_current_invoice,
                 "dashboard_current_invoice_source": (
                     current_invoice.get("source") if is_current_invoice else None

@@ -837,6 +837,12 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
             bills["caixa-aug-official"]["total_source"],
             "pluggy_official_bill",
         )
+        cards = {card["account_id"]: card for card in august["cards"]}
+        self.assertEqual(set(cards), {CC_ACCOUNT_ID, caixa_account_id})
+        self.assertAlmostEqual(cards[CC_ACCOUNT_ID]["total"], 13992.62, places=2)
+        self.assertAlmostEqual(cards[caixa_account_id]["total"], 1080.69, places=2)
+        self.assertAlmostEqual(august["card_breakdown_total"], 15073.31, places=2)
+        self.assertEqual(august["card_breakdown_source"], "official_bills")
 
     def test_historical_month_uses_invoice_snapshot_when_official_bill_is_missing(self):
         with Session(self.engine) as session:
@@ -880,6 +886,42 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
             -31167.90,
             places=2,
         )
+        self.assertEqual(june["cards"], [])
+        self.assertEqual(june["card_breakdown_source"], "unavailable")
+
+    def test_snapshot_month_breaks_down_reconciled_card_payments(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 6, 8))
+            session.add(
+                CreditCardInvoiceMonth(
+                    year_month="2026-06",
+                    total=Decimal("500.00"),
+                    payment_count=1,
+                )
+            )
+            session.commit()
+            _add_payment(
+                session,
+                tx_id="payment-for-june-snapshot",
+                payment_date=datetime.date(2026, 5, 30),
+                amount=Decimal("500.00"),
+            )
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 6, 10)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        june = {month["month"]: month for month in result["months"]}["2026-06"]
+
+        self.assertEqual(june["invoice_total_source"], "credit_card_invoice_snapshot")
+        self.assertEqual(june["card_breakdown_source"], "invoice_payments")
+        self.assertEqual(len(june["cards"]), 1)
+        self.assertEqual(june["cards"][0]["account_id"], CC_ACCOUNT_ID)
+        self.assertAlmostEqual(june["cards"][0]["total"], 500.0, places=2)
+        self.assertAlmostEqual(june["card_breakdown_total"], 500.0, places=2)
 
     def test_current_invoice_uses_dashboard_total_not_official_bill(self):
         with Session(self.engine) as session:
@@ -928,6 +970,11 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(july["classified_purchase_total"], 400.0, places=2)
         self.assertAlmostEqual(july["official_bill_total"], 9999.0, places=2)
         self.assertNotEqual(july["invoice_display_total"], july["official_bill_total"])
+        self.assertEqual(len(july["cards"]), 1)
+        self.assertEqual(july["cards"][0]["account_id"], CC_ACCOUNT_ID)
+        self.assertAlmostEqual(july["cards"][0]["total"], 400.0, places=2)
+        self.assertAlmostEqual(july["card_breakdown_total"], 400.0, places=2)
+        self.assertEqual(july["card_breakdown_source"], "current_invoice")
 
     def test_missing_historical_official_bill_uses_marked_classified_fallback(self):
         with Session(self.engine) as session:
@@ -1211,6 +1258,14 @@ class TestHistoricoPageLoads(unittest.TestCase):
             "${formatMonthLong(active.month)} · ${invoiceSourceLabel(active)} · ${pluralCompras(active.count)}",
             source,
         )
+
+    def test_historico_shows_selected_month_card_breakdown_from_chart_and_list(self):
+        source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("Cartões usados em", source)
+        self.assertIn("<InvoiceCardDetails month={active} />", source)
+        self.assertIn("<InvoiceCardDetails month={item} compact />", source)
+        self.assertIn("onBarClick", source)
 
     def test_historico_separates_invoice_history_from_classified_spending_and_raw_bank_cashflow(
         self,
