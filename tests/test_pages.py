@@ -84,11 +84,12 @@ class PageSmokeTest(unittest.TestCase):
         self.assertIn('href="/dashboard"', response.text)
         self.assertIn("Acessar minha conta", response.text)
 
-    def test_landing_has_secondary_cta(self):
+    def test_landing_keeps_a_single_direct_cta(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Ver como funciona", response.text)
-        self.assertIn('href="#como-funciona"', response.text)
+        self.assertIn("Acessar minha conta", response.text)
+        self.assertNotIn("Ver como funciona", response.text)
+        self.assertNotIn('href="#como-funciona"', response.text)
 
     def test_landing_does_not_load_authenticated_app_bundles_or_sdks(self):
         response = self.client.get("/")

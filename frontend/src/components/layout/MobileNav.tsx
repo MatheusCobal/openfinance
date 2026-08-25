@@ -6,7 +6,7 @@ export function MobileNav() {
   return (
     <nav
       aria-label="Navegação principal"
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-ink-200/70 bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-ink-200/70 bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur md:hidden"
     >
       {NAV_ITEMS.map((item) => (
         <NavLink

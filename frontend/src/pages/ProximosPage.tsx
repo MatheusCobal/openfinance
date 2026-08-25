@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, CalendarDays, ChevronDown, CreditCard, RefreshCw, TrendingUp } from "lucide-react";
+import { CalendarClock, ChevronDown, CreditCard, RefreshCw } from "lucide-react";
 import { getUpcoming } from "../api/proximos";
 import { BarChart } from "../components/charts/BarChart";
 import { PageContainer } from "../components/layout/PageContainer";
@@ -42,9 +42,7 @@ function cardLabel(card: {
     "PLATINUM",
     "VISA",
   ]);
-  for (const word of card.card_brand?.split(/\s+/) || []) {
-    noise.add(normalizeToken(word));
-  }
+  for (const word of card.card_brand?.split(/\s+/) || []) noise.add(normalizeToken(word));
 
   const usefulName = card.account_name
     ?.split(/\s+/)
@@ -56,23 +54,20 @@ function cardLabel(card: {
       ? ""
       : card.institution_name?.trim();
   const name = usefulName || connectorName || card.card_brand?.trim() || "Cartão";
-
-  if (card.card_last_four) {
-    return `${name} - final ${card.card_last_four}`;
-  };
-  return name;
+  return card.card_last_four ? `${name} · final ${card.card_last_four}` : name;
 }
 
-function monthSubtitle(month: UpcomingMonth) {
-  const count = month.count || 0;
-  const entries = `${count.toLocaleString("pt-BR")} ${count === 1 ? "lançamento" : "lançamentos"}`;
-  return `${entries} de ${formatMonthLong(month.transaction_month)}`;
+function hasCommitment(month: UpcomingMonth) {
+  return (
+    Math.abs(Number(month.total || 0)) > 0.009 ||
+    Number(month.count || 0) > 0 ||
+    Boolean(month.cards?.length) ||
+    Boolean(month.transactions?.length)
+  );
 }
 
 function transactionList(transactions: UpcomingMonth["transactions"]) {
-  if (!transactions?.length) {
-    return <p className="px-5 py-6 text-sm text-ink-500">Sem lançamentos detalhados.</p>;
-  }
+  if (!transactions?.length) return null;
   return (
     <ul className="divide-y divide-ink-100">
       {transactions.map((tx) => (
@@ -84,11 +79,9 @@ function transactionList(transactions: UpcomingMonth["transactions"]) {
               {tx.installment_number && tx.total_installments
                 ? ` · parcela ${tx.installment_number} de ${tx.total_installments}`
                 : ""}
-              {tx.is_projected ? " · projetada" : ""}
+              {tx.is_projected ? " · prevista" : ""}
             </p>
-            {cardLabel(tx) ? (
-              <p className="mt-1 truncate text-xs font-medium text-primary-700">{cardLabel(tx)}</p>
-            ) : null}
+            <p className="mt-1 truncate text-xs font-medium text-primary-700">{cardLabel(tx)}</p>
           </div>
           <p
             className={`shrink-0 text-sm font-medium tabular ${
@@ -106,268 +99,160 @@ function transactionList(transactions: UpcomingMonth["transactions"]) {
 export function ProximosPage() {
   const { data, loading, error, run } = useAsync(getUpcoming);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const months = useMemo(() => (data?.months || []).filter(hasCommitment), [data]);
 
   useEffect(() => {
-    if (!data?.months?.length) return;
-    if (!selectedMonth || !data.months.some((month) => month.month === selectedMonth)) {
-      setSelectedMonth(data.months[0].month);
+    if (!months.length) return;
+    if (!selectedMonth || !months.some((month) => month.month === selectedMonth)) {
+      setSelectedMonth(months[0].month);
     }
-  }, [data, selectedMonth]);
+  }, [months, selectedMonth]);
 
-  const selected = data?.months?.find((month) => month.month === selectedMonth) || null;
-  const summary = useMemo(() => {
-    const months = data?.months || [];
-    const next = months[0] || null;
-    const firstThree = months.slice(0, 3);
-    const totalFuture = months.reduce((sum, month) => sum + Number(month.total || 0), 0);
-    const totalCount = months.reduce((sum, month) => sum + Number(month.count || 0), 0);
-    const quarterTotal = firstThree.reduce((sum, month) => sum + Number(month.total || 0), 0);
-    const quarterCount = firstThree.reduce((sum, month) => sum + Number(month.count || 0), 0);
-    const largest = months.reduce<UpcomingMonth | null>(
-      (best, month) => (!best || Number(month.total) > Number(best.total) ? month : best),
-      null,
-    );
-    return { next, totalFuture, totalCount, quarterTotal, quarterCount, largest };
-  }, [data]);
-
-  const monthTotals = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const month of data?.months || []) map.set(month.month, Number(month.total || 0));
-    return map;
-  }, [data]);
-
-  const barColors = useMemo(() => {
-    return (data?.months || []).map((month) => {
-      if (month.month === selectedMonth) return "#1d4ed8";
-      if (summary.largest && month.month === summary.largest.month) return "#f59e0b";
-      return "#93c5fd";
-    });
-  }, [data, selectedMonth, summary.largest]);
-
-  const horizonLabel =
-    data?.months?.length === 1 ? "no próximo mês" : `nos próximos ${data?.months?.length || 0} meses`;
+  const selected = months.find((month) => month.month === selectedMonth) || months[0] || null;
+  const currentInvoice = months.find((month) => month.is_current_invoice) || null;
+  const futureMonths = months.filter((month) => !month.is_current_invoice);
+  const futureTotal = futureMonths.reduce((sum, month) => sum + Number(month.total || 0), 0);
+  const futureCount = futureMonths.reduce((sum, month) => sum + Number(month.count || 0), 0);
+  const barColors = months.map((month) =>
+    month.month === selectedMonth ? "#1d4ed8" : "#93c5fd",
+  );
 
   return (
     <>
       <Topbar
-        subtitle={
-          data?.months?.length
-            ? `${pluralParcelas(data.total_count || summary.totalCount)} já comprometidas ${horizonLabel}`
-            : "O que já está comprometido nos próximos meses"
-        }
         actions={
-          <Button type="button" onClick={() => void run()} loading={loading}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="size-9 px-0"
+            aria-label="Atualizar"
+            title="Atualizar"
+            onClick={() => void run()}
+            loading={loading}
+          >
             <RefreshCw className="size-4" aria-hidden="true" />
-            Atualizar
           </Button>
         }
       />
       <PageContainer>
-        {loading && !data ? <LoadingState label="Carregando compromissos futuros..." /> : null}
+        {loading && !data ? <LoadingState label="Carregando compromissos..." /> : null}
         {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
         {error && data ? (
           <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
         ) : null}
         {data ? (
-          data.months?.length ? (
+          months.length ? (
             <div className="space-y-6">
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <MetricCard
-                  label="Próxima fatura"
-                  value={formatMoney(data.next_invoice?.amount ?? summary.next?.total)}
-                  subtitle={
-                    data.next_invoice
-                      ? `${formatMonthLong(data.next_invoice.year_month)} · detalhes de ${formatMonthLong(
-                          data.next_invoice.transaction_month,
-                        )}`
-                      : summary.next
-                        ? `${formatMonthLong(summary.next.month)} · ${pluralParcelas(summary.next.count)}`
-                        : "Sem parcelas"
-                  }
-                  tone="primary"
-                  icon={<CreditCard className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="Próximos 3 meses"
-                  value={formatMoney(summary.quarterTotal)}
-                  subtitle={
-                    data.next_invoice
-                      ? `Inclui a fatura vigente de ${formatMonthLong(data.next_invoice.year_month)}`
-                      : pluralParcelas(summary.quarterCount)
-                  }
-                  icon={<CalendarDays className="size-4" aria-hidden="true" />}
-                />
-                <MetricCard
-                  label="Total comprometido"
-                  value={formatMoney(summary.totalFuture)}
-                  subtitle={
-                    data.next_invoice
-                      ? "Fatura vigente + parcelas futuras"
-                      : `${pluralParcelas(summary.totalCount)} no horizonte`
-                  }
-                  tone="warning"
-                  icon={<TrendingUp className="size-4" aria-hidden="true" />}
-                />
+              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {currentInvoice ? (
+                  <MetricCard
+                    label="Fatura em aberto"
+                    value={formatMoney(currentInvoice.total)}
+                    subtitle={formatMonthLong(currentInvoice.month)}
+                    tone="primary"
+                    icon={<CreditCard className="size-4" aria-hidden="true" />}
+                  />
+                ) : null}
+                {futureMonths.length ? (
+                  <MetricCard
+                    label="Parcelas futuras"
+                    value={formatMoney(futureTotal)}
+                    subtitle={pluralParcelas(futureCount)}
+                    icon={<CalendarClock className="size-4" aria-hidden="true" />}
+                  />
+                ) : null}
               </section>
 
-              <ChartCard
-                title="Pressão dos próximos meses"
-                subtitle="Clique em um mês para abrir o detalhe — o mês mais pesado fica em destaque"
-              >
-                <BarChart
-                  labels={data.months.map((month) => formatMonthCompact(month.month))}
-                  ariaLabel={`Compromissos futuros por mês. Mês mais pesado: ${
-                    summary.largest ? formatMonthLong(summary.largest.month) : "nenhum"
-                  }.`}
-                  datasets={[
-                    {
-                      label: "Comprometido",
-                      data: data.months.map((month) => month.total),
-                      backgroundColor: "#93c5fd",
-                      backgroundColors: barColors,
-                    },
-                  ]}
-                  tooltipValueOnly
-                  showValueLabels
-                  onBarClick={(index) => setSelectedMonth(data.months[index]?.month || null)}
-                />
-              </ChartCard>
-
-              <MonthStrip
-                months={data.months.map((month) => month.month)}
-                value={selectedMonth}
-                onChange={setSelectedMonth}
-                captionFor={(ym) => {
-                  const total = monthTotals.get(ym);
-                  return total ? formatMoney(total) : null;
-                }}
-              />
+              {months.length > 1 ? (
+                <>
+                  <ChartCard title="Faturas por mês">
+                    <BarChart
+                      labels={months.map((month) => formatMonthCompact(month.month))}
+                      ariaLabel="Compromissos de cartão por mês"
+                      datasets={[
+                        {
+                          label: "Comprometido",
+                          data: months.map((month) => month.total),
+                          backgroundColor: "#93c5fd",
+                          backgroundColors: barColors,
+                        },
+                      ]}
+                      tooltipValueOnly
+                      showValueLabels
+                      onBarClick={(index) => setSelectedMonth(months[index]?.month || null)}
+                    />
+                  </ChartCard>
+                  <MonthStrip
+                    months={months.map((month) => month.month)}
+                    value={selectedMonth}
+                    onChange={setSelectedMonth}
+                  />
+                </>
+              ) : null}
 
               {selected ? (
                 <>
                   <Card className="p-5 sm:p-6">
-                    <div className="flex flex-wrap items-baseline justify-between gap-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+                          <h2 className="text-sm font-semibold text-ink-900">
                             {formatMonthLong(selected.month)}
-                          </p>
+                          </h2>
                           {selected.is_current_invoice ? (
-                            <Badge tone="primary">Fatura vigente</Badge>
-                          ) : null}
-                          {summary.largest && selected.month === summary.largest.month ? (
-                            <Badge tone="warning">Mês mais pesado</Badge>
+                            <Badge tone="primary">Fatura em aberto</Badge>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-3xl font-bold tracking-tight tabular text-ink-900">
+                        <p className="mt-2 text-3xl font-bold tracking-tight tabular text-ink-900">
                           {formatMoney(selected.total)}
                         </p>
+                        <p className="mt-1 text-xs text-ink-500">{pluralParcelas(selected.count || 0)}</p>
                       </div>
-                      <p className="text-sm text-ink-500 tabular">{monthSubtitle(selected)}</p>
                     </div>
-                    {selected.is_current_invoice ? (
-                      <p className="mt-4 border-t border-ink-100 pt-3 text-xs text-ink-500">
-                        Soma das compras PENDING atribuídas à fatura vigente.
-                      </p>
-                    ) : null}
                     {selected.cards?.length ? (
                       <div className="mt-4 grid gap-2 border-t border-ink-100 pt-4 sm:grid-cols-2">
                         {selected.cards.map((card) => (
                           <div
                             key={card.account_id}
-                            className="rounded-xl bg-surface-muted px-3 py-2.5"
+                            className="flex items-center justify-between gap-3 rounded-control bg-surface-muted px-3 py-2.5"
                           >
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="min-w-0 truncate text-xs font-medium text-ink-700">
-                                {cardLabel(card) || "Cartão de crédito"}
-                              </span>
-                              <span className="shrink-0 text-xs font-bold tabular text-ink-900">
-                                {formatMoney(card.pending_total ?? card.total_amount ?? 0)}
-                              </span>
-                            </div>
-                            {card.closing_day ? (
-                              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-500">
-                                <span>
-                                  {card.is_official
-                                    ? "Fatura oficial"
-                                    : card.invoice_source === "caixa_pluggy_forecast"
-                                      ? "Previsão Pluggy + parcelas"
-                                      : "Estimativa pelo ciclo"}
-                                  {` · fecha dia ${card.closing_day}`}
-                                </span>
-                                {card.detailed_total !== undefined &&
-                                Math.abs(
-                                  Number(card.total_amount || 0) - Number(card.detailed_total || 0),
-                                ) > 0.009 ? (
-                                  <span>Compras detalhadas: {formatMoney(card.detailed_total)}</span>
-                                ) : null}
-                                {card.used_credit !== undefined && card.used_credit !== null ? (
-                                  <span>Limite utilizado: {formatMoney(card.used_credit)}</span>
-                                ) : null}
-                                {card.projected_count ? (
-                                  <span>
-                                    {card.projected_count} {card.projected_count === 1 ? "parcela projetada" : "parcelas projetadas"}: {formatMoney(card.projected_total)}
-                                  </span>
-                                ) : null}
-                                {card.credits_total ? (
-                                  <span>Créditos: -{formatMoney(card.credits_total)}</span>
-                                ) : null}
-                              </div>
-                            ) : null}
+                            <span className="min-w-0 truncate text-xs font-medium text-ink-700">
+                              {cardLabel(card)}
+                            </span>
+                            <span className="shrink-0 text-xs font-bold tabular text-ink-900">
+                              {formatMoney(card.pending_total ?? card.total_amount ?? 0)}
+                            </span>
                           </div>
                         ))}
                       </div>
                     ) : null}
-                    {selected.reported_difference !== undefined &&
-                    selected.reported_difference !== null &&
-                    Math.abs(selected.reported_difference) > 0.009 ? (
-                      <p className="mt-3 text-xs leading-relaxed text-ink-500">
-                        O total das faturas difere das compras detalhadas em{" "}
-                        <span className="font-semibold text-ink-700">
-                          {formatMoney(Math.abs(selected.reported_difference))}
-                        </span>
-                        . A diferença pode incluir compras não informadas, créditos, encargos ou ajustes
-                        do banco.
-                      </p>
-                    ) : null}
                   </Card>
 
-                  <section className="space-y-3" aria-label="Compromissos por categoria">
-                    {selected.categories?.length ? (
-                      selected.categories.map((category) => {
-                        const color = categoryColor(category.name);
-                        const categoryBase = Number(selected.detailed_total ?? selected.total);
-                        const categoryTotal = Number(category.total || 0);
-                        const share =
-                          categoryBase > 0
-                            ? Math.round((Math.abs(categoryTotal) / categoryBase) * 100)
-                            : 0;
+                  {selected.categories?.length ? (
+                    <section className="space-y-3" aria-label="Compromissos por categoria">
+                      {selected.categories.map((category) => {
+                        const total = Number(category.total || 0);
                         return (
                           <details
                             key={String(category.id ?? category.name)}
                             name="proximos-categoria"
                             className="group overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
                           >
-                            <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
+                            <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
                               <span
                                 className="size-2.5 shrink-0 rounded-[4px]"
-                                style={{ background: color }}
+                                style={{ background: categoryColor(category.name) }}
                                 aria-hidden="true"
                               />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-semibold text-ink-900">
-                                  {category.name || "Outros"}
-                                </span>
-                                <span className="block text-xs text-ink-500">
-                                  {pluralParcelas(category.count || 0)} · {share}% do mês
-                                </span>
+                              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink-900">
+                                {category.name || "Outros"}
                               </span>
-                              <span
-                                className={`ml-3 text-sm font-bold tabular ${
-                                  categoryTotal < 0 ? "text-positive-700" : "text-ink-900"
-                                }`}
-                              >
-                                {formatMoney(categoryTotal)}
+                              <span className="text-xs text-ink-500">
+                                {pluralParcelas(category.count || 0)}
+                              </span>
+                              <span className="ml-3 text-sm font-bold tabular text-ink-900">
+                                {formatMoney(total)}
                               </span>
                               <ChevronDown
                                 className="ml-1 size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"
@@ -377,39 +262,19 @@ export function ProximosPage() {
                             {transactionList(category.transactions)}
                           </details>
                         );
-                      })
-                    ) : (
-                      <details
-                        name="proximos-categoria"
-                        className="group overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
-                      >
-                        <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 transition-colors hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
-                          <span className="min-w-0 flex-1 text-sm font-semibold text-ink-900">
-                            Lançamentos de {formatMonthLong(selected.transaction_month)}
-                          </span>
-                          <span className="text-xs text-ink-500 tabular">
-                            {pluralParcelas(selected.count || 0)}
-                          </span>
-                          <span className="ml-3 text-sm font-bold tabular text-ink-900">
-                            {formatMoney(selected.detailed_total ?? selected.total ?? 0)}
-                          </span>
-                          <ChevronDown
-                            className="ml-1 size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"
-                            aria-hidden="true"
-                          />
-                        </summary>
-                        {transactionList(selected.transactions)}
-                      </details>
-                    )}
-                  </section>
+                      })}
+                    </section>
+                  ) : selected.transactions?.length ? (
+                    <Card className="overflow-hidden">{transactionList(selected.transactions)}</Card>
+                  ) : null}
                 </>
               ) : null}
             </div>
           ) : (
             <EmptyState
               icon={<CalendarClock className="size-5" aria-hidden="true" />}
-              title="Nenhuma parcela futura encontrada."
-              detail="Você está em dia — ou ainda não conectou contas com compras parceladas."
+              title="Nenhum compromisso futuro"
+              detail="As próximas faturas e parcelas aparecerão aqui."
             />
           )
         ) : null}

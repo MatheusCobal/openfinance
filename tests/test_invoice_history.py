@@ -1239,17 +1239,13 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertIn("data.months.map(invoiceDisplayTotal)", source)
         self.assertIn("classified_purchase_total", source)
 
-    def test_historico_monthly_invoice_label_uses_source_without_purchase_count(self):
-        # Invoice-source labels now live in the shared copy helper (lib/labels.ts)
-        # and the month list renders one badge per source, never "label · N compras".
+    def test_historico_hides_technical_invoice_source_labels(self):
+        # Source metadata remains available to the domain layer but is not useful
+        # copy in the month list or the selected-month summary.
         source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
-        labels = Path("frontend/src/lib/labels.ts").read_text(encoding="utf-8")
 
-        self.assertIn('pluggy_official_bill: "Fatura fechada do banco"', labels)
-        self.assertIn('credit_card_invoice_snapshot: "Registro histórico"', labels)
-        self.assertIn('dashboard_current_invoice: "Fatura vigente"', labels)
-        self.assertIn('missing_official_bill_fallback: "Sem fatura oficial"', labels)
-        self.assertIn("monthSourceBadge(item)", source)
+        self.assertNotIn("monthSourceBadge", source)
+        self.assertNotIn("invoiceSourceLabel", source)
         self.assertNotIn(
             "{invoiceSourceLabel(item)} · {pluralCompras(item.count)}",
             source,
@@ -1272,7 +1268,7 @@ class TestHistoricoPageLoads(unittest.TestCase):
     ):
         source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("Meses fechados respeitam o valor oficial do banco", source)
+        self.assertIn('title="Evolução das faturas"', source)
         self.assertIn('key: "categories", label: "Gastos por categoria"', source)
         self.assertIn("function CategorySpendingTab", source)
         self.assertIn("summarizeCreditCategories", source)
@@ -1280,7 +1276,7 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertIn("grid h-20 grid-cols-12", source)
         self.assertNotIn("Meses com gastos", source)
         self.assertIn("showValueLabels", source)
-        self.assertIn("PIX, boleto, transferências e pagamentos", source)
+        self.assertIn('title="Entradas e saídas por mês"', source)
         self.assertNotIn("listCashflowRules", source)
         self.assertNotIn("Regras do fluxo de caixa", source)
 

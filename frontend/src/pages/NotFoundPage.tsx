@@ -7,7 +7,7 @@ import { Card } from "../components/ui/Card";
 export function NotFoundPage() {
   return (
     <>
-      <Topbar subtitle="Página não encontrada" />
+      <Topbar />
       <PageContainer>
         <Card className="p-10 text-center">
           <span className="mx-auto mb-3 inline-flex size-10 items-center justify-center rounded-full bg-ink-100 text-ink-400">

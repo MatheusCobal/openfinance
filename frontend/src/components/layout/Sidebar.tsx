@@ -10,14 +10,7 @@ export function Sidebar() {
           <span className="flex size-8 items-center justify-center rounded-control bg-primary-600 text-white shadow-sm">
             <BrandIcon className="size-4" aria-hidden="true" />
           </span>
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold leading-tight text-white">
-              OpenFinance
-            </span>
-            <span className="block text-[10px] font-medium uppercase tracking-[0.14em] text-ink-500">
-              Cockpit financeiro
-            </span>
-          </span>
+          <span className="truncate text-sm font-semibold leading-tight text-white">OpenFinance</span>
         </a>
       </div>
       <nav className="sidebar-scroll flex-1 space-y-0.5 overflow-y-auto px-3 py-3">
@@ -50,13 +43,6 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <div className="border-t border-white/5 px-5 py-4">
-        <p className="text-[11px] leading-relaxed text-ink-500">
-          Seu mês, suas regras.
-          <br />
-          Dados sincronizados via Open Finance.
-        </p>
-      </div>
     </aside>
   );
 }

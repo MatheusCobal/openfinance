@@ -58,7 +58,6 @@ export function LoginPage() {
             <WalletCards className="size-5" aria-hidden="true" />
           </span>
           <h1 className="text-lg font-bold tracking-tight text-ink-900">OpenFinance</h1>
-          <p className="mt-1 text-xs text-ink-500">Entre para acessar seu cockpit financeiro.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>

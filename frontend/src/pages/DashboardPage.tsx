@@ -1,17 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   Banknote,
   CalendarClock,
-  CalendarDays,
   CreditCard,
   Landmark,
   Link as LinkIcon,
   RefreshCw,
-  Scale,
-  ShieldCheck,
   Tags,
-  TrendingUp,
   Wallet,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -20,7 +16,6 @@ import {
   getBankBalance,
   getCurrentInvoice,
   getPlanningMonth,
-  getUpcoming,
   registerPluggyItem,
   syncPluggyItem,
 } from "../api/dashboard";
@@ -33,23 +28,16 @@ import { CategoryBreakdown } from "../components/ui/CategoryBreakdown";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
-import { InsightCard } from "../components/ui/InsightCard";
 import { LoadingState } from "../components/ui/LoadingState";
 import { MetricCard } from "../components/ui/MetricCard";
 import { Modal } from "../components/ui/Modal";
-import { PressureMeter } from "../components/ui/PressureMeter";
 import { SectionHeader } from "../components/ui/SectionHeader";
 import { StatusPill } from "../components/ui/StatusPill";
 import { Table } from "../components/ui/Table";
 import { useAsync } from "../hooks/useAsync";
 import { useToast } from "../hooks/useToast";
-import { formatDayLabel, formatMonthLong, formatMonthShort, getDefaultPlanningMonth } from "../lib/dates";
-import {
-  classificationSourceLabel,
-  invoiceSourceLabel,
-  pluralCompras,
-  pluralize,
-} from "../lib/labels";
+import { currentYearMonth, formatDayLabel, formatMonthLong, formatMonthShort } from "../lib/dates";
+import { pluralCompras, pluralize } from "../lib/labels";
 import { dashboardAvailableToSpend, normalizePlanningOverview, planStatusMeta } from "../lib/planning";
 import { extractPluggyItemId, ensurePluggyConnectSdkLoaded } from "../lib/pluggy";
 import { formatMoney } from "../lib/money";
@@ -79,25 +67,23 @@ function transactionDisplayCategory(tx: Transaction) {
 }
 
 async function loadDashboardData() {
-  const planningMonth = getDefaultPlanningMonth();
+  const planningMonth = currentYearMonth();
   const [planning, currentInvoice] = await Promise.all([
     getPlanningMonth(planningMonth),
     getCurrentInvoice(),
   ]);
-  const [bankBalanceResult, upcomingResult] = await Promise.allSettled([
-    getBankBalance(),
-    getUpcoming(),
-  ]);
+  const bankBalanceResult = await Promise.resolve(getBankBalance()).then(
+    (value) => ({ status: "fulfilled" as const, value }),
+    () => ({ status: "rejected" as const }),
+  );
   const partialErrors: string[] = [];
   if (bankBalanceResult.status === "rejected") partialErrors.push("saldo bancário");
-  if (upcomingResult.status === "rejected") partialErrors.push("próximos compromissos");
   const capacity = normalizePlanningOverview(planning);
   return {
     planningMonth,
     capacity,
     currentInvoice,
     bankBalance: bankBalanceResult.status === "fulfilled" ? bankBalanceResult.value : null,
-    upcoming: upcomingResult.status === "fulfilled" ? upcomingResult.value : null,
     partialErrors,
     categories: currentInvoice.categories || [],
     recentCardPurchases: latestCardPurchases(
@@ -173,79 +159,6 @@ export function DashboardPage() {
 
   const dashCap = data ? dashboardAvailableToSpend(data.capacity, data.currentInvoice) : null;
   const invoiceAmount = data?.currentInvoice.amount ?? data?.currentInvoice.adjusted_total ?? 0;
-  const nextInvoice = data?.upcoming?.next_invoice || null;
-
-  const insights = useMemo(() => {
-    if (!data || !dashCap) return [];
-    const list: Array<{
-      key: string;
-      icon: React.ReactNode;
-      title: string;
-      body: string;
-      tone: "primary" | "positive" | "warning" | "danger" | "neutral";
-    }> = [];
-
-    const income = dashCap.expectedIncome;
-    const categories = [...data.categories].sort((a, b) => Number(b.total) - Number(a.total));
-    const topCategory = categories[0];
-    const categoriesTotal = categories.reduce((sum, item) => sum + Number(item.total || 0), 0);
-
-    if (topCategory && categoriesTotal > 0) {
-      const share = Math.round((Number(topCategory.total) / categoriesTotal) * 100);
-      list.push({
-        key: "top-category",
-        icon: <Tags className="size-4" aria-hidden="true" />,
-        title: `${topCategory.name} lidera a fatura`,
-        body: `${formatMoney(topCategory.total)} em ${pluralCompras(topCategory.count ?? 0)} — ${share}% das compras classificadas.`,
-        tone: "primary",
-      });
-    }
-
-    if (income > 0 && Number(invoiceAmount) > 0) {
-      const heavier = Number(invoiceAmount) >= dashCap.fixedCosts;
-      list.push({
-        key: "biggest-commitment",
-        icon: <Scale className="size-4" aria-hidden="true" />,
-        title: heavier ? "A fatura é o maior compromisso" : "Custos fixos são o maior compromisso",
-        body: heavier
-          ? `A fatura vigente (${formatMoney(invoiceAmount)}) pesa mais que os custos fixos (${formatMoney(dashCap.fixedCosts)}).`
-          : `Os custos fixos (${formatMoney(dashCap.fixedCosts)}) pesam mais que a fatura vigente (${formatMoney(invoiceAmount)}).`,
-        tone: heavier ? "warning" : "neutral",
-      });
-    }
-
-    if (dashCap.variableBudget > 0) {
-      const withinBudget = dashCap.variableRemaining >= 0;
-      list.push({
-        key: "variable-budget",
-        icon: withinBudget ? (
-          <ShieldCheck className="size-4" aria-hidden="true" />
-        ) : (
-          <TrendingUp className="size-4" aria-hidden="true" />
-        ),
-        title: withinBudget ? "Variáveis dentro do plano" : "Variáveis acima do plano",
-        body: withinBudget
-          ? `Ainda restam ${formatMoney(dashCap.variableRemaining)} da meta de ${formatMoney(dashCap.variableBudget)}.`
-          : `Você passou ${formatMoney(Math.abs(dashCap.variableRemaining))} da meta de ${formatMoney(dashCap.variableBudget)}.`,
-        tone: withinBudget ? "positive" : "warning",
-      });
-    }
-
-    if (data.bankBalance && Number(invoiceAmount) > 0) {
-      const covers = Number(data.bankBalance.total) >= Number(invoiceAmount);
-      list.push({
-        key: "bank-coverage",
-        icon: <Landmark className="size-4" aria-hidden="true" />,
-        title: covers ? "Saldo cobre a fatura" : "Saldo não cobre a fatura",
-        body: covers
-          ? `O saldo em conta (${formatMoney(data.bankBalance.total)}) é suficiente para a fatura vigente.`
-          : `Faltam ${formatMoney(Number(invoiceAmount) - Number(data.bankBalance.total))} em conta para cobrir a fatura vigente.`,
-        tone: covers ? "positive" : "danger",
-      });
-    }
-
-    return list.slice(0, 4);
-  }, [data, dashCap, invoiceAmount]);
 
   const statusMeta = planStatusMeta(dashCap?.status);
   const daysRemaining = data?.capacity.days_remaining_in_month ?? 0;
@@ -253,26 +166,44 @@ export function DashboardPage() {
     dashCap && dashCap.availableToSpend > 0 && daysRemaining > 0
       ? dashCap.availableToSpend / daysRemaining
       : null;
+  const hasFinancialData = Boolean(
+    dashCap &&
+      (dashCap.expectedIncome > 0 ||
+        dashCap.fixedCosts > 0 ||
+        Number(invoiceAmount) !== 0 ||
+        dashCap.variableBudget > 0 ||
+        (data?.bankBalance?.account_count || 0) > 0),
+  );
 
   return (
     <>
       <Topbar
-        subtitle={data ? `Visão executiva de ${formatMonthLong(data.planningMonth)}` : "Visão executiva do mês"}
+        subtitle={data ? formatMonthLong(data.planningMonth) : undefined}
         actions={
           <>
-            <Button type="button" onClick={() => void run()} loading={loading}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="size-9 px-0"
+              aria-label="Atualizar"
+              title="Atualizar"
+              onClick={() => void run()}
+              loading={loading}
+            >
               <RefreshCw className="size-4" aria-hidden="true" />
-              Atualizar
             </Button>
-            <Button type="button" variant="primary" loading={connecting} onClick={connectBank}>
-              <LinkIcon className="size-4" aria-hidden="true" />
-              Conectar banco
-            </Button>
+            {data && (data.bankBalance?.account_count || 0) === 0 ? (
+              <Button type="button" variant="primary" loading={connecting} onClick={connectBank}>
+                <LinkIcon className="size-4" aria-hidden="true" />
+                Conectar banco
+              </Button>
+            ) : null}
           </>
         }
       />
       <PageContainer>
-        {loading && !data ? <LoadingState label="Preparando seu cockpit..." /> : null}
+        {loading && !data ? <LoadingState label="Carregando resumo..." /> : null}
         {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
         {error && data ? (
           <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
@@ -285,7 +216,8 @@ export function DashboardPage() {
           />
         ) : null}
         {data && dashCap ? (
-          <div className="space-y-8">
+          hasFinancialData ? (
+            <div className="space-y-8">
             {/* Cockpit hero */}
             <section
               aria-label="Resumo do mês"
@@ -304,11 +236,6 @@ export function DashboardPage() {
                       }`}
                     >
                       {formatMoney(dashCap.availableToSpend)}
-                    </p>
-                    <p className="mt-4 max-w-md text-sm leading-relaxed text-white/60">
-                      O que sobra da receita de {formatMonthLong(data.planningMonth).toLowerCase()} depois
-                      dos custos fixos, da fatura vigente e da reserva para gastos variáveis.{" "}
-                      {statusMeta.description}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
@@ -368,107 +295,41 @@ export function DashboardPage() {
               <MetricCard
                 label="Entradas recebidas"
                 value={formatMoney(data.capacity.received_income_total)}
-                subtitle="Crédito que já caiu na conta"
                 tone="positive"
                 icon={<Banknote className="size-4" aria-hidden="true" />}
               />
               <MetricCard
                 label="Custos fixos a pagar"
                 value={formatMoney(dashCap.fixedCostsPending)}
-                subtitle={`${formatMoney(dashCap.fixedCostsPaid)} já pagos de ${formatMoney(dashCap.fixedCosts)}`}
                 icon={<Wallet className="size-4" aria-hidden="true" />}
               />
               <MetricCard
                 label="Variável usado"
                 value={formatMoney(dashCap.variableUsed)}
-                subtitle={`Meta ${formatMoney(dashCap.variableBudget)} · restam ${formatMoney(dashCap.variableRemaining)}`}
                 icon={<Tags className="size-4" aria-hidden="true" />}
               />
               <MetricCard
                 label="Saldo em conta"
                 value={data.bankBalance ? formatMoney(data.bankBalance.total) : "—"}
-                subtitle={
-                  data.bankBalance
-                    ? pluralize(
-                        data.bankBalance.account_count,
-                        "conta ativa considerada",
-                        "contas ativas consideradas",
-                      )
-                    : "Saldo indisponível agora; o restante segue atualizado"
-                }
                 tone="primary"
                 icon={<Landmark className="size-4" aria-hidden="true" />}
               />
             </section>
 
-            {/* Pressure + quick readings, side by side */}
-            {dashCap.expectedIncome > 0 || insights.length ? (
-              <section
-                aria-label="Pressão e leituras do mês"
-                className="grid grid-cols-1 gap-4 lg:grid-cols-2"
-              >
-                {dashCap.expectedIncome > 0 ? (
-                  <Card className="p-5 sm:p-6">
-                    <div className="mb-5 flex items-baseline justify-between gap-3">
-                      <h2 className="text-sm font-semibold text-ink-900">Pressão do mês</h2>
-                      <p className="text-xs text-ink-500">quanto da receita cada bloco consome</p>
-                    </div>
-                    <div className="space-y-5">
-                      <PressureMeter
-                        label="Fatura no mês"
-                        value={(Number(invoiceAmount) / dashCap.expectedIncome) * 100}
-                        detail={formatMoney(invoiceAmount)}
-                      />
-                      <PressureMeter
-                        label="Custos fixos"
-                        value={(dashCap.fixedCosts / dashCap.expectedIncome) * 100}
-                        detail={formatMoney(dashCap.fixedCosts)}
-                      />
-                      <PressureMeter
-                        label="Meta variável usada"
-                        value={
-                          dashCap.variableBudget > 0
-                            ? (dashCap.variableUsed / dashCap.variableBudget) * 100
-                            : 0
-                        }
-                        detail={`${formatMoney(dashCap.variableUsed)} de ${formatMoney(dashCap.variableBudget)}`}
-                      />
-                    </div>
-                  </Card>
-                ) : null}
-                {insights.length ? (
-                  <div className="grid grid-cols-1 gap-3">
-                    {insights.map((insight) => (
-                      <InsightCard
-                        key={insight.key}
-                        icon={insight.icon}
-                        title={insight.title}
-                        body={insight.body}
-                        tone={insight.tone}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
             {/* Current invoice + categories */}
             <section>
-              <SectionHeader
-                title="Fatura vigente"
-                subtitle="Para onde as compras do cartão estão indo"
-              />
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+              <SectionHeader title="Fatura em aberto" />
+              <div
+                className={
+                  data.categories.length
+                    ? "grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]"
+                    : "max-w-sm"
+                }
+              >
                 <Card className="h-fit p-5">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-medium text-ink-500">
-                        {invoiceSourceLabel(
-                          data.currentInvoice.source,
-                          data.currentInvoice.source_label || "Fatura vigente",
-                        )}
-                      </p>
-                      <p className="mt-1.5 text-3xl font-bold tracking-tight tabular text-ink-900">
+                      <p className="text-3xl font-bold tracking-tight tabular text-ink-900">
                         {formatMoney(invoiceAmount)}
                       </p>
                     </div>
@@ -476,39 +337,9 @@ export function DashboardPage() {
                       <CreditCard className="size-4" aria-hidden="true" />
                     </span>
                   </div>
-                  <p className="mt-3 text-xs leading-relaxed text-ink-500">
-                    {data.currentInvoice.source === "canonical_invoice_schedule"
-                      ? "Total consolidado pelo ciclo de cada cartão, incluindo previsões e créditos."
-                      : "Soma das compras PENDING até o fim do mês da fatura vigente."}
-                  </p>
-                  {nextInvoice ? (
-                    <div className="mt-4 flex items-start gap-2.5 rounded-control border border-ink-100 bg-surface-muted p-3.5">
-                      <CalendarDays className="mt-0.5 size-4 shrink-0 text-ink-400" aria-hidden="true" />
-                      <div className="min-w-0 text-xs leading-relaxed text-ink-500">
-                        <p>
-                          Próxima fatura ({formatMonthLong(nextInvoice.year_month)}):{" "}
-                          <span className="font-semibold tabular text-ink-800">
-                            {formatMoney(nextInvoice.amount)}
-                          </span>
-                        </p>
-                        <Link
-                          to="/proximos"
-                          className="mt-0.5 inline-block font-medium text-primary-700 hover:text-primary-800"
-                        >
-                          Ver compromissos futuros
-                        </Link>
-                      </div>
-                    </div>
-                  ) : null}
                 </Card>
-                <div>
-                  {data.categories.length === 0 ? (
-                    <EmptyState
-                      icon={<Tags className="size-5" aria-hidden="true" />}
-                      title="Nenhuma compra categorizada na fatura vigente."
-                      detail="Assim que houver compras ativas classificadas, a leitura por categoria aparece aqui."
-                    />
-                  ) : (
+                {data.categories.length ? (
+                  <div>
                     <CategoryBreakdown
                       items={data.categories.map((category) => ({
                         id: category.id,
@@ -527,24 +358,15 @@ export function DashboardPage() {
                         )
                       }
                     />
-                  )}
-                </div>
+                  </div>
+                ) : null}
               </div>
             </section>
 
             {/* Recent card purchases */}
-            <section>
-              <SectionHeader
-                title="Últimas compras do cartão"
-                subtitle="As compras mais recentes da fatura vigente"
-              />
-              {data.recentCardPurchases.length === 0 ? (
-                <EmptyState
-                  icon={<CreditCard className="size-5" aria-hidden="true" />}
-                  title="Nenhuma compra recente na fatura vigente."
-                  detail="Quando houver compras ativas no cartão, elas aparecem aqui."
-                />
-              ) : (
+            {data.recentCardPurchases.length ? (
+              <section>
+                <SectionHeader title="Últimas compras do cartão" />
                 <Card className="overflow-hidden">
                   <Table>
                     <thead className="bg-surface-muted text-left text-xs font-medium uppercase tracking-wide text-ink-500">
@@ -575,10 +397,8 @@ export function DashboardPage() {
                             </td>
                             <td className="px-5 py-3.5 text-sm text-ink-600">
                               {transactionDisplayCategory(tx) || "Sem categoria"}
-                              {classificationSourceLabel(tx.classification_source) ? (
-                                <span className="block text-xs text-ink-400">
-                                  {classificationSourceLabel(tx.classification_source)}
-                                </span>
+                              {tx.classification_source === "manual_override" ? (
+                                <span className="block text-xs text-ink-400">Ajuste manual</span>
                               ) : null}
                             </td>
                             <td className="whitespace-nowrap px-5 py-3.5 text-right text-sm font-semibold tabular text-ink-900">
@@ -607,9 +427,24 @@ export function DashboardPage() {
                     </div>
                   ) : null}
                 </Card>
-              )}
-            </section>
-          </div>
+              </section>
+            ) : null}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Wallet className="size-5" aria-hidden="true" />}
+              title="Configure seu primeiro mês"
+              detail="Adicione sua receita e seus compromissos para montar o resumo financeiro."
+              action={
+                <Link
+                  to="/planejamento"
+                  className="inline-flex min-h-9 items-center justify-center rounded-control bg-primary-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-primary-700"
+                >
+                  Abrir planejamento
+                </Link>
+              }
+            />
+          )
         ) : null}
       </PageContainer>
 
@@ -637,9 +472,7 @@ export function DashboardPage() {
                   {tx.installment_number && tx.total_installments
                     ? ` · parcela ${tx.installment_number} de ${tx.total_installments}`
                     : ""}
-                  {classificationSourceLabel(tx.classification_source)
-                    ? ` · ${classificationSourceLabel(tx.classification_source)}`
-                    : ""}
+                  {tx.classification_source === "manual_override" ? " · ajuste manual" : ""}
                 </p>
               </div>
               <span className="shrink-0 text-sm font-semibold tabular text-ink-900">

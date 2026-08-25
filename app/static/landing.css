@@ -1,52 +1,113 @@
-/* OpenFinance — public landing page styles.
-   Scoped with the lp- prefix so nothing here can collide with the React app. */
-
-/* ── Smooth in-page navigation (disabled for reduced-motion users) ────── */
-html { scroll-behavior: smooth; }
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
+:root {
+  color: #0f172a;
+  background: #020617;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
 }
 
-/* ── Accessibility: skip link & focus rings ───────────────────────────── */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #020617; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+svg { display: block; }
+.lp-wrap { width: min(100% - 2rem, 72rem); margin-inline: auto; }
+
 .lp-skip-link {
   position: absolute;
   top: -100px;
-  left: 16px;
+  left: 1rem;
   z-index: 100;
-  padding: 10px 16px;
-  border-radius: 8px;
+  padding: 0.625rem 1rem;
+  border-radius: 0.5rem;
   background: #2563eb;
   color: #fff;
   font-size: 0.875rem;
   font-weight: 600;
   transition: top 0.15s ease;
 }
-.lp-skip-link:focus { top: 12px; }
 
-a:focus-visible,
-button:focus-visible {
+.lp-skip-link:focus { top: 0.75rem; }
+
+a:focus-visible {
   outline: 2px solid #38bdf8;
-  outline-offset: 2px;
-  border-radius: 8px;
+  outline-offset: 3px;
+  border-radius: 0.5rem;
 }
 
-/* ── Header: transparent over hero, solid after scroll ────────────────── */
-#lp-header { background: transparent; }
+#lp-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 50;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
 #lp-header.lp-scrolled {
-  background: rgba(2, 6, 23, 0.85);
+  background: rgba(2, 6, 23, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* ── Hero backdrop: layered radial glows over deep slate ──────────────── */
+.lp-header-inner {
+  min-height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.lp-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.lp-brand-icon {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: #2563eb;
+}
+
+.lp-brand-icon svg { width: 1rem; height: 1rem; }
+
+.lp-button {
+  display: inline-flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.625rem;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  box-shadow: 0 10px 28px -10px rgba(37, 99, 235, 0.7);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.lp-button:hover { background: #1d4ed8; transform: translateY(-1px); }
+.lp-button svg { width: 1rem; height: 1rem; }
+.lp-button-small { min-height: 2.25rem; padding: 0.5rem 1rem; font-size: 0.875rem; }
+
 .lp-hero {
+  position: relative;
+  overflow: hidden;
   background:
-    radial-gradient(1000px 520px at 78% -10%, rgba(37, 99, 235, 0.28), transparent 60%),
-    radial-gradient(720px 420px at 8% 18%, rgba(14, 165, 233, 0.14), transparent 55%),
+    radial-gradient(56rem 28rem at 78% -10%, rgba(37, 99, 235, 0.28), transparent 60%),
+    radial-gradient(40rem 22rem at 8% 18%, rgba(14, 165, 233, 0.13), transparent 55%),
     linear-gradient(180deg, #020617 0%, #0f172a 100%);
 }
-/* Subtle grid texture for a technical, product feel. */
+
 .lp-hero::before {
   content: "";
   position: absolute;
@@ -54,158 +115,113 @@ button:focus-visible {
   background-image:
     linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
-  background-size: 56px 56px;
+  background-size: 3.5rem 3.5rem;
   mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 30%, transparent 75%);
   -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 30%, transparent 75%);
   pointer-events: none;
 }
 
-.lp-gradient-text {
-  background: linear-gradient(92deg, #60a5fa 0%, #38bdf8 55%, #34d399 110%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.lp-hero-content {
+  position: relative;
+  padding-block: 10.5rem 7rem;
+  text-align: center;
 }
 
-/* ── Mockup frame & floating insight cards ────────────────────────────── */
-.lp-mockup-glow {
-  position: absolute;
-  inset: -8% -4%;
-  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.16), transparent 70%);
-  pointer-events: none;
-}
-.lp-mockup-frame {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 24px 60px -16px rgba(2, 6, 23, 0.85),
-    0 0 0 1px rgba(2, 6, 23, 0.4);
+.lp-hero h1 {
+  max-width: 56rem;
+  margin: 0 auto;
+  color: #fff;
+  font-size: clamp(2.5rem, 7vw, 3.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
 }
 
-.lp-glass {
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 14px 36px -12px rgba(2, 6, 23, 0.5);
+.lp-hero p {
+  max-width: 42rem;
+  margin: 1.5rem auto 2.25rem;
+  color: #cbd5e1;
+  font-size: 1.125rem;
+  line-height: 1.65;
 }
 
-@keyframes lp-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-7px); }
-}
-.lp-float { animation: lp-float 5.5s ease-in-out infinite; }
-.lp-float-slow { animation: lp-float 7s ease-in-out 0.8s infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .lp-float, .lp-float-slow { animation: none; }
-}
-
-/* ── Scroll-reveal (JS adds lp-reveal-visible via IntersectionObserver) ──
-   The hidden initial state only applies when JS is running (lp-js on <html>),
-   so content is always readable without JS or with reduced motion. */
-.lp-js .lp-reveal {
-  opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 0.55s ease, transform 0.55s ease;
-}
-.lp-js .lp-reveal-visible {
-  opacity: 1;
-  transform: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .lp-js .lp-reveal { opacity: 1; transform: none; transition: none; }
+.lp-features { padding-block: 5rem; background: #fff; }
+.lp-section-title {
+  margin: 0;
+  text-align: center;
+  color: #0f172a;
+  font-size: clamp(1.875rem, 4vw, 2.25rem);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
 }
 
-/* ── Micro-interactions ───────────────────────────────────────────────── */
-.lp-cta { box-shadow: 0 8px 24px -8px rgba(37, 99, 235, 0.55); }
-.lp-cta:hover { box-shadow: 0 10px 28px -8px rgba(37, 99, 235, 0.7); }
+.lp-feature-grid {
+  margin-top: 3rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+}
 
-.lp-benefit-card {
+.lp-feature-card {
+  padding: 1.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #fff;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
-.lp-benefit-card:hover {
+
+.lp-feature-card:hover {
   transform: translateY(-3px);
   border-color: #bfdbfe;
   box-shadow: 0 16px 36px -16px rgba(15, 23, 42, 0.18);
 }
 
-.lp-insight { transition: transform 0.2s ease, box-shadow 0.2s ease; }
-.lp-insight:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px -14px rgba(15, 23, 42, 0.16);
-}
+.lp-feature-card h3 { margin: 0; font-size: 1rem; color: #0f172a; }
+.lp-feature-card p { margin: 0.625rem 0 0; color: #475569; font-size: 0.875rem; line-height: 1.65; }
 
-@media (prefers-reduced-motion: reduce) {
-  .lp-benefit-card, .lp-insight { transition: none; }
-  .lp-benefit-card:hover, .lp-insight:hover { transform: none; }
-}
-
-/* ── Invoice timeline ─────────────────────────────────────────────────── */
-.lp-timeline { scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
-.lp-timeline::-webkit-scrollbar { height: 4px; }
-.lp-timeline::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 2px; }
-.lp-timeline-item { position: relative; }
-/* Connector between months. */
-.lp-timeline-item + .lp-timeline-item::before {
-  content: "";
-  position: absolute;
-  left: -12px;
-  top: 50%;
-  width: 12px;
-  height: 2px;
-  background: #cbd5e1;
-}
-.lp-timeline-current { box-shadow: 0 10px 26px -12px rgba(37, 99, 235, 0.45); }
-
-/* ── "Como funciona" steps ────────────────────────────────────────────── */
-.lp-step-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #2563eb, #0ea5e9);
-  color: #fff;
-  font-size: 1.05rem;
-  font-weight: 800;
-  box-shadow: 0 10px 24px -10px rgba(37, 99, 235, 0.6);
-}
-/* Dashed connector between steps on wide screens. */
-@media (min-width: 1024px) {
-  .lp-step:not(:last-child)::after {
-    content: "";
-    position: absolute;
-    top: 22px;
-    left: 60px;
-    right: -8px;
-    border-top: 2px dashed #e2e8f0;
-  }
-}
-
-/* ── Security section backdrop ────────────────────────────────────────── */
 .lp-security {
+  padding-block: 4.5rem;
   background:
-    radial-gradient(800px 420px at 85% 0%, rgba(14, 165, 233, 0.12), transparent 60%),
-    radial-gradient(700px 400px at 10% 100%, rgba(37, 99, 235, 0.12), transparent 60%),
+    radial-gradient(44rem 24rem at 85% 0%, rgba(14, 165, 233, 0.12), transparent 60%),
     #0f172a;
 }
 
-/* ── Final CTA panel ──────────────────────────────────────────────────── */
-.lp-final-cta {
-  background:
-    radial-gradient(640px 320px at 85% -20%, rgba(125, 211, 252, 0.35), transparent 65%),
-    linear-gradient(120deg, #1d4ed8 0%, #2563eb 55%, #0284c7 100%);
-  box-shadow: 0 28px 64px -24px rgba(29, 78, 216, 0.55);
+.lp-security-content { max-width: 48rem; text-align: center; }
+.lp-security h2 { margin: 0; color: #fff; font-size: clamp(1.5rem, 4vw, 1.875rem); letter-spacing: -0.025em; }
+.lp-security p { max-width: 42rem; margin: 1rem auto 0; color: #cbd5e1; font-size: 1rem; line-height: 1.65; }
+
+footer { border-top: 1px solid rgba(255, 255, 255, 0.08); background: #020617; }
+.lp-footer-inner {
+  min-height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #64748b;
+  font-size: 0.75rem;
 }
-.lp-final-cta::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse 80% 90% at 50% 0%, black 20%, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 90% at 50% 0%, black 20%, transparent 80%);
-  pointer-events: none;
+
+.lp-footer-inner p { margin: 0; }
+.lp-footer-inner a { color: #94a3b8; font-size: 0.875rem; font-weight: 500; }
+.lp-footer-inner a:hover { color: #fff; }
+
+.lp-js .lp-reveal {
+  opacity: 0;
+  transform: translateY(1rem);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+}
+
+.lp-js .lp-reveal-visible { opacity: 1; transform: none; }
+
+@media (max-width: 48rem) {
+  .lp-feature-grid { grid-template-columns: 1fr; }
+  .lp-hero-content { padding-block: 9rem 5.5rem; }
+  .lp-hero p { font-size: 1rem; }
+  .lp-features { padding-block: 4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .lp-button, .lp-feature-card { transition: none; }
+  .lp-button:hover, .lp-feature-card:hover { transform: none; }
+  .lp-js .lp-reveal { opacity: 1; transform: none; transition: none; }
 }

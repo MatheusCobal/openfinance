@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Banknote, Bell, Calendar, CalendarClock, Check, ChevronDown, Clock, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, ChevronDown, Copy, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
@@ -30,7 +30,6 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { CatAvatar } from "../components/ui/CatAvatar";
-import { CheckToggle } from "../components/ui/CheckToggle";
 import { DayBadge } from "../components/ui/DayBadge";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
@@ -60,7 +59,7 @@ import {
   tokenSet,
 } from "../lib/planning";
 import { categoryColor } from "../lib/categories";
-import { invoiceSourceLabel, pluralize } from "../lib/labels";
+import { pluralize } from "../lib/labels";
 import { classNames } from "../lib/classNames";
 import { asMoneyNumber, formatMoney, percent } from "../lib/money";
 import type { Transaction } from "../types/common";
@@ -77,22 +76,6 @@ import type {
 } from "../types/planejamento";
 
 type PlanningTab = "overview" | "custos" | "variaveis" | "receita";
-
-type FixedVariant = "agenda" | "grid" | "waterfall" | "command";
-
-const FIXED_VARIANTS: Array<{ key: FixedVariant; label: string }> = [
-  { key: "agenda", label: "Agenda" },
-  { key: "grid", label: "Grade" },
-  { key: "waterfall", label: "Cascata" },
-  { key: "command", label: "Painel" },
-];
-
-const FIXED_VARIANT_STORAGE_KEY = "planning.fixedVariant";
-
-function storedFixedVariant(): FixedVariant {
-  const saved = typeof window !== "undefined" ? window.localStorage.getItem(FIXED_VARIANT_STORAGE_KEY) : null;
-  return FIXED_VARIANTS.some((v) => v.key === saved) ? (saved as FixedVariant) : "agenda";
-}
 
 const PLANNING_MONTH_WINDOW_SIZE = 12;
 
@@ -125,17 +108,13 @@ function entryStatusPill(status?: string) {
   return <StatusPill label={item.label} tone={item.tone} />;
 }
 
-async function loadPlanningData(
-  selectedMonth: string,
-  showInactiveCosts: boolean,
-  showInactiveIncome: boolean,
-): Promise<PlanningData> {
+async function loadPlanningData(selectedMonth: string): Promise<PlanningData> {
   const [planning, categories, costs, templates, incomeEntries, incomeMonth] = await Promise.all([
     getPlanningMonth(selectedMonth),
     listFixedCostCategories(),
-    listFixedCosts(showInactiveCosts),
+    listFixedCosts(true),
     listFixedCostTemplates().catch(() => []),
-    listExpectedIncome(showInactiveIncome),
+    listExpectedIncome(true),
     getExpectedIncomeByMonth(selectedMonth),
   ]);
   const capacity = normalizePlanningOverview(planning);
@@ -169,6 +148,18 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
     ? asMoneyNumber(capacity.variable_budget_uncommitted ?? capacity.variable_budget_total)
     : (capacity.variable_budget_consumed || 0) + (capacity.variable_budget_overage || 0);
   const card = invoiceIncludedAmount(capacity);
+  const hasPlanData = [income, fixed, variable, card].some((value) => Math.abs(value) > 0.009);
+
+  if (!hasPlanData) {
+    return (
+      <EmptyState
+        icon={<Wallet className="size-5" aria-hidden="true" />}
+        title="Nenhum valor planejado"
+        detail="Adicione sua receita, custos fixos ou metas variáveis para montar este mês."
+      />
+    );
+  }
+
   const status =
     income <= 0
       ? { label: "Sem receita prevista", tone: "neutral" as const }
@@ -190,7 +181,6 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
                   {isFuture ? "Sobra planejada" : "Disponível para gastar"}
                 </p>
                 <StatusPill label={status.label} tone={status.tone} inverse />
-                {isFuture ? <Badge tone="primary">Projeção</Badge> : null}
               </div>
               <p
                 className={classNames(
@@ -199,11 +189,6 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
                 )}
               >
                 {formatMoney(free)}
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-white/55">
-                {isFuture
-                  ? "Projeção do que sobra depois dos fixos, fatura e meta variável."
-                  : "O que sobra da receita depois dos fixos, fatura e meta variável."}
               </p>
             </div>
             {capacity.days_remaining_in_month && capacity.daily_discretionary_remaining ? (
@@ -227,7 +212,12 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
                 total={income}
                 segments={[
                   { key: "fixed", label: "Custos fixos", value: fixed, color: "#64748b" },
-                  { key: "invoice", label: "Fatura no cálculo", value: card, color: "#0ea5e9" },
+                  {
+                    key: "invoice",
+                    label: isFuture ? "Fatura prevista" : "Fatura em aberto",
+                    value: card,
+                    color: "#0ea5e9",
+                  },
                   {
                     key: "variable",
                     label: isFuture ? "Meta variável" : "Variáveis usados",
@@ -253,27 +243,20 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
         <MetricCard
           label="Receita esperada"
           value={formatMoney(income)}
-          subtitle={`Já recebido ${formatMoney(capacity.received_income_total)}`}
           tone="positive"
         />
         <MetricCard
           label="Custos fixos"
           value={formatMoney(fixed)}
-          subtitle={isFuture ? "Planejados para o mês" : "Reservados ou já pagos"}
         />
         <MetricCard
-          label="Gastos variáveis"
+          label={isFuture ? "Meta variável" : "Gastos variáveis"}
           value={formatMoney(variable)}
-          subtitle={`Meta de ${formatMoney(capacity.variable_budget_total)}`}
           tone="warning"
         />
         <MetricCard
-          label="Fatura no cálculo"
+          label={isFuture ? "Fatura prevista" : "Fatura em aberto"}
           value={formatMoney(card)}
-          subtitle={invoiceSourceLabel(
-            capacity.credit_card_invoice?.source,
-            capacity.credit_card_invoice?.source_label || "Regra consolidada do mês",
-          )}
           tone="primary"
         />
       </div>
@@ -401,22 +384,6 @@ function VariableBudgetsPanel({
   const suggestions = items.filter((item) => !item.has_target && item.spent > 0);
 
   const target = asMoneyNumber(capacity.variable_budget_total);
-  const consumed = asMoneyNumber(capacity.variable_budget_consumed);
-  const overage = asMoneyNumber(capacity.variable_budget_overage);
-  const remaining = Math.max(target - consumed, 0);
-  const hasTarget = target > 0 || budgeted.length > 0;
-
-  // Variáveis sempre acompanha a fatura vigente / em aberto. No mês atual isso
-  // vem de card_invoice_current_open_total; no mês vigente (padrão da tela, um
-  // mês futuro) esse campo é 0 e o valor correto é a fatura em formação exposta
-  // por planning_invoice. Usamos `||` para que o 0 caia no planning_invoice.
-  const invoiceTotal = asMoneyNumber(
-    capacity.card_invoice_current_open_total || capacity.planning_invoice?.amount,
-  );
-  const invoiceLabel =
-    capacity.card_invoice_current_open_label ||
-    capacity.planning_invoice?.source_label ||
-    invoiceSourceLabel(capacity.card_invoice_current_open_source || capacity.planning_invoice?.source);
 
   const budgetedCategories = new Set(budgeted.map((item) => item.category));
   const availableToAdd = eligible.filter((category) => !budgetedCategories.has(category));
@@ -427,6 +394,7 @@ function VariableBudgetsPanel({
   const [editingGoal, setEditingGoal] = useState<string | null>(null);
   const [replicating, setReplicating] = useState(false);
   const [replicateConfirm, setReplicateConfirm] = useState(false);
+  const [showAddGoal, setShowAddGoal] = useState(false);
 
   const handleReplicate = async () => {
     setReplicating(true);
@@ -479,6 +447,7 @@ function VariableBudgetsPanel({
     await saveGoal(newCategory, amount);
     setNewCategory("");
     setNewAmount("");
+    setShowAddGoal(false);
   };
 
   const statusMap: Record<string, VariableBudgetItem["status"]> = {
@@ -490,45 +459,28 @@ function VariableBudgetsPanel({
     ? budgeted
     : budgeted.filter((item) => item.status === statusMap[statusFilter]);
 
-  const summaryCards = [
-    {
-      label: "Fatura vigente",
-      value: invoiceTotal > 0 ? formatMoney(invoiceTotal) : "—",
-      icon: <CreditCard className="size-4" aria-hidden="true" />,
-      toneClass: "bg-primary-50 text-primary-600",
-      sub: invoiceTotal > 0 ? invoiceLabel : "Sem fatura em aberto",
-    },
-    {
-      label: "Meta total do mês",
-      value: hasTarget ? formatMoney(target) : "—",
-      icon: <Wallet className="size-4" aria-hidden="true" />,
-      toneClass: "bg-ink-100 text-ink-500",
-      sub: hasTarget ? `${budgeted.length} categorias configuradas` : "Nenhuma meta definida",
-    },
-    {
-      label: overage > 0 ? "Excedente" : "Restante",
-      value: hasTarget ? formatMoney(overage > 0 ? overage : remaining) : "—",
-      icon: overage > 0
-        ? <AlertCircle className="size-4" aria-hidden="true" />
-        : <CalendarClock className="size-4" aria-hidden="true" />,
-      toneClass: overage > 0 ? "bg-danger-50 text-danger-600" : "bg-positive-50 text-positive-600",
-      sub: overage > 0 ? "Acima da meta combinada" : "Ainda dentro da meta",
-    },
-  ];
-
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-ink-900">Metas de gastos variáveis</h2>
-          <p className="mt-1 text-sm text-ink-500">
-            {budgeted.length} categorias com limite ·{" "}
-            <span className="tabular font-semibold text-ink-700">{formatMoney(target)}</span> / mês
-          </p>
+          {budgeted.length > 0 ? (
+            <p className="mt-1 text-sm text-ink-500">
+              {budgeted.length} categorias com limite ·{" "}
+              <span className="tabular font-semibold text-ink-700">{formatMoney(target)}</span> / mês
+            </p>
+          ) : null}
         </div>
-        {budgeted.length > 0 && (
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {availableToAdd.length > 0 ? (
+            <Button type="button" variant="primary" size="sm" onClick={() => setShowAddGoal(true)}>
+              <Plus className="size-3.5" aria-hidden="true" />
+              Nova meta
+            </Button>
+          ) : null}
+          {budgeted.length > 0 ? (
+            <>
             {replicateConfirm ? (
               <>
                 <p className="text-xs text-ink-500">
@@ -562,28 +514,13 @@ function VariableBudgetsPanel({
                 Replicar para próximos meses
               </Button>
             )}
-          </div>
-        )}
-      </div>
-
-      {/* 3 summary cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {summaryCards.map((s) => (
-          <div key={s.label} className="flex items-start gap-3 rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
-            <span className={classNames("mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-control", s.toneClass)}>
-              {s.icon}
-            </span>
-            <div>
-              <p className="text-xs font-medium text-ink-500">{s.label}</p>
-              <p className="mt-0.5 text-base font-bold tabular leading-tight text-ink-900">{s.value}</p>
-              <p className="mt-0.5 text-[11px] text-ink-400">{s.sub}</p>
-            </div>
-          </div>
-        ))}
+            </>
+          ) : null}
+        </div>
       </div>
 
       {/* Status filter chips */}
-      <div className="flex gap-2">
+      {budgeted.length >= 4 ? <div className="flex gap-2">
         {(["Todas", "OK", "Atenção", "Excedido"] as const).map((f) => {
           const active = statusFilter === f;
           const dotCls = f === "OK" ? "bg-positive-500" : f === "Atenção" ? "bg-warning-500" : f === "Excedido" ? "bg-danger-500" : "bg-ink-400";
@@ -602,7 +539,7 @@ function VariableBudgetsPanel({
             </button>
           );
         })}
-      </div>
+      </div> : null}
 
       {/* Budget list */}
       {shownBudgets.length > 0 ? (
@@ -631,8 +568,15 @@ function VariableBudgetsPanel({
         <Card className="p-5 sm:p-6">
           <EmptyState
             icon={<CalendarClock className="size-5" aria-hidden="true" />}
-            title="Nenhuma meta configurada para este mês."
-            detail="Defina uma meta por categoria abaixo para acompanhar os gastos variáveis do cartão."
+            title="Nenhuma meta configurada"
+            detail="Defina limites para as categorias que deseja acompanhar."
+            action={
+              availableToAdd.length ? (
+                <Button type="button" variant="primary" onClick={() => setShowAddGoal(true)}>
+                  Criar primeira meta
+                </Button>
+              ) : undefined
+            }
           />
         </Card>
       ) : (
@@ -642,7 +586,7 @@ function VariableBudgetsPanel({
       )}
 
       {/* Add goal form */}
-      <Card className="p-5 sm:p-6">
+      {showAddGoal && availableToAdd.length > 0 ? <Card className="p-5 sm:p-6">
         <form
           onSubmit={addGoal}
           className="flex flex-col gap-2 sm:flex-row sm:items-end"
@@ -652,7 +596,6 @@ function VariableBudgetsPanel({
             <Select
               value={newCategory}
               onChange={(event) => setNewCategory(event.target.value)}
-              disabled={availableToAdd.length === 0}
             >
               <option value="">Selecione uma categoria</option>
               {availableToAdd.map((category) => (
@@ -671,17 +614,15 @@ function VariableBudgetsPanel({
               onChange={(event) => setNewAmount(event.target.value)}
             />
           </label>
-          <Button type="submit" variant="primary" disabled={availableToAdd.length === 0}>
+          <Button type="submit" variant="primary">
             <Plus className="size-4" aria-hidden="true" />
             Adicionar meta
           </Button>
+          <Button type="button" onClick={() => setShowAddGoal(false)}>
+            Cancelar
+          </Button>
         </form>
-        {availableToAdd.length === 0 && budgeted.length > 0 ? (
-          <p className="mt-2 text-xs text-ink-400">
-            Todas as categorias variáveis já têm meta neste mês.
-          </p>
-        ) : null}
-      </Card>
+      </Card> : null}
 
       {/* Suggestions */}
       {suggestions.length > 0 ? (
@@ -712,7 +653,11 @@ function VariableBudgetsPanel({
                   type="button"
                   variant="secondary"
                   size="sm"
-                  onClick={() => { setNewCategory(item.category); setNewAmount(item.spent.toFixed(2)); }}
+                  onClick={() => {
+                    setNewCategory(item.category);
+                    setNewAmount(item.spent.toFixed(2));
+                    setShowAddGoal(true);
+                  }}
                 >
                   <Plus className="size-3" aria-hidden="true" />
                   Definir meta
@@ -750,188 +695,6 @@ function dayBadgeTone(status: string): "positive" | "danger" | "warning" | "neut
   return "neutral";
 }
 
-/** BRL without decimals — for chart axes and compact labels. */
-const currencyCompact = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-  maximumFractionDigits: 0,
-});
-const formatMoney0 = (value: unknown) => currencyCompact.format(asMoneyNumber(value));
-
-interface FixedCatGroup {
-  name: string;
-  color: string;
-  total: number;
-  paid: number;
-  count: number;
-  items: FixedCostMonthEntry[];
-}
-
-/** Group month entries by category, with paid totals derived from `isPaid`. */
-function groupByCategory(
-  entries: FixedCostMonthEntry[],
-  isPaid: (entry: FixedCostMonthEntry) => boolean,
-): FixedCatGroup[] {
-  const map = new Map<string, FixedCatGroup>();
-  for (const entry of entries) {
-    const name = entry.category_name;
-    const group =
-      map.get(name) ||
-      ({
-        name,
-        color: categoryColor(entry.category_name, entry.category_color),
-        total: 0,
-        paid: 0,
-        count: 0,
-        items: [],
-      } as FixedCatGroup);
-    const amount = Number(entry.amount || 0);
-    group.total += amount;
-    if (isPaid(entry)) group.paid += amount;
-    group.count += 1;
-    group.items.push(entry);
-    map.set(name, group);
-  }
-  return [...map.values()].sort((a, b) => b.total - a.total);
-}
-
-/**
- * Shared "live paid" state for the fixed-cost concept variants: a local paid
- * set (seeded from the API status, like Concept A), a one-tick `mounted` flag
- * to trigger the bar/donut entry animations, and effective-status helpers.
- * The toggle is local-only — same as Concept A, where "paid" reflects matched
- * payments rather than a write-back.
- */
-function useFixedPaid(entries: FixedCostMonthEntry[]) {
-  const seed = () =>
-    new Set(entries.filter((e) => e.status === "paid").map((e) => e.fixed_cost_id));
-  const [paidIds, setPaidIds] = useState<Set<number>>(seed);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setPaidIds(seed());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setMounted(true), 120);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  const toggle = (id: number) =>
-    setPaidIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const isPaid = (entry: FixedCostMonthEntry) => paidIds.has(entry.fixed_cost_id);
-  const effStatus = (entry: FixedCostMonthEntry): string => {
-    if (paidIds.has(entry.fixed_cost_id)) return "paid";
-    if (entry.status === "paid") return "scheduled";
-    return entry.status || "scheduled";
-  };
-
-  return { paidIds, mounted, toggle, isPaid, effStatus };
-}
-
-/** Thin horizontal bar with a mount-triggered fill animation. */
-function AnimatedBar({
-  value,
-  color,
-  on,
-  delay = 0,
-  height = 6,
-}: {
-  value: number;
-  color: string;
-  on: boolean;
-  delay?: number;
-  height?: number;
-}) {
-  const clamped = Math.max(0, Math.min(100, value));
-  return (
-    <div className="w-full overflow-hidden rounded-full bg-ink-100" style={{ height }}>
-      <div
-        className="h-full rounded-full"
-        style={{
-          width: on ? `${clamped}%` : 0,
-          background: color,
-          transition: "width 0.9s cubic-bezier(0.22,1,0.36,1)",
-          transitionDelay: `${delay}ms`,
-        }}
-      />
-    </div>
-  );
-}
-
-/** Animated SVG donut driven by category segments. */
-function Donut({
-  segments,
-  size = 210,
-  thickness = 24,
-  on,
-  children,
-}: {
-  segments: Array<{ value: number; color: string; label: string }>;
-  size?: number;
-  thickness?: number;
-  on: boolean;
-  children?: React.ReactNode;
-}) {
-  const radius = (size - thickness) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const total = segments.reduce((sum, s) => sum + s.value, 0) || 1;
-  let offset = 0;
-  return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="rgba(15,23,42,0.06)"
-          strokeWidth={thickness}
-        />
-        {segments.map((s, i) => {
-          const len = (s.value / total) * circumference;
-          const dash = on ? len : 0;
-          const arc = (
-            <circle
-              key={s.label}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={thickness}
-              strokeLinecap="round"
-              strokeDasharray={`${dash} ${circumference}`}
-              strokeDashoffset={-offset}
-              style={{
-                transition: "stroke-dasharray 1.1s cubic-bezier(0.22,1,0.36,1)",
-                transitionDelay: `${i * 90}ms`,
-              }}
-            />
-          );
-          offset += len;
-          return arc;
-        })}
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Concept A — "Agenda do mês". Dark cockpit hero (total + live paid bar +
- * month calendar) over a payment timeline with a "hoje" divider, live paid
- * toggles, and the month's payment-linking / override editing preserved.
- */
 function FixedCostsAgenda({
   fixed,
   expectedIncome,
@@ -945,9 +708,6 @@ function FixedCostsAgenda({
 }) {
   const { showToast } = useToast();
   const [mounted, setMounted] = useState(false);
-  const [localPaid, setLocalPaid] = useState<Set<number>>(
-    () => new Set((fixed.entries || []).filter((e) => e.status === "paid").map((e) => e.fixed_cost_id)),
-  );
   const [expandedFor, setExpandedFor] = useState<number | null>(null);
   const [allCandidates, setAllCandidates] = useState<Transaction[]>([]);
   const [pickerFilter, setPickerFilter] = useState<"CREDIT" | "BANK">("CREDIT");
@@ -961,36 +721,18 @@ function FixedCostsAgenda({
   const transactions = filteredCandidates.slice(0, pickerVisible);
 
   useEffect(() => {
-    setLocalPaid(
-      new Set((fixed.entries || []).filter((e) => e.status === "paid").map((e) => e.fixed_cost_id)),
-    );
-  }, [fixed.entries]);
-
-  useEffect(() => {
     const timer = window.setTimeout(() => setMounted(true), 120);
     return () => window.clearTimeout(timer);
   }, []);
 
-  const togglePaid = (id: number) =>
-    setLocalPaid((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  // Effective status: the local paid toggle overrides the API status.
-  const effStatus = (entry: FixedCostMonthEntry): string => {
-    if (localPaid.has(entry.fixed_cost_id)) return "paid";
-    if (entry.status === "paid") return "scheduled";
-    return entry.status || "scheduled";
-  };
+  const effStatus = (entry: FixedCostMonthEntry): string => entry.status || "scheduled";
 
   const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
   const total = Number(fixed.total || 0);
   const paidSum = entries
-    .filter((e) => localPaid.has(e.fixed_cost_id))
+    .filter((e) => e.status === "paid")
     .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const paidCount = entries.filter((e) => e.status === "paid").length;
   const pendingSum = Math.max(total - paidSum, 0);
   const incomeShare = expectedIncome > 0 ? (total / expectedIncome) * 100 : 0;
 
@@ -1091,13 +833,7 @@ function FixedCostsAgenda({
   };
 
   if (!entries.length) {
-    return (
-      <EmptyState
-        icon={<Wallet className="size-5" aria-hidden="true" />}
-        title="Nenhum custo fixo ativo neste mês."
-        detail="Cadastre os compromissos recorrentes na seção abaixo para acompanhar o plano."
-      />
-    );
+    return null;
   }
 
   return (
@@ -1120,16 +856,10 @@ function FixedCostsAgenda({
                 {formatMoney(total)}
               </p>
               {expectedIncome > 0 ? (
-                <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/55">
-                  Compromissos que se repetem todo mês. Ocupam{" "}
-                  <span className="font-semibold text-white/80">{percent(incomeShare)}</span> da sua
-                  receita esperada de {formatMoney(expectedIncome)}.
+                <p className="mt-3 text-sm text-white/55">
+                  {percent(incomeShare)} da receita esperada
                 </p>
-              ) : (
-                <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/55">
-                  Compromissos que se repetem todo mês.
-                </p>
-              )}
+              ) : null}
             </div>
             <div className="mt-6">
               <div className="flex items-center justify-between text-xs">
@@ -1150,7 +880,7 @@ function FixedCostsAgenda({
                 />
               </div>
               <p className="mt-2 text-[11px] text-white/45">
-                {localPaid.size} de {entries.length} contas quitadas · marque conforme paga
+                {paidCount} de {entries.length} contas quitadas
               </p>
             </div>
           </div>
@@ -1217,7 +947,6 @@ function FixedCostsAgenda({
       <div className="ofx-rise" style={{ animationDelay: "120ms" }}>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-ink-900">Linha do tempo de pagamentos</h3>
-          <span className="text-xs text-ink-500">ordenado por vencimento</span>
         </div>
         <div className="rounded-card border border-ink-200/70 bg-surface p-2 shadow-card">
           <ul>
@@ -1279,7 +1008,6 @@ function FixedCostsAgenda({
                       {formatMoney(item.amount)}
                     </p>
                     <div className="hidden w-28 shrink-0 justify-end sm:flex">{entryStatusPill(status)}</div>
-                    <CheckToggle paid={isPaid} onToggle={() => togglePaid(item.fixed_cost_id)} />
                     <button
                       type="button"
                       onClick={() => toggleExpand(item)}
@@ -1440,510 +1168,6 @@ function FixedCostsAgenda({
   );
 }
 
-/** Shared empty state for the fixed-cost concept variants. */
-function FixedCostsEmpty() {
-  return (
-    <EmptyState
-      icon={<Wallet className="size-5" aria-hidden="true" />}
-      title="Nenhum custo fixo ativo neste mês."
-      detail="Cadastre os compromissos recorrentes na seção abaixo para acompanhar o plano."
-    />
-  );
-}
-
-/**
- * Concept B — "Compromissos". Summary cards + category filter chips over a
- * grid of subscription-style cards with a live "pago" toggle per card.
- */
-function FixedCostsGrid({
-  fixed,
-  expectedIncome,
-}: {
-  fixed: FixedCostsMonth;
-  expectedIncome: number;
-}) {
-  const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
-  const { paidIds, toggle, isPaid, effStatus } = useFixedPaid(entries);
-  const [filter, setFilter] = useState("Todas");
-
-  const total = Number(fixed.total || 0);
-  const paidSum = entries.filter(isPaid).reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  // isPaid is derived from paidIds; depend on paidIds to keep the memo stable.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const groups = useMemo(() => groupByCategory(entries, isPaid), [entries, paidIds]);
-  const cats = ["Todas", ...groups.map((g) => g.name)];
-  const shown = filter === "Todas" ? entries : entries.filter((e) => e.category_name === filter);
-  const incomeShare = expectedIncome > 0 ? (total / expectedIncome) * 100 : 0;
-
-  if (!entries.length) return <FixedCostsEmpty />;
-
-  const summary = [
-    {
-      label: "Total no mês",
-      value: total,
-      sub: expectedIncome > 0 ? `${percent(incomeShare)} da receita` : "compromissos recorrentes",
-      cls: "bg-primary-50 text-primary-600",
-      icon: <Wallet className="size-4" aria-hidden="true" />,
-    },
-    {
-      label: "Já pago",
-      value: paidSum,
-      sub: `${paidIds.size} de ${entries.length} contas`,
-      cls: "bg-positive-50 text-positive-600",
-      icon: <Check className="size-4" strokeWidth={3} aria-hidden="true" />,
-    },
-    {
-      label: "A pagar",
-      value: Math.max(total - paidSum, 0),
-      sub: `${entries.length - paidIds.size} pendentes`,
-      cls: "bg-warning-50 text-warning-600",
-      icon: <Clock className="size-4" aria-hidden="true" />,
-    },
-  ];
-
-  return (
-    <div className="space-y-5">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-600">
-          Custos fixos · {formatMonthLong(fixed.year_month)}
-        </p>
-        <h2 className="mt-1 text-2xl font-bold tracking-tight text-ink-900">
-          {entries.length} compromissos recorrentes
-        </h2>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {summary.map((s) => (
-          <div key={s.label} className="rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-medium text-ink-500">{s.label}</p>
-                <p className="mt-1.5 text-2xl font-bold tabular tracking-tight text-ink-900">
-                  {formatMoney(s.value)}
-                </p>
-              </div>
-              <span className={classNames("inline-flex size-9 items-center justify-center rounded-control", s.cls)}>
-                {s.icon}
-              </span>
-            </div>
-            <p className="mt-2 text-xs text-ink-500">{s.sub}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {cats.map((cat) => {
-          const active = filter === cat;
-          const color = cat === "Todas" ? "#475569" : categoryColor(cat);
-          return (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setFilter(cat)}
-              className={classNames(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                active
-                  ? "border-ink-900 bg-ink-900 text-white"
-                  : "border-ink-200 bg-surface text-ink-600 hover:border-ink-300",
-              )}
-            >
-              {cat !== "Todas" ? (
-                <span className="size-2 rounded-full" style={{ background: active ? "#fff" : color }} />
-              ) : null}
-              {cat}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {shown.map((item) => {
-          const status = effStatus(item);
-          const paid = status === "paid";
-          const color = categoryColor(item.category_name, item.category_color);
-          return (
-            <div
-              key={`${item.fixed_cost_id}-${item.due_date}`}
-              className="group flex flex-col rounded-card border border-ink-200/70 bg-surface p-4 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift"
-            >
-              <div className="flex items-start justify-between">
-                <CatAvatar category={item.category_name} color={color} size={44} radius={13} />
-                {entryStatusPill(status)}
-              </div>
-              <p className="mt-3 truncate text-sm font-semibold text-ink-900">{item.description}</p>
-              <p className="truncate text-xs font-medium" style={{ color }}>
-                {item.category_name}
-              </p>
-              <p className="mt-3 text-2xl font-bold tabular tracking-tight text-ink-900">
-                {formatMoney(item.amount)}
-              </p>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-ink-500">
-                <Calendar className="size-3.5 text-ink-400" aria-hidden="true" />
-                vence dia {item.due_day}
-              </div>
-              <button
-                type="button"
-                onClick={() => toggle(item.fixed_cost_id)}
-                className={classNames(
-                  "mt-4 inline-flex items-center justify-center gap-1.5 rounded-control border px-3 py-1.5 text-xs font-semibold transition-all duration-200",
-                  paid
-                    ? "border-positive-200 bg-positive-50 text-positive-700"
-                    : "border-ink-200 bg-surface text-ink-700 hover:border-positive-300 hover:bg-positive-50/40",
-                )}
-              >
-                {paid ? (
-                  <Check className="size-3.5" strokeWidth={3} aria-hidden="true" />
-                ) : (
-                  <Banknote className="size-3.5" aria-hidden="true" />
-                )}
-                {paid ? "Pago" : "Marcar pago"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Concept C — "Cascata da receita". A waterfall from expected income down
- * through each category to the month's leftover, plus ranked category cards.
- */
-function FixedCostsWaterfall({
-  fixed,
-  expectedIncome,
-}: {
-  fixed: FixedCostsMonth;
-  expectedIncome: number;
-}) {
-  const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
-  const { paidIds, mounted, isPaid } = useFixedPaid(entries);
-  const total = Number(fixed.total || 0);
-  // isPaid is derived from paidIds; depend on paidIds to keep the memo stable.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const groups = useMemo(() => groupByCategory(entries, isPaid), [entries, paidIds]);
-
-  if (!entries.length) return <FixedCostsEmpty />;
-
-  if (expectedIncome <= 0) {
-    return (
-      <EmptyState
-        icon={<AlertCircle className="size-5" aria-hidden="true" />}
-        title="Sem receita esperada para este mês."
-        detail="A cascata mostra como a receita se divide entre os custos fixos. Cadastre a receita esperada na aba Receita para visualizá-la."
-      />
-    );
-  }
-
-  const income = expectedIncome;
-  const remaining = income - total;
-  const chartH = 250;
-  const scale = chartH / income;
-
-  let running = income;
-  const steps: Array<{
-    key: string;
-    label: string;
-    value: number;
-    kind: "pos" | "drop";
-    color?: string;
-    before?: number;
-    after?: number;
-  }> = [{ key: "rec", label: "Receita", value: income, kind: "pos" }];
-  for (const g of groups) {
-    const before = running;
-    running -= g.total;
-    steps.push({ key: g.name, label: g.name, value: g.total, kind: "drop", color: g.color, before, after: running });
-  }
-  steps.push({ key: "rem", label: "Sobra p/ o mês", value: Math.max(remaining, 0), kind: "pos" });
-
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-600">
-            Custos fixos · {formatMonthLong(fixed.year_month)}
-          </p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-ink-900">
-            Para onde a receita escorre
-          </h2>
-          <p className="mt-0.5 text-sm text-ink-500">
-            Da receita esperada, os fixos consomem {percent((total / income) * 100)} antes de
-            qualquer gasto do dia a dia.
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs font-medium text-ink-500">Sobra após fixos</p>
-          <p
-            className={classNames(
-              "text-2xl font-bold tabular",
-              remaining < 0 ? "text-danger-600" : "text-positive-600",
-            )}
-          >
-            {formatMoney(remaining)}
-          </p>
-        </div>
-      </div>
-
-      <div className="rounded-card border border-ink-200/70 bg-surface p-6 shadow-card">
-        <div className="relative flex items-end gap-3" style={{ height: chartH }}>
-          {[0.25, 0.5, 0.75, 1].map((g) => (
-            <div
-              key={g}
-              className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-ink-100"
-              style={{ bottom: chartH * g }}
-            >
-              <span className="absolute -top-2 right-0 bg-surface pl-1 text-[10px] tabular text-ink-300">
-                {formatMoney0(income * g)}
-              </span>
-            </div>
-          ))}
-          {steps.map((s, i) => {
-            const h = Math.max(0, s.value * scale);
-            const bottom = s.kind === "drop" ? Math.max(0, (s.after ?? 0) * scale) : 0;
-            const color = s.kind === "pos" ? (s.key === "rec" ? "#0ea5e9" : "#10b981") : s.color;
-            return (
-              <div key={s.key} className="group relative flex h-full flex-1 flex-col items-center justify-end">
-                {s.kind === "drop" ? (
-                  <span
-                    className="pointer-events-none absolute left-[-12px] right-1/2 border-t border-ink-200"
-                    style={{ bottom: (s.before ?? 0) * scale }}
-                  />
-                ) : null}
-                <span
-                  className="absolute text-[11px] font-bold tabular text-ink-700"
-                  style={{ bottom: bottom + h + 2 }}
-                >
-                  {s.kind === "drop" ? "–" : ""}
-                  {formatMoney0(s.value)}
-                </span>
-                <div className="relative w-full" style={{ height: chartH }}>
-                  <div
-                    className="absolute left-1/2 w-[68%] -translate-x-1/2 rounded-t-md"
-                    style={{
-                      bottom,
-                      height: mounted ? h : 0,
-                      background: color,
-                      opacity: s.kind === "drop" ? 0.92 : 1,
-                      transition: "height 0.9s cubic-bezier(0.22,1,0.36,1)",
-                      transitionDelay: `${i * 80}ms`,
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-3 flex gap-3 border-t border-ink-100 pt-3">
-          {steps.map((s) => (
-            <div key={s.key} className="flex flex-1 items-center justify-center gap-1.5 text-center">
-              {s.kind === "drop" ? (
-                <span className="size-2 shrink-0 rounded-full" style={{ background: s.color }} />
-              ) : null}
-              <span
-                className={classNames(
-                  "text-[11px] font-medium leading-tight",
-                  s.kind === "pos" ? "text-ink-700" : "text-ink-500",
-                )}
-              >
-                {s.label}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {groups.map((g, i) => {
-          const share = total > 0 ? (g.total / total) * 100 : 0;
-          const paidPct = g.total > 0 ? (g.paid / g.total) * 100 : 0;
-          return (
-            <div key={g.name} className="rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="size-2.5 rounded-[4px]" style={{ background: g.color }} />
-                  <p className="text-sm font-semibold text-ink-900">{g.name}</p>
-                  <span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10px] font-medium text-ink-500">
-                    {g.count} {g.count === 1 ? "conta" : "contas"}
-                  </span>
-                </div>
-                <p className="text-sm font-bold tabular text-ink-900">{formatMoney(g.total)}</p>
-              </div>
-              <div className="mt-3">
-                <AnimatedBar value={paidPct} color={g.color} on={mounted} delay={200 + i * 60} height={6} />
-              </div>
-              <div className="mt-1.5 flex items-center justify-between text-[11px] text-ink-500">
-                <span>{percent(share)} dos fixos</span>
-                <span className="tabular">
-                  {formatMoney(g.paid)} pago · {formatMoney(g.total - g.paid)} a pagar
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Concept D — "Painel de comando". Category donut + legend alongside a paid
- * progress block and the next upcoming payments.
- */
-function FixedCostsCommand({
-  fixed,
-  expectedIncome,
-}: {
-  fixed: FixedCostsMonth;
-  expectedIncome: number;
-}) {
-  const entries = useMemo(() => fixed.entries || [], [fixed.entries]);
-  const { paidIds, mounted, isPaid } = useFixedPaid(entries);
-  const total = Number(fixed.total || 0);
-  const paidSum = entries.filter(isPaid).reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const overdueSum = entries
-    .filter((e) => e.status === "overdue")
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  // isPaid is derived from paidIds; depend on paidIds to keep the memo stable.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const groups = useMemo(() => groupByCategory(entries, isPaid), [entries, paidIds]);
-  const segments = groups.map((g) => ({ value: g.total, color: g.color, label: g.name }));
-  const upcoming = [...entries]
-    .filter((e) => e.status !== "paid")
-    .sort((a, b) => a.due_day - b.due_day)
-    .slice(0, 4);
-  const incomeShare = expectedIncome > 0 ? (total / expectedIncome) * 100 : 0;
-
-  if (!entries.length) return <FixedCostsEmpty />;
-
-  const kpis: Array<[string, number, "positive" | "warning" | "danger"]> = [
-    ["Pago", paidSum, "positive"],
-    ["A pagar", Math.max(total - paidSum, 0), "warning"],
-    ["Vencido", overdueSum, "danger"],
-  ];
-
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-600">
-            Custos fixos · {formatMonthLong(fixed.year_month)}
-          </p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-ink-900">Painel de comando</h2>
-        </div>
-        {expectedIncome > 0 ? (
-          <Badge tone="primary">{percent(incomeShare)} da receita</Badge>
-        ) : null}
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="rounded-card border border-ink-200/70 bg-surface p-6 shadow-card">
-          <div className="flex justify-center">
-            <Donut segments={segments} size={210} thickness={24} on={mounted}>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Total fixo</p>
-              <p className="text-2xl font-bold tabular tracking-tight text-ink-900">{formatMoney(total)}</p>
-              <p className="mt-0.5 text-[11px] text-ink-500">{entries.length} contas</p>
-            </Donut>
-          </div>
-          <div className="mt-5 space-y-2.5">
-            {groups.map((g) => (
-              <div key={g.name} className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2 text-ink-600">
-                  <span className="size-2.5 rounded-[4px]" style={{ background: g.color }} />
-                  {g.name}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="text-xs tabular text-ink-400">
-                    {percent(total > 0 ? (g.total / total) * 100 : 0)}
-                  </span>
-                  <span className="font-semibold tabular text-ink-900">{formatMoney(g.total)}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-5">
-          <div className="rounded-card border border-ink-200/70 bg-surface p-5 shadow-card">
-            <div className="flex items-baseline justify-between">
-              <h3 className="text-sm font-semibold text-ink-900">Progresso do mês</h3>
-              <span className="text-xs text-ink-500">
-                {formatMoney(paidSum)} de {formatMoney(total)} quitado
-              </span>
-            </div>
-            <div className="mt-3">
-              <AnimatedBar
-                value={total > 0 ? (paidSum / total) * 100 : 0}
-                color="#10b981"
-                on={mounted}
-                delay={250}
-                height={10}
-              />
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              {kpis.map(([label, value, tone]) => (
-                <div key={label} className="rounded-control bg-surface-muted p-3">
-                  <p className="text-[11px] font-medium text-ink-500">{label}</p>
-                  <p
-                    className={classNames(
-                      "mt-0.5 text-base font-bold tabular",
-                      tone === "positive"
-                        ? "text-positive-700"
-                        : tone === "warning"
-                          ? "text-warning-700"
-                          : "text-danger-600",
-                    )}
-                  >
-                    {formatMoney(value)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex-1 rounded-card border border-ink-200/70 bg-surface p-5 shadow-card">
-            <div className="mb-3 flex items-center gap-2">
-              <Bell className="size-4 text-ink-400" aria-hidden="true" />
-              <h3 className="text-sm font-semibold text-ink-900">Próximos vencimentos</h3>
-            </div>
-            {upcoming.length ? (
-              <ul className="space-y-1">
-                {upcoming.map((item) => {
-                  const color = categoryColor(item.category_name, item.category_color);
-                  return (
-                    <li
-                      key={`${item.fixed_cost_id}-${item.due_date}`}
-                      className="flex items-center gap-3 rounded-control px-2 py-2 transition-colors hover:bg-surface-muted"
-                    >
-                      <DayBadge day={item.due_day} tone={dayBadgeTone(item.status || "scheduled")} size={36} />
-                      <CatAvatar category={item.category_name} color={color} size={34} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-ink-900">{item.description}</p>
-                        <p className="truncate text-xs" style={{ color }}>
-                          {item.category_name}
-                        </p>
-                      </div>
-                      <div className="hidden sm:block">{entryStatusPill(item.status)}</div>
-                      <p className="w-20 shrink-0 text-right text-sm font-bold tabular text-ink-900">
-                        {formatMoney(item.amount)}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="py-6 text-center text-xs text-ink-400">
-                Todas as contas do mês já estão quitadas.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function CostsBase({
   data,
   showInactive,
@@ -1962,6 +1186,7 @@ function CostsBase({
   const [costDraft, setCostDraft] = useState<Partial<FixedCost>>({});
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
   const [catFilter, setCatFilter] = useState<string>("Todas");
+  const [showAddCostForm, setShowAddCostForm] = useState(false);
   const customCount = data.categories.filter((cat) => !cat.is_default).length;
   const catMap = useMemo(
     () => new Map(data.categories.map((c) => [c.id, c])),
@@ -1971,17 +1196,12 @@ function CostsBase({
   const activeCosts = data.costs.filter((cost) => cost.active);
   const inactiveCosts = data.costs.filter((cost) => !cost.active);
   const activeTotal = activeCosts.reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
-  const inactiveTotal = inactiveCosts.reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
   const catNames = ["Todas", ...Array.from(new Set(
     activeCosts.map((c) => catMap.get(Number(c.category_id))?.name).filter((n): n is string => Boolean(n)),
   ))];
   const filteredCosts = catFilter === "Todas"
     ? activeCosts
     : activeCosts.filter((c) => catMap.get(Number(c.category_id))?.name === catFilter);
-  const today = new Date().getDate();
-  const next7Days = Array.from({ length: 7 }, (_, i) => ((today + i - 1) % 31) + 1);
-  const upcomingCosts = activeCosts.filter((c) => c.due_day && next7Days.includes(Number(c.due_day)));
-  const upcomingTotal = upcomingCosts.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
   useEffect(() => {
     if (!quickCost.category_id && data.categories[0]) {
@@ -2015,6 +1235,7 @@ function CostsBase({
         due_day: Number(quickCost.due_day),
       });
       setQuickCost((current) => ({ ...current, description: "", amount: "", due_day: "" }));
+      setShowAddCostForm(false);
       await onReload();
       showToast("Custo fixo adicionado.", "success");
     } catch (err) {
@@ -2079,64 +1300,26 @@ function CostsBase({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-ink-900">Compromissos recorrentes</h2>
-          <p className="mt-1 text-sm text-ink-500">
-            {activeCosts.length} custos ativos ·{" "}
-            <span className="tabular font-semibold text-ink-700">{formatMoney(activeTotal)}</span> / mês
-          </p>
+          {activeCosts.length > 0 ? (
+            <p className="mt-1 text-sm text-ink-500">
+              {activeCosts.length} custos ativos ·{" "}
+              <span className="tabular font-semibold text-ink-700">{formatMoney(activeTotal)}</span> / mês
+            </p>
+          ) : null}
         </div>
         <Button
           type="button"
           variant="primary"
-          onClick={(e) => {
-            e.stopPropagation();
-            document.getElementById("add-cost-form")?.scrollIntoView({ behavior: "smooth" });
-          }}
+          onClick={(e) => { e.stopPropagation(); setShowAddCostForm((current) => !current); }}
         >
           <Plus className="size-4" aria-hidden="true" />
           Novo custo
         </Button>
       </div>
 
-      {/* 3 summary cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[
-          {
-            label: "Total mensal",
-            value: formatMoney(activeTotal),
-            icon: <Wallet className="size-4" aria-hidden="true" />,
-            toneClass: "bg-primary-50 text-primary-600",
-            sub: `${activeCosts.length} compromissos ativos`,
-          },
-          {
-            label: "Próximos 7 dias",
-            value: formatMoney(upcomingTotal),
-            icon: <Calendar className="size-4" aria-hidden="true" />,
-            toneClass: "bg-warning-50 text-warning-600",
-            sub: `${upcomingCosts.length} vencimentos próximos`,
-          },
-          {
-            label: "Inativos",
-            value: `${inactiveCosts.length} itens`,
-            icon: <X className="size-4" aria-hidden="true" />,
-            toneClass: "bg-ink-100 text-ink-500",
-            sub: `${formatMoney(inactiveTotal)} suspensos / mês`,
-          },
-        ].map((s) => (
-          <div key={s.label} className="flex items-start gap-3 rounded-card border border-ink-200/70 bg-surface p-4 shadow-card">
-            <span className={classNames("mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-control", s.toneClass)}>
-              {s.icon}
-            </span>
-            <div>
-              <p className="text-xs font-medium text-ink-500">{s.label}</p>
-              <p className="mt-0.5 text-base font-bold tabular leading-tight text-ink-900">{s.value}</p>
-              <p className="mt-0.5 text-[11px] text-ink-400">{s.sub}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filter row */}
+      {catNames.length > 1 || inactiveCosts.length > 0 ? (
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {catNames.length > 1 ? (
         <div className="flex flex-wrap gap-1.5">
           {catNames.map((cat) => {
             const isActive = catFilter === cat;
@@ -2160,6 +1343,8 @@ function CostsBase({
             );
           })}
         </div>
+        ) : <span />}
+        {inactiveCosts.length > 0 ? (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setShowInactive(!showInactive); }}
@@ -2171,7 +1356,9 @@ function CostsBase({
           <span className={classNames("size-1.5 rounded-full", showInactive ? "bg-ink-600" : "bg-ink-300")} />
           Mostrar inativos
         </button>
+        ) : null}
       </div>
+      ) : null}
 
       {/* Active flat list */}
       {filteredCosts.length > 0 ? (
@@ -2220,22 +1407,6 @@ function CostsBase({
                   )}
                 </div>
                 <div className="col-start-2 flex w-auto shrink-0 items-center justify-start gap-1 md:w-24 md:justify-end md:gap-0.5">
-                  <button
-                    type="button"
-                    title="Editar"
-                    className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-700 md:size-7 md:opacity-0 md:group-hover:opacity-100"
-                    onClick={(e) => { e.stopPropagation(); setEditingCost(cost.id); setCostDraft(cost); }}
-                  >
-                    <Pencil className="size-3.5" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Desativar"
-                    className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-warning-50 hover:text-warning-700 md:size-7 md:opacity-0 md:group-hover:opacity-100"
-                    onClick={async (e) => { e.stopPropagation(); await updateFixedCost(cost.id, { active: false }); await onReload(); }}
-                  >
-                    <X className="size-3.5" aria-hidden="true" />
-                  </button>
                   <div className="relative">
                     <button
                       type="button"
@@ -2283,15 +1454,7 @@ function CostsBase({
             );
           })}
         </div>
-      ) : (
-        <Card className="p-5 sm:p-6">
-          <EmptyState
-            icon={<Wallet className="size-5" aria-hidden="true" />}
-            title="Nenhum custo fixo cadastrado ainda."
-            detail="Comece pelos compromissos que se repetem todo mês: aluguel, internet, assinaturas."
-          />
-        </Card>
-      )}
+      ) : null}
 
       {/* Inactive section */}
       {showInactive && inactiveCosts.length > 0 && (
@@ -2352,6 +1515,7 @@ function CostsBase({
         </div>
       )}
 
+      {showAddCostForm ? (
       <Card id="add-cost-form" className="p-5 sm:p-6">
         <h2 className="text-sm font-semibold text-ink-900">Adicionar custo fixo</h2>
         <p className="mt-0.5 text-xs text-ink-500">
@@ -2378,7 +1542,7 @@ function CostsBase({
             ))}
           </div>
         ) : null}
-        <form className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-[170px_1fr_140px_90px_auto]" onSubmit={addCost}>
+        <form className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-[170px_1fr_140px_90px_auto_auto]" onSubmit={addCost}>
           <Select
             aria-label="Categoria"
             value={quickCost.category_id}
@@ -2422,9 +1586,16 @@ function CostsBase({
             <Plus className="size-4" aria-hidden="true" />
             Adicionar
           </Button>
+          <Button type="button" onClick={() => setShowAddCostForm(false)}>
+            Cancelar
+          </Button>
         </form>
 
-        <form className="mt-6 border-t border-ink-100 pt-5" onSubmit={addCategory}>
+        <details className="mt-6 border-t border-ink-100 pt-5">
+          <summary className="cursor-pointer text-sm font-semibold text-ink-700">
+            Criar categoria personalizada
+          </summary>
+        <form className="mt-4" onSubmit={addCategory}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-ink-900">Nova categoria personalizada</h3>
@@ -2434,7 +1605,7 @@ function CostsBase({
               {customCount}/{MAX_CUSTOM_CATEGORIES} criadas
             </span>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_100px_auto]">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
             <Input
               required
               placeholder="Nome da categoria"
@@ -2448,20 +1619,14 @@ function CostsBase({
               value={categoryForm.color}
               onChange={(event) => setCategoryForm((current) => ({ ...current, color: event.target.value }))}
             />
-            <Input
-              type="number"
-              aria-label="Ordem de exibição"
-              value={categoryForm.sort_order}
-              onChange={(event) =>
-                setCategoryForm((current) => ({ ...current, sort_order: Number(event.target.value) }))
-              }
-            />
             <Button type="submit" disabled={customCount >= MAX_CUSTOM_CATEGORIES}>
               Criar
             </Button>
           </div>
         </form>
+        </details>
       </Card>
+      ) : null}
     </div>
   );
 }
@@ -2484,6 +1649,7 @@ function IncomePlanning({
   const [editingEntry, setEditingEntry] = useState<number | null>(null);
   const [entryDraft, setEntryDraft] = useState<Partial<ExpectedIncomeEntry>>({});
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
+  const [showAddIncomeForm, setShowAddIncomeForm] = useState(false);
 
   const addEntry = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -2494,6 +1660,7 @@ function IncomePlanning({
         expected_day: Number(entryForm.expected_day),
       });
       setEntryForm({ description: "", amount: "", expected_day: "" });
+      setShowAddIncomeForm(false);
       await onReload();
       showToast("Entrada adicionada.", "success");
     } catch (err) {
@@ -2503,6 +1670,7 @@ function IncomePlanning({
 
   const total = data.incomeMonth.total;
   const activeEntries = data.incomeEntries.filter((e) => e.active);
+  const inactiveEntries = data.incomeEntries.filter((e) => !e.active);
   const shownEntries = showInactive ? data.incomeEntries : activeEntries;
 
   return (
@@ -2522,30 +1690,11 @@ function IncomePlanning({
             type="button"
             variant="primary"
             className="bg-positive-600 hover:bg-positive-700"
-            onClick={(e) => {
-              e.stopPropagation();
-              document.getElementById("add-income-form")?.scrollIntoView({ behavior: "smooth" });
-            }}
+            onClick={(e) => { e.stopPropagation(); setShowAddIncomeForm((current) => !current); }}
           >
             <Plus className="size-4" aria-hidden="true" />
             Nova entrada
           </Button>
-        </div>
-        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-control border border-positive-200 bg-positive-100/60 p-3.5">
-            <p className="text-xs font-medium text-positive-700">Entradas ativas</p>
-            <p className="mt-1 text-xl font-bold tabular text-positive-800">{formatMoney(total)}</p>
-            <p className="mt-0.5 text-xs text-positive-600">{activeEntries.length} entradas configuradas</p>
-          </div>
-          <div className="rounded-control border border-positive-200 bg-white/50 p-3.5">
-            <p className="text-xs font-medium text-positive-700">Inativos</p>
-            <p className="mt-1 text-xl font-bold tabular text-positive-800">
-              {data.incomeEntries.filter((e) => !e.active).length} entradas
-            </p>
-            <p className="mt-0.5 text-xs text-positive-600">
-              {data.incomeEntries.filter((e) => !e.active).length > 0 ? "Ative para incluir na receita" : "Nenhuma entrada inativa"}
-            </p>
-          </div>
         </div>
       </Card>
 
@@ -2553,10 +1702,13 @@ function IncomePlanning({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-ink-900">
           Entradas recorrentes
-          <span className="ml-2 text-xs font-normal text-ink-400">
-            {pluralize(data.incomeEntries.length, "entrada", "entradas")}
-          </span>
+          {data.incomeEntries.length > 0 ? (
+            <span className="ml-2 text-xs font-normal text-ink-400">
+              {pluralize(data.incomeEntries.length, "entrada", "entradas")}
+            </span>
+          ) : null}
         </h3>
+        {inactiveEntries.length > 0 ? (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setShowInactive(!showInactive); }}
@@ -2568,6 +1720,7 @@ function IncomePlanning({
           <span className={classNames("size-1.5 rounded-full", showInactive ? "bg-ink-600" : "bg-ink-300")} />
           Mostrar inativas
         </button>
+        ) : null}
       </div>
 
       {/* Entries list */}
@@ -2641,7 +1794,6 @@ function IncomePlanning({
                       <span className="rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold text-ink-500">Inativo</span>
                     )}
                   </div>
-                  <p className="mt-0.5 text-xs text-ink-400">recorrente · todo mês</p>
                 </div>
                 <p className={classNames("col-start-2 w-auto shrink-0 text-left text-sm font-bold tabular md:w-28 md:text-right", inactive ? "text-ink-400" : "text-positive-700")}>
                   {formatMoney(entry.amount)}
@@ -2657,14 +1809,6 @@ function IncomePlanning({
                   )}
                 </div>
                 <div className="col-start-2 flex w-auto shrink-0 items-center justify-start gap-1 md:w-16 md:justify-end md:gap-0.5">
-                  <button
-                    type="button"
-                    title="Editar"
-                    className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-700 md:size-7 md:opacity-0 md:group-hover:opacity-100"
-                    onClick={(e) => { e.stopPropagation(); setEditingEntry(entry.id); setEntryDraft(entry); }}
-                  >
-                    <Pencil className="size-3.5" aria-hidden="true" />
-                  </button>
                   <div className="relative">
                     <button
                       type="button"
@@ -2721,12 +1865,12 @@ function IncomePlanning({
         </Card>
       )}
 
-      {/* Add entry form */}
+      {showAddIncomeForm ? (
       <Card id="add-income-form" className="p-5 sm:p-6">
         <h2 className="text-sm font-semibold text-ink-900">Nova entrada recorrente</h2>
         <p className="mt-0.5 text-xs text-ink-500">A base que se repete todos os meses.</p>
         <form
-          className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_100px_auto]"
+          className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_100px_auto_auto]"
           onSubmit={addEntry}
         >
           <Input
@@ -2757,8 +1901,12 @@ function IncomePlanning({
           <Button type="submit" variant="primary">
             Adicionar
           </Button>
+          <Button type="button" onClick={() => setShowAddIncomeForm(false)}>
+            Cancelar
+          </Button>
         </form>
       </Card>
+      ) : null}
     </div>
   );
 }
@@ -2766,13 +1914,12 @@ function IncomePlanning({
 export function PlanejamentoPage() {
   const [selectedMonth, setSelectedMonth] = useState(getDefaultPlanningMonth());
   const [activeTab, setActiveTab] = useState<PlanningTab>(() => selectedTabFromLocation());
-  const [fixedVariant, setFixedVariant] = useState<FixedVariant>(() => storedFixedVariant());
   const [showInactiveCosts, setShowInactiveCosts] = useState(false);
   const [showInactiveIncome, setShowInactiveIncome] = useState(false);
   const months = useMemo(() => monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE + 1), []);
   const planningLoader = useCallback(
-    () => loadPlanningData(selectedMonth, showInactiveCosts, showInactiveIncome),
-    [selectedMonth, showInactiveCosts, showInactiveIncome],
+    () => loadPlanningData(selectedMonth),
+    [selectedMonth],
   );
   const { data, loading, error, run } = useAsync(planningLoader);
 
@@ -2783,26 +1930,21 @@ export function PlanejamentoPage() {
     window.history.replaceState({}, "", url);
   }, [activeTab]);
 
-  useEffect(() => {
-    window.localStorage.setItem(FIXED_VARIANT_STORAGE_KEY, fixedVariant);
-  }, [fixedVariant]);
-
   return (
     <>
       <Topbar
-        subtitle={
-          activeTab === "overview"
-            ? `O plano de ${formatMonthLong(selectedMonth).toLowerCase()} em uma tela.`
-            : activeTab === "custos"
-              ? "Compromissos recorrentes e ajustes do mês."
-              : activeTab === "variaveis"
-                ? "Metas para os gastos do dia a dia."
-                : "O que você espera receber em cada mês."
-        }
+        subtitle={formatMonthLong(selectedMonth)}
         actions={
-          <Button type="button" onClick={() => void run()} loading={loading}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label="Atualizar planejamento"
+            title="Atualizar"
+            onClick={() => void run()}
+            loading={loading}
+          >
             <RefreshCw className="size-4" aria-hidden="true" />
-            Atualizar
           </Button>
         }
       />
@@ -2819,11 +1961,7 @@ export function PlanejamentoPage() {
                 { key: "receita", label: "Receita" },
               ]}
             />
-            {/* Custos fixos são compromissos recorrentes, não uma visão por mês —
-                a navegação mensal fica oculta nessa aba. */}
-            {activeTab !== "custos" ? (
-              <MonthStrip months={months} value={selectedMonth} onChange={setSelectedMonth} />
-            ) : null}
+            <MonthStrip months={months} value={selectedMonth} onChange={setSelectedMonth} />
           </div>
 
           {loading && !data ? <LoadingState label="Carregando planejamento..." /> : null}
@@ -2837,57 +1975,12 @@ export function PlanejamentoPage() {
 
               {activeTab === "custos" ? (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-medium text-ink-500">Visualização</span>
-                    <div className="inline-flex rounded-control border border-ink-200 bg-surface p-0.5 shadow-card">
-                      {FIXED_VARIANTS.map((v) => {
-                        const active = fixedVariant === v.key;
-                        return (
-                          <button
-                            key={v.key}
-                            type="button"
-                            onClick={() => setFixedVariant(v.key)}
-                            aria-pressed={active}
-                            className={classNames(
-                              "rounded-[0.5rem] px-3 py-1.5 text-xs font-semibold transition-colors",
-                              active
-                                ? "bg-ink-900 text-white"
-                                : "text-ink-600 hover:bg-surface-muted hover:text-ink-900",
-                            )}
-                          >
-                            {v.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {fixedVariant === "agenda" ? (
-                    <FixedCostsAgenda
-                      fixed={data.fixedMonth}
-                      expectedIncome={data.capacity.expected_income_total || 0}
-                      selectedMonth={selectedMonth}
-                      onReload={run}
-                    />
-                  ) : null}
-                  {fixedVariant === "grid" ? (
-                    <FixedCostsGrid
-                      fixed={data.fixedMonth}
-                      expectedIncome={data.capacity.expected_income_total || 0}
-                    />
-                  ) : null}
-                  {fixedVariant === "waterfall" ? (
-                    <FixedCostsWaterfall
-                      fixed={data.fixedMonth}
-                      expectedIncome={data.capacity.expected_income_total || 0}
-                    />
-                  ) : null}
-                  {fixedVariant === "command" ? (
-                    <FixedCostsCommand
-                      fixed={data.fixedMonth}
-                      expectedIncome={data.capacity.expected_income_total || 0}
-                    />
-                  ) : null}
+                  <FixedCostsAgenda
+                    fixed={data.fixedMonth}
+                    expectedIncome={data.capacity.expected_income_total || 0}
+                    selectedMonth={selectedMonth}
+                    onReload={run}
+                  />
 
                   <CostsBase
                     data={data}

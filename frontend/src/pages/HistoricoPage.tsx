@@ -17,7 +17,6 @@ import {
 import { BarChart } from "../components/charts/BarChart";
 import { PageContainer } from "../components/layout/PageContainer";
 import { Topbar } from "../components/layout/Topbar";
-import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ChartCard } from "../components/ui/ChartCard";
@@ -37,10 +36,7 @@ import { categoryColor } from "../lib/categories";
 import { formatDayLabel, formatMonthCompact, formatMonthLong } from "../lib/dates";
 import {
   cashflowTypeLabel,
-  classificationSourceLabel,
-  invoiceSourceLabel,
   pluralCompras,
-  pluralize,
 } from "../lib/labels";
 import { formatMoney } from "../lib/money";
 import type { ClassificationOptions, Transaction } from "../types/common";
@@ -125,7 +121,6 @@ function InvoiceCardDetails({
           <h2 className="text-sm font-semibold text-ink-900">
             Cartões usados em {formatMonthLong(month.month)}
           </h2>
-          <p className="mt-0.5 text-xs text-ink-500">Detalhamento da fatura selecionada</p>
         </div>
       </div>
       {cards.length ? (
@@ -160,17 +155,6 @@ function InvoiceCardDetails({
       )}
     </Card>
   );
-}
-
-function monthSourceBadge(item?: Partial<InvoiceHistoryMonth> | null) {
-  const source = item?.invoice_total_source || "";
-  if (source === "pluggy_official_bill") return <Badge tone="positive">Fatura fechada</Badge>;
-  if (source === "credit_card_invoice_snapshot") return <Badge tone="accent">Registro histórico</Badge>;
-  if (source === "dashboard_current_invoice" || source === "pending_current_invoice") {
-    return <Badge tone="primary">Fatura vigente</Badge>;
-  }
-  if (source === "missing_official_bill_fallback") return <Badge>Sem fatura oficial</Badge>;
-  return null;
 }
 
 function summarizeCashflow(data: CashflowSummary | null) {
@@ -210,8 +194,6 @@ function transactionMeta(tx: Transaction): string {
   if (displayCategory) parts.push(displayCategory);
   const flow = cashflowTypeLabel(tx.cashflow_type);
   if (flow) parts.push(flow);
-  const source = classificationSourceLabel(tx.classification_source);
-  if (source) parts.push(source);
   return parts.join(" · ");
 }
 
@@ -363,12 +345,7 @@ function InvoiceTab({ data }: { data: InvoiceHistorySummary }) {
 
   const active =
     data.months.find((item) => item.month === selectedMonth) || data.months[data.months.length - 1];
-  const largest = monthsWithData.reduce<InvoiceHistoryMonth | null>(
-    (best, item) => (!best || invoiceDisplayTotal(item) > invoiceDisplayTotal(best) ? item : best),
-    null,
-  );
   const periodTotal = invoiceDisplayTotal(data);
-  const average = monthsWithData.length > 0 ? periodTotal / monthsWithData.length : 0;
 
   const barColors = data.months.map((item) =>
     item.month === active?.month ? CHART_COLORS.primarySelected : CHART_COLORS.primarySoft,
@@ -386,34 +363,19 @@ function InvoiceTab({ data }: { data: InvoiceHistorySummary }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <MetricCard
-          label="Faturas no período"
+          label="Total no período"
           value={formatMoney(periodTotal)}
-          subtitle="Meses fechados valem a fatura oficial do banco; a vigente é calculada."
         />
         <MetricCard
-          label="Mês selecionado"
+          label={formatMonthLong(active.month)}
           value={formatMoney(invoiceDisplayTotal(active))}
-          subtitle={`${formatMonthLong(active.month)} · ${invoiceSourceLabel(active.invoice_total_source)}`}
           tone="primary"
-        />
-        <MetricCard
-          label="Maior fatura"
-          value={largest ? formatMoney(invoiceDisplayTotal(largest)) : "—"}
-          subtitle={
-            largest
-              ? `${formatMonthCompact(largest.month)} · média do período ${formatMoney(average)}`
-              : "—"
-          }
-          tone="warning"
         />
       </div>
 
-      <ChartCard
-        title="Evolução das faturas"
-        subtitle="Clique em um mês para analisar — o selecionado fica em destaque"
-      >
+      <ChartCard title="Evolução das faturas">
         <BarChart
           labels={data.months.map((month) => formatMonthCompact(month.month))}
           ariaLabel="Evolução mensal das faturas de cartão"
@@ -435,10 +397,6 @@ function InvoiceTab({ data }: { data: InvoiceHistorySummary }) {
       <Card className="overflow-hidden">
         <div className="border-b border-ink-100 px-5 py-4">
           <h2 className="text-sm font-semibold text-ink-900">Mês a mês</h2>
-          <p className="mt-0.5 text-xs text-ink-500">
-            Meses fechados respeitam o valor oficial do banco; a fatura vigente usa o cálculo do
-            Dashboard.
-          </p>
         </div>
         <ul className="divide-y divide-ink-100">
           {[...data.months].reverse().map((item) => {
@@ -452,9 +410,6 @@ function InvoiceTab({ data }: { data: InvoiceHistorySummary }) {
                 >
                   <div>
                     <p className="text-sm font-medium text-ink-900">{formatMonthLong(item.month)}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
-                      {monthSourceBadge(item)}
-                    </div>
                   </div>
                   <span className="text-sm font-semibold tabular text-ink-900">
                     {hasInvoiceMonthData(item) ? formatMoney(invoiceDisplayTotal(item)) : "Sem fatura"}
@@ -572,23 +527,15 @@ function CategorySpendingTab({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <MetricCard
           label="Gastos classificados"
           value={formatMoney(periodClassifiedTotal)}
-          subtitle={pluralize(periodMonths.length, "mês analisado", "meses analisados")}
         />
         <MetricCard
           label="Média mensal"
           value={formatMoney(periodMonths.length ? periodClassifiedTotal / periodMonths.length : 0)}
-          subtitle={`${pluralCompras(periodCount)} nos últimos 12 meses`}
           tone="primary"
-        />
-        <MetricCard
-          label="Categorias"
-          value={categories.length.toLocaleString("pt-BR")}
-          subtitle="Agrupadas pela regra central do cartão"
-          tone="warning"
         />
       </div>
 
@@ -610,7 +557,7 @@ function CategorySpendingTab({
               )
             }
           >
-            Ver todas as compras
+            Ver todas
           </Button>
         </div>
 
@@ -723,29 +670,23 @@ function CashflowTab({
         <MetricCard
           label="Total de entradas"
           value={formatMoney(summary.total_entradas)}
-          subtitle={pluralize(summary.total_entradas_count, "crédito no período", "créditos no período")}
           tone="positive"
           icon={<ArrowDownRight className="size-4" aria-hidden="true" />}
         />
         <MetricCard
           label="Total de saídas"
           value={formatMoney(summary.total_saidas)}
-          subtitle={pluralize(summary.total_saidas_count, "débito no período", "débitos no período")}
           tone="danger"
           icon={<ArrowUpRight className="size-4" aria-hidden="true" />}
         />
         <MetricCard
           label="Resultado"
           value={`${summary.net >= 0 ? "+" : "−"}${formatMoney(Math.abs(summary.net))}`}
-          subtitle="Entradas menos saídas bancárias"
           tone={summary.net >= 0 ? "positive" : "danger"}
         />
       </div>
 
-      <ChartCard
-        title="Entradas e saídas por mês"
-        subtitle="Movimentações da conta: PIX, boleto, transferências e pagamentos. Clique para abrir o mês."
-      >
+      <ChartCard title="Entradas e saídas por mês">
         <BarChart
           labels={summary.months.map((month) => formatMonthCompact(month.month))}
           ariaLabel="Entradas e saídas bancárias por mês"
@@ -780,9 +721,6 @@ function CashflowTab({
       <Card className="overflow-hidden">
         <div className="border-b border-ink-100 px-5 py-4">
           <h2 className="text-sm font-semibold text-ink-900">Mês a mês</h2>
-          <p className="mt-0.5 text-xs text-ink-500">
-            Somente movimentações bancárias; o cartão entra quando a fatura é paga.
-          </p>
         </div>
         <Table>
           <thead>
@@ -859,17 +797,17 @@ export function HistoricoPage() {
   return (
     <>
       <Topbar
-        subtitle={
-          activeTab === "invoices"
-            ? "Como as faturas evoluíram mês a mês."
-            : activeTab === "categories"
-              ? "Para onde o dinheiro foi, por categoria."
-              : "Entradas e saídas bancárias dos últimos meses."
-        }
         actions={
-          <Button type="button" onClick={() => void run()} loading={loading}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label="Atualizar histórico"
+            title="Atualizar"
+            onClick={() => void run()}
+            loading={loading}
+          >
             <RefreshCw className="size-4" aria-hidden="true" />
-            Atualizar
           </Button>
         }
       />
