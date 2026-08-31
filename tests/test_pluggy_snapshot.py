@@ -382,7 +382,6 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
         "year_month",
         "amount",
         "source",
-        "source_label",
         "is_estimated",
         "due_dates",
         "cards",
@@ -616,10 +615,8 @@ class PlanningInvoiceForMonthTest(_SyncTestBase):
             "card_invoice_official_total",
             "card_invoice_current_open_total",
             "card_invoice_current_open_source",
-            "card_invoice_current_open_label",
             "future_card_obligation_total",
             "future_card_obligation_source",
-            "future_card_obligation_display_month",
             "card_invoice_remaining_to_include",
             "credit_card_due_dates",
         ):

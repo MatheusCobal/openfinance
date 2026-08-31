@@ -121,7 +121,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(summary["cutoff_date"], "2026-07-31")
         self.assertEqual(summary["source"], "pending_transactions")
         self.assertEqual(summary["amount"], 600.0)
-        self.assertEqual(summary["category_total"], 600.0)
+        self.assertEqual(sum(category["total"] for category in summary["categories"]), 600.0)
         self.assertEqual(summary["transaction_count"], 3)
         self.assertEqual(
             {tx["id"] for tx in summary["raw_purchase_transactions"]},
@@ -147,7 +147,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
 
         self.assertEqual(summary["amount"], 0.0)
         self.assertEqual(summary["categories"], [])
-        self.assertEqual(summary["reconciliation"]["unreconciled_amount"], 0.0)
+        self.assertEqual(summary["raw_purchase_transactions"], [])
+        self.assertNotIn("reconciliation", summary)
         self.assertNotIn("raw_account_balance_total", summary)
         self.assertNotIn("adjusted_total", summary)
 
@@ -295,9 +296,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertNotIn("next_invoice", summary)
         self.assertNotIn("total_count", summary)
         self.assertTrue(july["is_current_invoice"])
-        self.assertEqual(july["invoice_source"], "pending_current_invoice")
         self.assertEqual(july["total"], 600.0)
-        self.assertEqual(july["detailed_total"], 600.0)
+        self.assertEqual(sum(tx["amount"] for tx in july["transactions"]), 600.0)
         self.assertEqual(july["count"], 3)
         self.assertEqual(
             {tx["id"] for tx in july["transactions"]},
@@ -367,11 +367,11 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(caixa_transaction["institution_name"], "CAIXA")
         self.assertEqual(caixa_transaction["card_brand"], "MASTERCARD")
         cards = {card["account_id"]: card for card in july["cards"]}
-        self.assertEqual(cards["credit-1"]["pending_total"], 100.0)
+        self.assertEqual(cards["credit-1"]["total_amount"], 100.0)
         self.assertNotIn("credit-caixa", cards)
         august_cards = {card["account_id"]: card for card in august["cards"]}
         self.assertEqual(august_cards["credit-caixa"]["total_amount"], 200.0)
-        self.assertEqual(august_cards["credit-caixa"]["closing_day"], 24)
+        self.assertNotIn("closing_day", august_cards["credit-caixa"])
 
     def test_caixa_statement_markers_are_exact_normalized_and_caixa_scoped(self):
         with Session(self.engine) as session:
@@ -527,7 +527,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(
             {tx["id"] for tx in current["raw_purchase_transactions"]}, {"caixa-current-purchase"}
         )
-        self.assertEqual(months["2026-08"]["invoice_total_source"], "pluggy_official_bill")
+        self.assertNotIn("invoice_total_source", months["2026-08"])
         self.assertEqual(months["2026-08"]["invoice_display_total"], 1080.69)
         self.assertEqual(months["2026-09"]["invoice_display_total"], 300.0)
 
@@ -635,9 +635,9 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(transaction_ids, {"itau-aug", "caixa-after-close"})
         self.assertNotIn("caixa-before-close", transaction_ids)
         september_cards = {card["account_id"]: card for card in september["cards"]}
-        self.assertEqual(september_cards["credit-1"]["pending_total"], 600.0)
+        self.assertEqual(september_cards["credit-1"]["total_amount"], 600.0)
         self.assertEqual(september_cards["credit-caixa"]["total_amount"], 300.0)
-        self.assertFalse(september_cards["credit-caixa"]["is_official"])
+        self.assertNotIn("is_official", september_cards["credit-caixa"])
 
     def test_caixa_official_vigente_bill_has_same_priority_everywhere(self):
         with Session(self.engine) as session:
@@ -682,10 +682,12 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         current_month = next(month for month in upcoming["months"] if month["is_current_invoice"])
         self.assertEqual(current_month["total"], 777.0)
         self.assertEqual(history["months"][0]["invoice_display_total"], 777.0)
-        self.assertEqual(current["reconciliation"]["detailed_total"], 200.0)
-        self.assertEqual(current["reconciliation"]["unreconciled_amount"], 577.0)
-        self.assertEqual(current["cards"][0]["invoice_source"], "caixa_official_bill")
-        self.assertTrue(current["cards"][0]["is_official"])
+        detailed_total = sum(tx["signed_amount"] for tx in current["raw_purchase_transactions"])
+        self.assertEqual(detailed_total, 200.0)
+        self.assertEqual(current["amount"] - detailed_total, 577.0)
+        self.assertEqual(current["cards"][0]["total_amount"], 777.0)
+        self.assertNotIn("invoice_source", current["cards"][0])
+        self.assertNotIn("is_official", current["cards"][0])
 
     def test_caixa_uses_forecast_credits_and_projects_known_installments(self):
         with Session(self.engine) as session:
@@ -784,12 +786,11 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertTrue(september["is_current_invoice"])
         self.assertAlmostEqual(history["months"][0]["invoice_display_total"], 524.65)
         self.assertAlmostEqual(history["months"][0]["classified_purchase_total"], 524.65)
-        self.assertEqual(
-            history["months"][0]["invoice_total_source"],
-            "canonical_invoice_schedule",
-        )
+        self.assertNotIn("invoice_total_source", history["months"][0])
         self.assertAlmostEqual(september["total"], 524.65)
-        self.assertAlmostEqual(september["detailed_total"], 524.65)
+        self.assertAlmostEqual(
+            sum(tx["signed_amount"] for tx in september["transactions"]), 524.65
+        )
         self.assertEqual(september["count"], 3)
         transactions = {tx["id"]: tx for tx in september["transactions"]}
         self.assertEqual(
@@ -817,10 +818,9 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertAlmostEqual(history_categories["Créditos / Estornos"]["total"], -23.35)
 
         card = next(card for card in september["cards"] if card["account_id"] == "credit-caixa")
-        self.assertEqual(card["invoice_source"], "caixa_pluggy_forecast")
-        self.assertEqual(card["projected_count"], 1)
-        self.assertEqual(card["projected_total"], 348.0)
-        self.assertEqual(card["credits_total"], 23.35)
+        self.assertAlmostEqual(card["total_amount"], 524.65)
+        self.assertEqual(projected["amount"], 348.0)
+        self.assertEqual(sum(bool(tx.get("is_projected")) for tx in transactions.values()), 1)
 
     def test_caixa_projects_future_invoices_from_posted_installment_anchor(self):
         with Session(self.engine) as session:
@@ -861,8 +861,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             row = months[month]
             caixa_card = next(card for card in row["cards"] if card["account_id"] == "credit-caixa")
             self.assertEqual(caixa_card["total_amount"], 125.0)
-            self.assertEqual(caixa_card["projected_total"], 125.0)
-            self.assertEqual(caixa_card["projected_count"], 1)
+            self.assertEqual(len(row["transactions"]), 1)
             self.assertEqual(row["total"], 125.0)
             transaction = next(
                 tx for tx in row["transactions"] if tx["account_id"] == "credit-caixa"

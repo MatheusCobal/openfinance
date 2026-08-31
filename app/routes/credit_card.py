@@ -30,7 +30,7 @@ def credit_card_invoice(
     """Single source of truth for the planning invoice of ``year_month``.
 
     Returns the structured ``planning_invoice`` object: amount, source,
-    source_label, is_estimated, due_dates, cards, transaction_count,
+    is_estimated, due_dates, cards, transaction_count,
     bill_count, account_count, cycle_start, cycle_end.
     """
     try:

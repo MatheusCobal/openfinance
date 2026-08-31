@@ -17,6 +17,15 @@ Tela inicial do app. Resumo executivo com:
 
 A Dashboard consulta `/items` apenas para identificar conexões ativas; o antigo resumo de saldo bancário foi removido. Receitas recebidas continuam disponíveis no Planejamento e no Histórico, onde ainda são usadas. A resposta de `/upcoming` mantém faturas e parcelas em `months`, sem o resumo duplicado `next_invoice` nem a contagem global dos cards removidos.
 
+Os contratos da API acompanham a limpeza da interface:
+
+- `/upcoming` retorna mês, total, quantidade, indicação da fatura vigente, cartões, categorias e transações. Cada cartão contém apenas sua identificação e `total_amount`; foram retirados totais duplicados, origem textual, fechamento, limite usado, indicadores de projeção/crédito e diferenças de conciliação.
+- `/credit-card/current-invoice` mantém os valores e detalhes financeiros, sem `source_label`, `source_detail`, `confidence`, `status_filter`, `category_total` ou o resumo `reconciliation`. Créditos e parcelas previstas continuam nos lançamentos e no valor da fatura.
+- O histórico não retorna mais os campos de origem usados pelos badges nem a diferença calculada apenas para o texto explicativo removido.
+- O planejamento não calcula mais os totais intermediários da antiga cascata, o percentual de receita recebida ou o mês deslocado usado pelo rótulo antigo. Disponibilidade, valor diário, metas, receitas e custos fixos permanecem.
+
+As fontes operacionais usadas para escolher a fatura correta, as regras de classificação, os snapshots históricos e os dados persistidos são preservados. O seletor de 13 meses permanece inalterado.
+
 ### Planejamento (`/planejamento`)
 Tela de planejamento e controle mensal. Visão mensal futura com:
 - Receita esperada

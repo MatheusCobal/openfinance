@@ -135,10 +135,7 @@ async function loadPlanningData(selectedMonth: string): Promise<PlanningData> {
 function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
   const isFuture = isFuturePlanningMonth(capacity);
   const free = asMoneyNumber(
-    capacity.budget_available_to_spend ??
-      capacity.available_to_spend ??
-      capacity.remaining_after_plan ??
-      capacity.remaining_after_invoice,
+    capacity.budget_available_to_spend ?? capacity.available_to_spend,
   );
   const income = capacity.expected_income_total || 0;
   const fixed = isFuture

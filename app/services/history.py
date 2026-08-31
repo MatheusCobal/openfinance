@@ -250,7 +250,6 @@ def _history_invoice_card(
     account_id: str,
     total: Decimal,
     count: int,
-    source: str,
     accounts_by_id: Dict[str, Account],
     items_by_id: Dict[str, Item],
 ) -> dict[str, Any]:
@@ -271,7 +270,6 @@ def _history_invoice_card(
         "card_last_four": number[-4:] if number else None,
         "total": float(total),
         "count": count,
-        "source": source,
     }
 
 
@@ -474,7 +472,7 @@ def credit_card_invoice_purchases_monthly_summary(
             continue
         bucket = payment_cards_by_month[payment_month].setdefault(
             payment.account_id,
-            {"total": Decimal("0"), "count": 0, "source": "invoice_payments"},
+            {"total": Decimal("0"), "count": 0},
         )
         bucket["total"] += abs(payment.amount)
         bucket["count"] += 1
@@ -556,26 +554,16 @@ def credit_card_invoice_purchases_monthly_summary(
         is_current_invoice = selected_month == vigente_month
         if is_current_invoice:
             month_invoice_display_total = current_invoice_total
-            invoice_total_source = (
-                "canonical_invoice_schedule"
-                if current_invoice.get("source") == "canonical_invoice_schedule"
-                else "pending_current_invoice"
-            )
         elif official_bill_total is not None:
             month_invoice_display_total = official_bill_total
-            invoice_total_source = "pluggy_official_bill"
         elif snapshot_invoice_total is not None:
             month_invoice_display_total = snapshot_invoice_total
-            invoice_total_source = "credit_card_invoice_snapshot"
         else:
             month_invoice_display_total = month_classified_total
-            invoice_total_source = "missing_official_bill_fallback"
         invoice_display_total += month_invoice_display_total
 
         card_buckets: dict[str, dict[str, Any]] = {}
-        card_breakdown_source = "classified_purchases"
         if is_current_invoice:
-            card_breakdown_source = "current_invoice"
             for card in current_invoice.get("cards", []):
                 account_id = str(card.get("account_id") or "")
                 card_total = Decimal(str(card.get("total_amount") or 0))
@@ -585,11 +573,9 @@ def credit_card_invoice_purchases_monthly_summary(
                 card_buckets[account_id] = {
                     "total": card_total,
                     "count": card_count,
-                    "source": str(card.get("invoice_source") or card_breakdown_source),
                     "card": card,
                 }
         elif bill_bucket is not None:
-            card_breakdown_source = "official_bills"
             for bill in bill_bucket["bills"]:
                 account_id = str(bill["account_id"])
                 bucket = card_buckets.setdefault(
@@ -597,7 +583,6 @@ def credit_card_invoice_purchases_monthly_summary(
                     {
                         "total": Decimal("0"),
                         "count": 0,
-                        "source": card_breakdown_source,
                     },
                 )
                 bucket["total"] += Decimal(str(bill["total_amount"]))
@@ -611,12 +596,9 @@ def credit_card_invoice_purchases_monthly_summary(
             if snapshot_cards and abs(snapshot_cards_total - snapshot_invoice_total) <= Decimal(
                 "0.01"
             ):
-                card_breakdown_source = "invoice_payments"
                 card_buckets = {
                     account_id: dict(bucket) for account_id, bucket in snapshot_cards.items()
                 }
-            else:
-                card_breakdown_source = "unavailable"
         else:
             for tx in txs:
                 account_id = str(tx.get("account_id") or "")
@@ -627,7 +609,6 @@ def credit_card_invoice_purchases_monthly_summary(
                     {
                         "total": Decimal("0"),
                         "count": 0,
-                        "source": card_breakdown_source,
                     },
                 )
                 bucket["total"] += Decimal(
@@ -642,7 +623,6 @@ def credit_card_invoice_purchases_monthly_summary(
                 account_id,
                 bucket["total"],
                 bucket["count"],
-                bucket["source"],
                 accounts_by_id,
                 items_by_id,
             )
@@ -688,7 +668,6 @@ def credit_card_invoice_purchases_monthly_summary(
                     "total": Decimal("0"),
                     "count": 0,
                     "cashflow_type": "refund" if contribution < 0 else "expense",
-                    "source": "pluggy_based_classification",
                     "transactions": [],
                 },
             )
@@ -731,7 +710,6 @@ def credit_card_invoice_purchases_monthly_summary(
                 "month": selected_month,
                 "total": float(month_invoice_display_total),
                 "invoice_display_total": float(month_invoice_display_total),
-                "invoice_total_source": invoice_total_source,
                 "official_bill_total": (
                     float(official_bill_total) if official_bill_total is not None else None
                 ),
@@ -749,16 +727,9 @@ def credit_card_invoice_purchases_monthly_summary(
                 ),
                 "snapshot_updated_at": (snapshot_bucket["updated_at"] if snapshot_bucket else None),
                 "classified_purchase_total": float(month_classified_total),
-                "classified_purchase_difference_from_invoice": float(
-                    month_classified_total - month_invoice_display_total
-                ),
                 "cards": cards,
                 "card_breakdown_total": float(card_breakdown_total),
-                "card_breakdown_source": card_breakdown_source,
                 "is_current_invoice": is_current_invoice,
-                "dashboard_current_invoice_source": (
-                    current_invoice.get("source") if is_current_invoice else None
-                ),
                 "count": len(txs),
                 "average_months_available": average_months_used,
                 "categories": sorted(

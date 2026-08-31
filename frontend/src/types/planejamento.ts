@@ -107,21 +107,17 @@ export interface PlanningOverview {
   future_card_obligation_total?: number;
   future_card_obligation_source?: string;
   future_card_obligation_count?: number;
-  future_card_obligation_display_month?: string | null;
   card_invoice_remaining_to_include?: number;
   card_invoice_official_total?: number;
   card_invoice_gross_total?: number;
   card_invoice_source?: string;
   card_invoice_current_open_total?: number;
   card_invoice_current_open_source?: string;
-  card_invoice_current_open_label?: string;
   card_invoice_cycle_start?: string | null;
   card_invoice_cycle_end?: string | null;
   bank_outflows_total?: number;
   available_to_spend?: number;
   budget_available_to_spend?: number;
-  remaining_after_plan?: number;
-  remaining_after_invoice?: number;
   daily_discretionary_remaining?: number;
   days_remaining_in_month?: number;
   plan_status?: PlanStatus;
@@ -167,14 +163,12 @@ export interface CreditCardInvoice {
   adjusted_total?: number;
   remaining_amount?: number;
   source?: string;
-  source_label?: string;
   is_estimated?: boolean;
   due_dates?: string[];
   cards?: Array<Record<string, any>>;
   categories?: InvoiceCategory[];
   raw_purchase_transactions?: Transaction[];
   recent_purchase_transactions?: Transaction[];
-  reconciliation?: Record<string, any>;
   year_month?: string;
 }
 

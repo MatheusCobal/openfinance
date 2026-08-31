@@ -22,7 +22,6 @@ export interface InvoiceHistoryCard {
   card_last_four?: string | null;
   total: number;
   count?: number;
-  source?: string;
 }
 
 export interface InvoiceHistoryMonth {
@@ -31,10 +30,8 @@ export interface InvoiceHistoryMonth {
   count: number;
   invoice_display_total?: number;
   classified_purchase_total?: number;
-  invoice_total_source?: string;
   cards?: InvoiceHistoryCard[];
   card_breakdown_total?: number;
-  card_breakdown_source?: string;
   categories?: InvoiceHistoryCategory[];
   transactions?: Transaction[];
 }

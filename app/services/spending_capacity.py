@@ -206,16 +206,6 @@ def spending_capacity_summary(
         received_income_total - expected_income_total,
         Decimal("0"),
     )
-    income_received_progress_pct = (
-        (float(received_income_total) / float(expected_income_total)) * 100
-        if expected_income_total > 0
-        else None
-    )
-
-    planned_expense_total = fixed_cost_total + variable_budget_total
-    planned_after_fixed_costs = expected_income_total - fixed_cost_total
-    remaining_after_plan = expected_income_total - planned_expense_total
-
     current_ym = today.strftime("%Y-%m")
     if year_month == current_ym:
         planning_mode = "current_month"
@@ -249,14 +239,12 @@ def spending_capacity_summary(
     if planning_mode == "current_month":
         card_invoice_current_open_total = planning_inv_amount
         card_invoice_current_open_source = planning_inv["source"]
-        card_invoice_current_open_label = planning_inv["source_label"]
         card_invoice_cycle_start = planning_inv.get("cycle_start")
         card_invoice_cycle_end = planning_inv.get("cycle_end")
         card_invoice_tx_count = planning_inv.get("transaction_count", 0)
     else:
         card_invoice_current_open_total = Decimal("0")
         card_invoice_current_open_source = "none"
-        card_invoice_current_open_label = None
         card_invoice_cycle_start = None
         card_invoice_cycle_end = None
         card_invoice_tx_count = 0
@@ -308,15 +296,6 @@ def spending_capacity_summary(
         future_card_obligation_source = "none"
         future_card_obligation_count = 0
 
-    if future_card_obligation_source == "scheduled_installments":
-        _ym_y, _ym_m = int(year_month[:4]), int(year_month[5:])
-        if _ym_m == 12:
-            future_card_obligation_display_month = f"{_ym_y + 1}-01"
-        else:
-            future_card_obligation_display_month = f"{_ym_y}-{_ym_m + 1:02d}"
-    else:
-        future_card_obligation_display_month = year_month
-
     # For future months: the forming invoice already captures spending on budgeted
     # categories. Reserve only the per-category uncommitted portion (sum of
     # max(goal - spent, 0) per category). Categories that exceeded their goal
@@ -343,9 +322,6 @@ def spending_capacity_summary(
             - variable_budget_reserved
             - card_invoice_remaining_to_include
         )
-
-    remaining_after_invoice = planned_after_fixed_costs - card_invoice_discretionary_total
-    remaining_after_plan_and_invoice = remaining_after_plan - card_invoice_discretionary_total
 
     if today > last_day:
         days_remaining_in_month = 0
@@ -381,7 +357,6 @@ def spending_capacity_summary(
         "bank_outflows_total": float(bank_outflows_total),
         "income_to_receive": float(income_to_receive),
         "income_over_expected": float(income_over_expected),
-        "income_received_progress_pct": income_received_progress_pct,
         "fixed_cost_total": float(fixed_cost_total),
         "fixed_cost_planned_total": float(fixed_cost_planned_total),
         "fixed_cost_actual_total": float(fixed_cost_actual_total),
@@ -409,7 +384,6 @@ def spending_capacity_summary(
         "daily_discretionary_remaining": float(daily_discretionary_remaining),
         "days_remaining_in_month": days_remaining_in_month,
         "plan_status": plan_status,
-        "planned_expense_total": float(planned_expense_total),
         "card_invoice_total": float(card_invoice_total),
         "card_invoice_gross_total": float(card_invoice_gross_total),
         "card_invoice_discretionary_total": float(card_invoice_discretionary_total),
@@ -419,11 +393,9 @@ def spending_capacity_summary(
         "future_card_obligation_total": float(future_card_obligation_total),
         "future_card_obligation_source": future_card_obligation_source,
         "future_card_obligation_count": future_card_obligation_count,
-        "future_card_obligation_display_month": future_card_obligation_display_month,
         "card_invoice_source": card_invoice_source,
         "card_invoice_current_open_total": float(card_invoice_current_open_total),
         "card_invoice_current_open_source": card_invoice_current_open_source,
-        "card_invoice_current_open_label": card_invoice_current_open_label,
         "card_invoice_cycle_start": card_invoice_cycle_start,
         "card_invoice_cycle_end": card_invoice_cycle_end,
         "card_invoice_transaction_count": card_invoice_tx_count,
@@ -441,10 +413,6 @@ def spending_capacity_summary(
         "invoice_gross_count": invoice["invoice_gross_count"],
         "invoice_discretionary_count": invoice["invoice_discretionary_count"],
         "invoice_open_since": invoice["invoice_open_since"],
-        "planned_after_fixed_costs": float(planned_after_fixed_costs),
-        "remaining_after_plan": float(remaining_after_plan),
-        "remaining_after_invoice": float(remaining_after_invoice),
-        "remaining_after_plan_and_invoice": float(remaining_after_plan_and_invoice),
         "fixed_costs": fixed,
         "expected_income": income,
         "variable_budgets": variable_budgets,

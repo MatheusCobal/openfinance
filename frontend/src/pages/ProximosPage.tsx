@@ -221,7 +221,7 @@ export function ProximosPage() {
                               {cardLabel(card)}
                             </span>
                             <span className="shrink-0 text-xs font-bold tabular text-ink-900">
-                              {formatMoney(card.pending_total ?? card.total_amount ?? 0)}
+                              {formatMoney(card.total_amount)}
                             </span>
                           </div>
                         ))}

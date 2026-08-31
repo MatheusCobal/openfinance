@@ -235,11 +235,6 @@ def current_card_invoice_summary(
                 }
             )
     serialized.sort(key=lambda tx: (tx["date"], tx["description"]))
-    detailed_total = sum(
-        (Decimal(str(tx.get("signed_amount", tx["amount"]))) for tx in serialized),
-        Decimal("0"),
-    )
-
     categories_by_name: dict[str, dict[str, Any]] = {}
     for tx in serialized:
         signed_amount = Decimal(str(tx.get("signed_amount", tx["amount"])))
@@ -261,7 +256,6 @@ def current_card_invoice_summary(
                 "total": Decimal("0"),
                 "count": 0,
                 "transactions": [],
-                "source": "current_invoice_assignment",
             },
         )
         bucket["total"] += signed_amount
@@ -276,16 +270,8 @@ def current_card_invoice_summary(
             reverse=True,
         )
     ]
-    category_total = sum(
-        (Decimal(str(category["total"])) for category in categories),
-        Decimal("0"),
-    )
-
     totals_by_account: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     counts_by_account: dict[str, int] = defaultdict(int)
-    projected_by_account: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    projected_counts_by_account: dict[str, int] = defaultdict(int)
-    credits_by_account: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for tx in serialized:
         account_id = tx.get("account_id")
         if not account_id:
@@ -293,11 +279,6 @@ def current_card_invoice_summary(
         signed_amount = Decimal(str(tx.get("signed_amount", tx["amount"])))
         totals_by_account[account_id] += signed_amount
         counts_by_account[account_id] += 1
-        if tx.get("is_projected"):
-            projected_by_account[account_id] += signed_amount
-            projected_counts_by_account[account_id] += 1
-        if signed_amount < 0:
-            credits_by_account[account_id] += abs(signed_amount)
 
     caixa_official_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     if caixa_account_ids:
@@ -328,25 +309,9 @@ def current_card_invoice_summary(
     cards = [
         {
             "account_id": account.id,
-            "name": account.name,
             **_card_identity(account, items_by_id.get(account.item_id)),
-            "pending_total": float(selected_totals_by_account[account.id]),
             "total_amount": float(selected_totals_by_account[account.id]),
-            "detailed_total": float(totals_by_account[account.id]),
             "transaction_count": counts_by_account[account.id],
-            "projected_total": float(projected_by_account[account.id]),
-            "projected_count": projected_counts_by_account[account.id],
-            "credits_total": float(credits_by_account[account.id]),
-            "invoice_source": (
-                "caixa_official_bill"
-                if account.id in caixa_official_totals
-                else "caixa_invoice_schedule"
-                if account.id in caixa_account_ids
-                else "pending_transactions"
-            ),
-            "is_official": account.id in caixa_official_totals,
-            "invoice_month": invoice_month,
-            "cutoff_date": cutoff.isoformat(),
         }
         for account in accounts
     ]
@@ -358,45 +323,15 @@ def current_card_invoice_summary(
     ]
     uses_caixa_schedule = bool(caixa_account_ids)
     source = "canonical_invoice_schedule" if uses_caixa_schedule else "pending_transactions"
-    if caixa_official_totals:
-        source_label = "Fatura vigente por ciclo, previsão e fatura oficial"
-    elif uses_caixa_schedule:
-        source_label = "Compras, créditos e parcelas da fatura vigente"
-    else:
-        source_label = "Compras PENDING da fatura vigente"
     return {
         "amount": float(total),
         "source": source,
-        "source_label": source_label,
-        "confidence": "high" if accounts else "none",
         "account_count": len(accounts),
         "invoice_month": invoice_month,
         "cutoff_date": cutoff.isoformat(),
-        "status_filter": "PENDING_WITH_CAIXA_SCHEDULE" if uses_caixa_schedule else "PENDING",
         "cards": cards,
         "categories": categories,
-        "category_total": float(category_total),
         "transaction_count": len(serialized),
         "raw_purchase_transactions": serialized,
         "recent_purchase_transactions": recent_transactions,
-        "source_detail": {
-            "rule": (
-                "canonical_current_invoice_with_caixa_schedule"
-                if uses_caixa_schedule
-                else "pending_credit_purchases_through_current_invoice_month"
-            ),
-            "account_type": "CREDIT",
-            "status": "PENDING_WITH_CAIXA_SCHEDULE" if uses_caixa_schedule else "PENDING",
-            "cutoff_date": cutoff.isoformat(),
-            "future_months_excluded": True,
-        },
-        "reconciliation": {
-            "amount": float(total),
-            "category_total": float(category_total),
-            "identified_category_total": float(category_total),
-            "detailed_total": float(detailed_total),
-            "unreconciled_amount": float(total - detailed_total),
-            "amount_minus_category_total": float(total - category_total),
-            "source_label": source_label,
-        },
     }

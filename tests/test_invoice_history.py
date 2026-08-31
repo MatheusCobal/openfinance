@@ -751,7 +751,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
 
         self.assertEqual(result["current_invoice_month"], "2026-07")
         self.assertFalse(june["is_current_invoice"])
-        self.assertEqual(june["invoice_total_source"], "pluggy_official_bill")
+        self.assertNotIn("invoice_total_source", june)
         self.assertAlmostEqual(june["invoice_display_total"], 17131.28, places=2)
         self.assertAlmostEqual(june["total"], 17131.28, places=2)
         self.assertAlmostEqual(june["official_bill_total"], 17131.28, places=2)
@@ -759,7 +759,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(june["classified_purchase_total"], 164.0, places=2)
         self.assertNotEqual(june["invoice_display_total"], june["classified_purchase_total"])
         self.assertAlmostEqual(
-            june["classified_purchase_difference_from_invoice"],
+            june["classified_purchase_total"] - june["invoice_display_total"],
             -16967.28,
             places=2,
         )
@@ -821,7 +821,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 result = credit_card_invoice_purchases_monthly_summary(session, months=2)
 
         august = {month["month"]: month for month in result["months"]}["2026-08"]
-        self.assertEqual(august["invoice_total_source"], "pluggy_official_bill")
+        self.assertNotIn("invoice_total_source", august)
         self.assertEqual(august["official_bill_count"], 2)
         self.assertAlmostEqual(august["official_bill_total"], 15073.31, places=2)
         self.assertAlmostEqual(august["invoice_display_total"], 15073.31, places=2)
@@ -842,7 +842,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(cards[CC_ACCOUNT_ID]["total"], 13992.62, places=2)
         self.assertAlmostEqual(cards[caixa_account_id]["total"], 1080.69, places=2)
         self.assertAlmostEqual(august["card_breakdown_total"], 15073.31, places=2)
-        self.assertEqual(august["card_breakdown_source"], "official_bills")
+        self.assertNotIn("card_breakdown_source", august)
 
     def test_historical_month_uses_invoice_snapshot_when_official_bill_is_missing(self):
         with Session(self.engine) as session:
@@ -874,7 +874,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
 
         june = {month["month"]: month for month in result["months"]}["2026-06"]
 
-        self.assertEqual(june["invoice_total_source"], "credit_card_invoice_snapshot")
+        self.assertNotIn("invoice_total_source", june)
         self.assertIsNone(june["official_bill_total"])
         self.assertEqual(june["official_bill_count"], 0)
         self.assertAlmostEqual(june["snapshot_invoice_total"], 31211.90, places=2)
@@ -882,12 +882,12 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(june["invoice_display_total"], 31211.90, places=2)
         self.assertAlmostEqual(june["classified_purchase_total"], 44.0, places=2)
         self.assertAlmostEqual(
-            june["classified_purchase_difference_from_invoice"],
+            june["classified_purchase_total"] - june["invoice_display_total"],
             -31167.90,
             places=2,
         )
         self.assertEqual(june["cards"], [])
-        self.assertEqual(june["card_breakdown_source"], "unavailable")
+        self.assertNotIn("card_breakdown_source", june)
 
     def test_snapshot_month_breaks_down_reconciled_card_payments(self):
         with Session(self.engine) as session:
@@ -916,8 +916,8 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
 
         june = {month["month"]: month for month in result["months"]}["2026-06"]
 
-        self.assertEqual(june["invoice_total_source"], "credit_card_invoice_snapshot")
-        self.assertEqual(june["card_breakdown_source"], "invoice_payments")
+        self.assertNotIn("invoice_total_source", june)
+        self.assertNotIn("card_breakdown_source", june)
         self.assertEqual(len(june["cards"]), 1)
         self.assertEqual(june["cards"][0]["account_id"], CC_ACCOUNT_ID)
         self.assertAlmostEqual(june["cards"][0]["total"], 500.0, places=2)
@@ -963,8 +963,8 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
 
         self.assertEqual(july["month"], "2026-07")
         self.assertTrue(july["is_current_invoice"])
-        self.assertEqual(july["invoice_total_source"], "pending_current_invoice")
-        self.assertEqual(july["dashboard_current_invoice_source"], "pending_transactions")
+        self.assertNotIn("invoice_total_source", july)
+        self.assertNotIn("dashboard_current_invoice_source", july)
         self.assertAlmostEqual(july["invoice_display_total"], 400.0, places=2)
         self.assertAlmostEqual(july["total"], 400.0, places=2)
         self.assertAlmostEqual(july["classified_purchase_total"], 400.0, places=2)
@@ -974,9 +974,9 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertEqual(july["cards"][0]["account_id"], CC_ACCOUNT_ID)
         self.assertAlmostEqual(july["cards"][0]["total"], 400.0, places=2)
         self.assertAlmostEqual(july["card_breakdown_total"], 400.0, places=2)
-        self.assertEqual(july["card_breakdown_source"], "current_invoice")
+        self.assertNotIn("card_breakdown_source", july)
 
-    def test_missing_historical_official_bill_uses_marked_classified_fallback(self):
+    def test_missing_historical_official_bill_uses_classified_fallback(self):
         with Session(self.engine) as session:
             _seed_base(session)
             _add_card_transaction(
@@ -999,7 +999,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
 
         june = {month["month"]: month for month in result["months"]}["2026-06"]
 
-        self.assertEqual(june["invoice_total_source"], "missing_official_bill_fallback")
+        self.assertNotIn("invoice_total_source", june)
         self.assertIsNone(june["official_bill_total"])
         self.assertAlmostEqual(june["invoice_display_total"], 44.0, places=2)
         self.assertAlmostEqual(june["classified_purchase_total"], 44.0, places=2)

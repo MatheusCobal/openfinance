@@ -7,7 +7,6 @@ from sqlmodel import Session, select
 
 from app.models import Account, CreditCardBill, Item, Transaction
 from app.services.caixa_invoice import (
-    CAIXA_CLOSING_DAY,
     CAIXA_CREDIT_CATEGORY,
     CaixaInvoiceEntry,
     caixa_invoice_entries_by_month,
@@ -59,7 +58,6 @@ def _upcoming_categories(transactions: list[dict[str, Any]]) -> list[dict[str, A
                 "total": Decimal("0"),
                 "count": 0,
                 "transactions": [],
-                "source": "pluggy_based_classification",
             },
         )
         bucket["total"] += signed_amount
@@ -294,27 +292,25 @@ def upcoming_summary(
 
     from app.services.credit_card_invoice import planning_invoice_for_month
 
-    reported_invoice_total = Decimal(str(dashboard_invoice.get("amount") or 0))
+    current_invoice_total = Decimal(str(dashboard_invoice.get("amount") or 0))
 
     for month in sorted(by_month):
         txs = by_month[month]
         month_total = sum((abs(tx.amount) for tx in txs), Decimal("0"))
         is_current_invoice = month == vigente_month
-        planned_invoice = planning_invoice_for_month(
-            session,
-            month,
-            today=today,
-            user_id=user_id,
-        )
         if is_current_invoice:
-            invoice_total = reported_invoice_total
-            invoice_source = "pending_current_invoice"
-            invoice_source_label = dashboard_invoice.get("source_label") or "Fatura vigente"
+            invoice_total = current_invoice_total
+            invoice_cards = dashboard_invoice.get("cards", [])
         else:
+            planned_invoice = planning_invoice_for_month(
+                session,
+                month,
+                today=today,
+                user_id=user_id,
+            )
             planned_amount = planned_invoice.get("amount")
             invoice_total = Decimal(str(month_total if planned_amount is None else planned_amount))
-            invoice_source = planned_invoice.get("source") or "scheduled_installments"
-            invoice_source_label = planned_invoice.get("source_label") or "Fatura Pluggy do mês"
+            invoice_cards = planned_invoice.get("cards", [])
         serialized_transactions = []
         for tx in txs:
             classification = _classification_fields(tx, accounts)
@@ -335,69 +331,28 @@ def upcoming_summary(
                     **credit_category_payload(effective_category),
                 }
             )
-        categories_by_name: Dict[str, dict[str, Any]] = {}
-        for tx in serialized_transactions:
-            if tx.get("ignored_from_totals") or tx.get("cashflow_type") != "expense":
-                continue
-            name = tx.get("effective_category") or "Outros"
-            bucket = categories_by_name.setdefault(
-                name,
-                {
-                    "id": name,
-                    "name": name,
-                    "effective_category": name,
-                    "resolved_category": name,
-                    "credit_category": name,
-                    "total": Decimal("0"),
-                    "count": 0,
-                    "transactions": [],
-                    "source": "pluggy_based_classification",
-                },
-            )
-            bucket["total"] += Decimal(str(tx["amount"]))
-            bucket["count"] += 1
-            bucket["transactions"].append(tx)
-        categories = [
-            {
-                **bucket,
-                "total": float(bucket["total"]),
-            }
-            for bucket in sorted(
-                categories_by_name.values(),
-                key=lambda item: item["total"],
-                reverse=True,
-            )
-        ]
+        categories = _upcoming_categories(serialized_transactions)
         row_count = len(txs)
         if is_current_invoice:
             serialized_transactions = list(dashboard_invoice.get("raw_purchase_transactions", []))
             categories = list(dashboard_invoice.get("categories", []))
-            month_total = reported_invoice_total
             row_count = int(dashboard_invoice.get("transaction_count") or 0)
-            cards = list(dashboard_invoice.get("cards", []))
-        else:
-            cards = [
-                {**card, **account_identity(card.get("account_id"))}
-                for card in planned_invoice.get("cards", [])
-            ]
+        cards = [
+            {
+                **account_identity(card.get("account_id")),
+                "total_amount": card.get("total_amount", 0),
+            }
+            for card in invoice_cards
+        ]
         months_out.append(
             {
                 "month": month,
                 "total": float(invoice_total),
-                "detailed_total": float(month_total),
                 "count": row_count,
-                "transaction_month": month,
-                "invoice_total": float(invoice_total),
-                "invoice_source": invoice_source,
-                "invoice_source_label": invoice_source_label,
                 "is_current_invoice": is_current_invoice,
                 "cards": cards,
                 "categories": categories,
                 "transactions": serialized_transactions,
-                "reported_invoice_total": (
-                    float(reported_invoice_total) if is_current_invoice else None
-                ),
-                "reported_difference": (0.0 if is_current_invoice else None),
             }
         )
 
@@ -439,18 +394,11 @@ def upcoming_summary(
                 rows_by_month[month] = {
                     "month": month,
                     "total": 0.0,
-                    "detailed_total": 0.0,
                     "count": 0,
-                    "transaction_month": month,
-                    "invoice_total": 0.0,
-                    "invoice_source": "caixa_closing_cycle",
-                    "invoice_source_label": "Ciclo da fatura CAIXA",
                     "is_current_invoice": month == vigente_month,
                     "cards": [],
                     "categories": [],
                     "transactions": [],
-                    "reported_invoice_total": None,
-                    "reported_difference": None,
                 }
 
         def serialize_caixa_transaction(entry: CaixaInvoiceEntry) -> dict[str, Any]:
@@ -476,39 +424,19 @@ def upcoming_summary(
             serialized_transactions = non_caixa_transactions + caixa_transactions
 
             detailed_by_account: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-            counts_by_account: Dict[str, int] = defaultdict(int)
-            projected_by_account: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-            projected_counts_by_account: Dict[str, int] = defaultdict(int)
-            credits_by_account: Dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-            forecast_accounts: set[str] = set()
             for tx in serialized_transactions:
                 account_id = tx.get("account_id")
                 if not account_id:
                     continue
                 signed_amount = Decimal(str(tx.get("signed_amount", tx.get("amount") or 0)))
                 detailed_by_account[account_id] += signed_amount
-                counts_by_account[account_id] += 1
-                if tx.get("is_projected"):
-                    projected_by_account[account_id] += signed_amount
-                    projected_counts_by_account[account_id] += 1
-                if signed_amount < 0:
-                    credits_by_account[account_id] += abs(signed_amount)
-                if tx.get("invoice_assignment_source") in {
-                    "pluggy_forecast",
-                    "installment_projection",
-                }:
-                    forecast_accounts.add(account_id)
 
             cards_by_account: dict[str, dict[str, Any]] = {}
             for card in row.get("cards", []):
                 account_id = card.get("account_id")
                 if not account_id or account_id in caixa_account_ids:
                     continue
-                cards_by_account[account_id] = {
-                    **card,
-                    **account_identity(account_id),
-                    "detailed_total": float(detailed_by_account[account_id]),
-                }
+                cards_by_account[account_id] = card
 
             for account_id, detailed_total in detailed_by_account.items():
                 if account_id in caixa_account_ids or account_id in cards_by_account:
@@ -516,12 +444,8 @@ def upcoming_summary(
                 cards_by_account[account_id] = {
                     **account_identity(account_id),
                     "total_amount": float(detailed_total),
-                    "detailed_total": float(detailed_total),
-                    "transaction_count": counts_by_account[account_id],
-                    "invoice_source": "scheduled_transactions",
                 }
 
-            has_caixa_official_bill = False
             for account_id in caixa_account_ids:
                 bills = caixa_bills.get((account_id, month), [])
                 detailed_total = detailed_by_account[account_id]
@@ -532,60 +456,26 @@ def upcoming_summary(
                     Decimal("0"),
                 )
                 has_official_bill = bool(bills)
-                has_caixa_official_bill = has_caixa_official_bill or has_official_bill
                 invoice_total = official_total if has_official_bill else detailed_total
-                account = accounts[account_id]
                 cards_by_account[account_id] = {
                     **account_identity(account_id),
                     "total_amount": float(invoice_total),
-                    "detailed_total": float(detailed_total),
-                    "transaction_count": counts_by_account[account_id],
-                    "due_date": bills[0].due_date.isoformat() if bills else None,
-                    "closing_day": CAIXA_CLOSING_DAY,
-                    "invoice_source": (
-                        "caixa_official_bill"
-                        if has_official_bill
-                        else "caixa_pluggy_forecast"
-                        if account_id in forecast_accounts
-                        else "caixa_closing_cycle"
-                    ),
-                    "is_official": has_official_bill,
-                    "used_credit": float(account.balance) if account.balance is not None else None,
-                    "projected_total": float(projected_by_account[account_id]),
-                    "projected_count": projected_counts_by_account[account_id],
-                    "credits_total": float(credits_by_account[account_id]),
-                    "reconciliation_difference": float(invoice_total - detailed_total),
                 }
 
             cards = list(cards_by_account.values())
 
-            def card_total(card: dict[str, Any]) -> Decimal:
-                pending_total = card.get("pending_total")
-                value = pending_total if pending_total is not None else card.get("total_amount")
-                return Decimal(str(value or 0))
-
-            invoice_total = sum((card_total(card) for card in cards), Decimal("0"))
-            detailed_total = sum(detailed_by_account.values(), Decimal("0"))
-            difference = invoice_total - detailed_total
+            invoice_total = sum(
+                (Decimal(str(card.get("total_amount") or 0)) for card in cards), Decimal("0")
+            )
             row.update(
                 {
                     "total": float(invoice_total),
-                    "detailed_total": float(detailed_total),
                     "count": len(serialized_transactions),
-                    "invoice_total": float(invoice_total),
                     "cards": cards,
                     "categories": _upcoming_categories(serialized_transactions),
                     "transactions": serialized_transactions,
-                    "reported_invoice_total": float(invoice_total),
-                    "reported_difference": float(difference),
                 }
             )
-            if has_caixa_official_bill:
-                row["invoice_source"] = "per_card_invoice"
-                row["invoice_source_label"] = "Faturas por cartão · CAIXA oficial"
-            elif forecast_accounts.intersection(caixa_account_ids):
-                row["invoice_source"] = "caixa_pluggy_forecast"
-                row["invoice_source_label"] = "Previsão Pluggy + parcelas projetadas"
 
         months_out = [rows_by_month[month] for month in sorted(rows_by_month)]
 
