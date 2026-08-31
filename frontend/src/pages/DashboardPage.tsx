@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
-  Banknote,
   CalendarClock,
   CreditCard,
-  Landmark,
   Link as LinkIcon,
   RefreshCw,
   Tags,
@@ -29,7 +27,6 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
 import { LoadingState } from "../components/ui/LoadingState";
-import { MetricCard } from "../components/ui/MetricCard";
 import { Modal } from "../components/ui/Modal";
 import { SectionHeader } from "../components/ui/SectionHeader";
 import { StatusPill } from "../components/ui/StatusPill";
@@ -223,7 +220,7 @@ export function DashboardPage() {
               aria-label="Resumo do mês"
               className="cockpit-surface rounded-card p-6 text-white shadow-cockpit sm:p-8"
             >
-              <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)] lg:gap-12">
+              <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)] xl:gap-12">
                 <div className="flex flex-col justify-between gap-6">
                   <div>
                     <div className="flex flex-wrap items-center gap-2.5">
@@ -231,7 +228,7 @@ export function DashboardPage() {
                       <StatusPill inverse tone={statusMeta.tone} label={statusMeta.label} />
                     </div>
                     <p
-                      className={`mt-3 whitespace-nowrap text-4xl font-bold leading-none tracking-tight tabular sm:text-5xl lg:text-6xl ${
+                      className={`mt-3 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight tabular sm:text-5xl xl:text-6xl ${
                         dashCap.availableToSpend < 0 ? "text-danger-300" : "text-white"
                       }`}
                     >
@@ -287,81 +284,65 @@ export function DashboardPage() {
               </div>
             </section>
 
-            {/* KPI row — the four headline numbers of the month */}
+            {/* Invoice first, with the remaining monthly indicators alongside it. */}
             <section
               aria-label={`Indicadores de ${formatMonthShort(data.planningMonth)}`}
-              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1fr))]"
             >
-              <MetricCard
-                label="Entradas recebidas"
-                value={formatMoney(data.capacity.received_income_total)}
-                tone="positive"
-                icon={<Banknote className="size-4" aria-hidden="true" />}
-              />
-              <MetricCard
-                label="Custos fixos a pagar"
-                value={formatMoney(dashCap.fixedCostsPending)}
-                icon={<Wallet className="size-4" aria-hidden="true" />}
-              />
-              <MetricCard
-                label="Variável usado"
-                value={formatMoney(dashCap.variableUsed)}
-                icon={<Tags className="size-4" aria-hidden="true" />}
-              />
-              <MetricCard
-                label="Saldo em conta"
-                value={data.bankBalance ? formatMoney(data.bankBalance.total) : "—"}
-                tone="primary"
-                icon={<Landmark className="size-4" aria-hidden="true" />}
-              />
-            </section>
-
-            {/* Current invoice + categories */}
-            <section>
-              <SectionHeader title="Fatura em aberto" />
-              <div
-                className={
-                  data.categories.length
-                    ? "grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]"
-                    : "max-w-sm"
-                }
-              >
-                <Card className="h-fit p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-3xl font-bold tracking-tight tabular text-ink-900">
-                        {formatMoney(invoiceAmount)}
-                      </p>
-                    </div>
-                    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-control bg-primary-50 text-primary-600">
-                      <CreditCard className="size-4" aria-hidden="true" />
+              <Card className="min-w-0 border-primary-200 bg-gradient-to-br from-primary-50 to-surface p-5 sm:col-span-2 sm:p-6 xl:col-span-1">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-primary-800">Fatura em aberto</h2>
+                  <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-600 text-white">
+                    <CreditCard className="size-5" aria-hidden="true" />
+                  </span>
+                </div>
+                <p className="mt-3 text-4xl font-bold leading-tight tracking-tight tabular text-primary-900 sm:text-[2.5rem]">
+                  {formatMoney(invoiceAmount)}
+                </p>
+              </Card>
+              {[
+                { label: "Custos fixos a pagar", value: dashCap.fixedCostsPending, Icon: Wallet },
+                { label: "Variável usado", value: dashCap.variableUsed, Icon: Tags },
+              ].map(({ label, value, Icon }) => (
+                <Card key={label} className="flex min-w-0 flex-col justify-between gap-3 p-5 sm:p-6">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-xs font-medium text-ink-500">{label}</h2>
+                    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-control bg-ink-100 text-ink-600">
+                      <Icon className="size-4" aria-hidden="true" />
                     </span>
                   </div>
+                  <p className="text-2xl font-bold leading-tight tracking-tight tabular text-ink-900 lg:text-3xl">
+                    {formatMoney(value)}
+                  </p>
                 </Card>
-                {data.categories.length ? (
-                  <div>
-                    <CategoryBreakdown
-                      items={data.categories.map((category) => ({
-                        id: category.id,
-                        name: category.name,
-                        total: Number(category.total),
-                        count: category.count ?? 0,
-                        color: category.color,
-                        subtitle:
-                          category.name === "Créditos / Estornos"
-                            ? pluralize(category.count ?? 0, "crédito", "créditos")
-                            : undefined,
-                      }))}
-                      onSelect={(id) =>
-                        setSelectedCategory(
-                          data.categories.find((category) => String(category.id) === String(id)) || null,
-                        )
-                      }
-                    />
-                  </div>
-                ) : null}
-              </div>
+              ))}
             </section>
+
+            {/* Categories use the full width, without an empty invoice column. */}
+            {data.categories.length ? (
+              <section aria-label="Categorias da fatura">
+                <SectionHeader title="Categorias da fatura" />
+                <CategoryBreakdown
+                  className="sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
+                  items={data.categories.map((category) => ({
+                    id: category.id,
+                    name: category.name,
+                    total: Number(category.total),
+                    count: category.count ?? 0,
+                    color: category.color,
+                    subtitle:
+                      category.name === "Créditos / Estornos"
+                        ? pluralize(category.count ?? 0, "crédito", "créditos")
+                        : undefined,
+                  }))}
+                  onSelect={(id) =>
+                    setSelectedCategory(
+                      data.categories.find((category) => String(category.id) === String(id)) || null,
+                    )
+                  }
+                />
+              </section>
+            ) : null}
 
             {/* Recent card purchases */}
             {data.recentCardPurchases.length ? (

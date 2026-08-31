@@ -11,10 +11,9 @@ Backend em FastAPI + SQLModel/SQLAlchemy + SQLite; landing pública estática em
 ### Dashboard (`/dashboard`)
 Tela inicial do app. Resumo executivo com:
 - Disponível para gastar
-- Fatura vigente do cartão via `/credit-card/current-invoice`
-- Saldo bancário
-- Entradas, saídas, custos fixos e uso de orçamento variável
-- Fatura vigente ajustada
+- Fatura em aberto em destaque via `/credit-card/current-invoice`
+- Custos fixos a pagar e uso de orçamento variável
+- Categorias da fatura distribuídas por toda a largura da página
 
 ### Planejamento (`/planejamento`)
 Tela de planejamento e controle mensal. Visão mensal futura com:
