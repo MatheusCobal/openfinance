@@ -15,6 +15,8 @@ Tela inicial do app. Resumo executivo com:
 - Custos fixos a pagar e uso de orçamento variável
 - Categorias da fatura distribuídas por toda a largura da página
 
+A Dashboard consulta `/items` apenas para identificar conexões ativas; o antigo resumo de saldo bancário foi removido. Receitas recebidas continuam disponíveis no Planejamento e no Histórico, onde ainda são usadas. A resposta de `/upcoming` mantém faturas e parcelas em `months`, sem o resumo duplicado `next_invoice` nem a contagem global dos cards removidos.
+
 ### Planejamento (`/planejamento`)
 Tela de planejamento e controle mensal. Visão mensal futura com:
 - Receita esperada

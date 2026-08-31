@@ -152,10 +152,6 @@ export function dashboardAvailableToSpend(
   const fixedCosts = isFuture
     ? planningCapacity.fixed_cost_planned_total ?? 0
     : planningCapacity.fixed_cost_reserved_total ?? 0;
-  // Split of the same commitment: how much is already paid (linked to a real
-  // transaction) vs. still pending. `fixedCosts` stays the full commitment so
-  // the donut, pressure meter and available-to-spend math are unchanged.
-  const fixedCostsPaid = planningCapacity.fixed_cost_actual_total ?? 0;
   const fixedCostsPending = planningCapacity.fixed_cost_pending_total ?? fixedCosts;
   const variableBudget = planningCapacity.variable_budget_total ?? 0;
   const planningAvailable = asMoneyNumber(
@@ -166,7 +162,6 @@ export function dashboardAvailableToSpend(
   const hasCurrentInvoiceAmount = Number.isFinite(Number(currentInvoiceRawAmount));
   const currentInvoiceAmount = hasCurrentInvoiceAmount ? asMoneyNumber(currentInvoiceRawAmount) : 0;
   const variableUsed = planningCapacity.variable_budget_consumed ?? 0;
-  const variableRemaining = variableBudget - variableUsed;
 
   // Same rule as the static Dashboard: Planejamento keeps its monthly capacity,
   // while Dashboard swaps only the invoice component for the operational current invoice.
@@ -183,15 +178,11 @@ export function dashboardAvailableToSpend(
   return {
     expectedIncome,
     fixedCosts,
-    fixedCostsPaid,
     fixedCostsPending,
-    currentInvoiceAmount,
     variableBudget,
     variableUsed,
-    variableRemaining,
     availableToSpend,
     status,
-    isFuture,
   };
 }
 

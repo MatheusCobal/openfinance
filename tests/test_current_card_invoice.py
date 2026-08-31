@@ -292,8 +292,10 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             summary = upcoming_summary(session, today=date(2026, 6, 20))
 
         july, august = summary["months"][:2]
-        self.assertEqual(summary["next_invoice"]["amount"], 600.0)
-        self.assertEqual(summary["next_invoice"]["source"], "pending_current_invoice")
+        self.assertNotIn("next_invoice", summary)
+        self.assertNotIn("total_count", summary)
+        self.assertTrue(july["is_current_invoice"])
+        self.assertEqual(july["invoice_source"], "pending_current_invoice")
         self.assertEqual(july["total"], 600.0)
         self.assertEqual(july["detailed_total"], 600.0)
         self.assertEqual(july["count"], 3)
@@ -321,7 +323,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             if "itau-aug" in {tx["id"] for tx in month["transactions"]}
         ]
         self.assertEqual(current["amount"], 600.0)
-        self.assertEqual(upcoming["next_invoice"]["amount"], 600.0)
+        current_month = next(month for month in upcoming["months"] if month["is_current_invoice"])
+        self.assertEqual(current_month["total"], 600.0)
         self.assertEqual(appearances, ["2026-09"])
 
     def test_upcoming_identifies_each_card_and_institution(self):
@@ -437,8 +440,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             {tx["id"] for tx in current["raw_purchase_transactions"]},
             expected_ids,
         )
-        self.assertEqual(upcoming["next_invoice"]["amount"], 370.0)
         september = next(month for month in upcoming["months"] if month["month"] == "2026-09")
+        self.assertEqual(september["total"], 370.0)
         self.assertEqual({tx["id"] for tx in september["transactions"]}, expected_ids)
         self.assertEqual(sum(category["total"] for category in current["categories"]), 370.0)
 
@@ -518,7 +521,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
 
         months = {month["month"]: month for month in history["months"]}
         self.assertEqual(current["amount"], 300.0)
-        self.assertEqual(upcoming["next_invoice"]["amount"], 300.0)
+        current_month = next(month for month in upcoming["months"] if month["is_current_invoice"])
+        self.assertEqual(current_month["total"], 300.0)
         self.assertTrue(marker_is_preserved)
         self.assertEqual(
             {tx["id"] for tx in current["raw_purchase_transactions"]}, {"caixa-current-purchase"}
@@ -626,7 +630,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
 
         self.assertNotIn("2026-08", months)
         self.assertEqual(current["amount"], 900.0)
-        self.assertEqual(summary["next_invoice"]["amount"], 900.0)
+        self.assertEqual(september["total"], 900.0)
         self.assertEqual(history["months"][0]["invoice_display_total"], 900.0)
         self.assertEqual(transaction_ids, {"itau-aug", "caixa-after-close"})
         self.assertNotIn("caixa-before-close", transaction_ids)
@@ -675,7 +679,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
                 history = credit_card_invoice_purchases_monthly_summary(session, months=1)
 
         self.assertEqual(current["amount"], 777.0)
-        self.assertEqual(upcoming["next_invoice"]["amount"], 777.0)
+        current_month = next(month for month in upcoming["months"] if month["is_current_invoice"])
+        self.assertEqual(current_month["total"], 777.0)
         self.assertEqual(history["months"][0]["invoice_display_total"], 777.0)
         self.assertEqual(current["reconciliation"]["detailed_total"], 200.0)
         self.assertEqual(current["reconciliation"]["unreconciled_amount"], 577.0)
@@ -776,7 +781,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
 
         september = next(month for month in summary["months"] if month["month"] == "2026-09")
         self.assertAlmostEqual(current["amount"], 524.65)
-        self.assertAlmostEqual(summary["next_invoice"]["amount"], 524.65)
+        self.assertTrue(september["is_current_invoice"])
         self.assertAlmostEqual(history["months"][0]["invoice_display_total"], 524.65)
         self.assertAlmostEqual(history["months"][0]["classified_purchase_total"], 524.65)
         self.assertEqual(

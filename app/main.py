@@ -13,7 +13,6 @@ from app.security import (
 )
 from app.routes import (
     auth,
-    bank,
     budgets,
     credit_card,
     expected_income,
@@ -58,4 +57,3 @@ app.include_router(expected_income.router)
 app.include_router(fixed_costs.router)
 app.include_router(planning.router)
 app.include_router(credit_card.router)
-app.include_router(bank.router)

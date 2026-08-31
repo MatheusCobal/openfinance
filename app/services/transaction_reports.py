@@ -589,22 +589,7 @@ def upcoming_summary(
 
         months_out = [rows_by_month[month] for month in sorted(rows_by_month)]
 
-    vigente_row = next(month for month in months_out if month["month"] == vigente_month)
-    next_invoice = {
-        "year_month": vigente_month,
-        "transaction_month": vigente_row["transaction_month"],
-        "amount": vigente_row["total"],
-        "source": vigente_row["invoice_source"],
-        "source_label": vigente_row["invoice_source_label"],
-        "reported_amount": vigente_row["reported_invoice_total"],
-        "is_estimated": True,
-    }
-
-    return {
-        "total_count": sum(month["count"] for month in months_out),
-        "months": months_out,
-        "next_invoice": next_invoice,
-    }
+    return {"months": months_out}
 
 
 def monthly_stats_summary(

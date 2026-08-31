@@ -46,13 +46,4 @@ export interface UpcomingMonth {
 
 export interface UpcomingSummary {
   months: UpcomingMonth[];
-  total_count?: number;
-  next_invoice?: {
-    year_month: string;
-    transaction_month: string;
-    amount: number;
-    reported_amount?: number;
-    source?: string;
-    source_label?: string;
-  } | null;
 }

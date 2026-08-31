@@ -15,6 +15,7 @@ from app.auth import sessions as auth_sessions
 from app.auth.sessions import SESSION_COOKIE_NAME
 from app.database import get_session
 from app.main import app
+from app.models import Item
 
 
 INTERNAL_ROUTES = ("/dashboard", "/planejamento", "/historico", "/proximos")
@@ -197,14 +198,23 @@ class PageSmokeTest(unittest.TestCase):
                 missing.append(asset)
         self.assertEqual(missing, [])
 
-    def test_bank_balance_endpoint_exists(self):
+    def test_removed_bank_balance_endpoint_returns_404(self):
         response = self.client.get("/bank/balance-summary")
+        self.assertEqual(response.status_code, 404)
+
+    def test_bank_connections_do_not_require_bank_accounts_or_balances(self):
+        with Session(self.engine) as session:
+            session.add(Item(id="active", connector_id=1, status="UPDATED", is_active=True))
+            session.add(Item(id="inactive", connector_id=1, status="UPDATED", is_active=False))
+            session.commit()
+
+        response = self.client.get("/items")
+
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn("total", data)
-        self.assertIn("account_count", data)
-        self.assertIn("accounts", data)
-        self.assertIn("source", data)
+        self.assertEqual(
+            {item["id"]: item["is_active"] for item in response.json()},
+            {"active": True, "inactive": False},
+        )
 
     def test_removed_reserve_savings_routes_return_404(self):
         for path in (

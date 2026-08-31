@@ -11,7 +11,7 @@ import {
 import { Link } from "react-router-dom";
 import {
   createConnectToken,
-  getBankBalance,
+  getBankConnections,
   getCurrentInvoice,
   getPlanningMonth,
   registerPluggyItem,
@@ -65,22 +65,25 @@ function transactionDisplayCategory(tx: Transaction) {
 
 async function loadDashboardData() {
   const planningMonth = currentYearMonth();
-  const [planning, currentInvoice] = await Promise.all([
+  const [planning, currentInvoice, connectionsResult] = await Promise.all([
     getPlanningMonth(planningMonth),
     getCurrentInvoice(),
+    getBankConnections().then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      () => ({ status: "rejected" as const }),
+    ),
   ]);
-  const bankBalanceResult = await Promise.resolve(getBankBalance()).then(
-    (value) => ({ status: "fulfilled" as const, value }),
-    () => ({ status: "rejected" as const }),
-  );
   const partialErrors: string[] = [];
-  if (bankBalanceResult.status === "rejected") partialErrors.push("saldo bancário");
+  if (connectionsResult.status === "rejected") partialErrors.push("conexões bancárias");
   const capacity = normalizePlanningOverview(planning);
   return {
     planningMonth,
     capacity,
     currentInvoice,
-    bankBalance: bankBalanceResult.status === "fulfilled" ? bankBalanceResult.value : null,
+    hasActiveConnection:
+      connectionsResult.status === "fulfilled"
+        ? connectionsResult.value.some((connection) => connection.is_active)
+        : null,
     partialErrors,
     categories: currentInvoice.categories || [],
     recentCardPurchases: latestCardPurchases(
@@ -169,7 +172,7 @@ export function DashboardPage() {
         dashCap.fixedCosts > 0 ||
         Number(invoiceAmount) !== 0 ||
         dashCap.variableBudget > 0 ||
-        (data?.bankBalance?.account_count || 0) > 0),
+        data?.hasActiveConnection),
   );
 
   return (
@@ -190,7 +193,7 @@ export function DashboardPage() {
             >
               <RefreshCw className="size-4" aria-hidden="true" />
             </Button>
-            {data && (data.bankBalance?.account_count || 0) === 0 ? (
+            {data?.hasActiveConnection === false ? (
               <Button type="button" variant="primary" loading={connecting} onClick={connectBank}>
                 <LinkIcon className="size-4" aria-hidden="true" />
                 Conectar banco

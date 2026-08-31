@@ -183,7 +183,7 @@ class TestUpcomingSummaryExcludesMarkedDuplicate(unittest.TestCase):
         with self.session() as s:
             result = upcoming_summary(s, today=today)
 
-        self.assertEqual(result["total_count"], 1)
+        self.assertEqual(sum(month["count"] for month in result["months"]), 1)
         all_totals = sum(m["total"] for m in result["months"])
         self.assertAlmostEqual(all_totals, 150.0, places=2)
 

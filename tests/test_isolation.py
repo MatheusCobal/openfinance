@@ -137,6 +137,17 @@ class IsolationTest(unittest.TestCase):
         accounts_b = self.client.get("/accounts").json()
         self.assertEqual({a["id"] for a in accounts_b}, {"acc-b"})
 
+    def test_bank_connections_are_isolated_per_user(self):
+        self._as(self.token_a)
+        response_a = self.client.get("/items")
+        self.assertEqual(response_a.status_code, 200)
+        self.assertEqual({item["id"] for item in response_a.json()}, {"item-a"})
+
+        self._as(self.token_b)
+        response_b = self.client.get("/items")
+        self.assertEqual(response_b.status_code, 200)
+        self.assertEqual({item["id"] for item in response_b.json()}, {"item-b"})
+
     def test_expected_income_is_isolated_per_user(self):
         self._as(self.token_a)
         income_a = self.client.get("/expected-income").json()

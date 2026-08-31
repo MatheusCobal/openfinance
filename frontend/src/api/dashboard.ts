@@ -1,7 +1,6 @@
 import { apiGet, apiPost } from "./client";
-import type { BankBalanceSummary } from "../types/dashboard";
+import type { BankConnection } from "../types/dashboard";
 import type { CreditCardInvoice, PlanningMonth } from "../types/planejamento";
-import type { UpcomingSummary } from "../types/proximos";
 
 interface SyncResult {
   failed_accounts: Array<{ account_id: string; error: string }>;
@@ -16,12 +15,8 @@ export function getCurrentInvoice() {
   return apiGet<CreditCardInvoice>("/credit-card/current-invoice");
 }
 
-export function getBankBalance() {
-  return apiGet<BankBalanceSummary>("/bank/balance-summary");
-}
-
-export function getUpcoming() {
-  return apiGet<UpcomingSummary>("/upcoming");
+export function getBankConnections() {
+  return apiGet<BankConnection[]>("/items");
 }
 
 export function createConnectToken(itemId?: string) {
