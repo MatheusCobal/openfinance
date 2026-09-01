@@ -26,6 +26,7 @@ CAIXA_CLOSING_DAY = 24
 CAIXA_CREDIT_CATEGORY = "Créditos / Estornos"
 CAIXA_STATEMENT_MARKERS = frozenset(
     {
+        "aut pgto boleto registrado",
         "pgto boleto registrado",
         "total da fatura anterior",
     }

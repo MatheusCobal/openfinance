@@ -445,6 +445,70 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual({tx["id"] for tx in september["transactions"]}, expected_ids)
         self.assertEqual(sum(category["total"] for category in current["categories"]), 370.0)
 
+    def test_caixa_automatic_boleto_payment_does_not_reduce_upcoming_invoice(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
+                number="6849",
+                brand="VISA",
+                due_date=date(2026, 10, 3),
+            )
+            session.add_all(
+                [
+                    Transaction(
+                        id="caixa-october-purchase",
+                        account_id="credit-caixa",
+                        date=date(2026, 8, 25),
+                        amount=Decimal("10000"),
+                        description="Compra CAIXA",
+                        category="Shopping",
+                        pluggy_raw_category="Shopping",
+                        pluggy_raw_type="DEBIT",
+                        status="PENDING",
+                        bill_forecast_month="2026-09",
+                        credit_card_last_four="6849",
+                    ),
+                    Transaction(
+                        id="caixa-automatic-boleto-payment",
+                        account_id="credit-caixa",
+                        date=date(2026, 8, 31),
+                        amount=Decimal("-8418.39"),
+                        description="AUT. PGTO. BOLETO REGISTRADO",
+                        category="Transfer - Bank Slip",
+                        pluggy_raw_category="Transfer - Bank Slip",
+                        pluggy_raw_type="CREDIT",
+                        status="PENDING",
+                        bill_forecast_month="2026-09",
+                        credit_card_last_four="6849",
+                    ),
+                ]
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 9, 1))
+            upcoming = upcoming_summary(session, today=date(2026, 9, 1))
+
+        self.assertEqual(current["amount"], 10000.0)
+        self.assertEqual(
+            {tx["id"] for tx in current["raw_purchase_transactions"]},
+            {"caixa-october-purchase"},
+        )
+        october = next(month for month in upcoming["months"] if month["month"] == "2026-10")
+        self.assertTrue(october["is_current_invoice"])
+        self.assertEqual(october["total"], 10000.0)
+        self.assertEqual(
+            {tx["id"] for tx in october["transactions"]},
+            {"caixa-october-purchase"},
+        )
+        self.assertNotIn(
+            "Créditos / Estornos",
+            {category["name"] for category in october["categories"]},
+        )
+
     def test_caixa_previous_bill_marker_does_not_change_closed_history_or_payment(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")
