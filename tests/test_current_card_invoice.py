@@ -509,6 +509,65 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             {category["name"] for category in october["categories"]},
         )
 
+    def test_history_uses_card_payments_as_closed_invoice_and_excludes_open_month(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_item(session, item_id="item-caixa", connector_name="MeuPluggy")
+            self._add_credit_account(
+                session,
+                name="LATAM PASS ITAU MASTERCARD BLACK",
+                number="3279",
+                due_date=date(2026, 8, 6),
+            )
+            self._add_credit_account(
+                session,
+                account_id="credit-caixa",
+                item_id="item-caixa",
+                name="CAIXA ICONE VISA",
+                number="6849",
+                due_date=date(2026, 8, 3),
+            )
+            session.add_all(
+                [
+                    Transaction(
+                        id="itau-september-payment",
+                        account_id="credit-1",
+                        date=date(2026, 8, 20),
+                        amount=Decimal("-5401.33"),
+                        description="PAGAMENTO COM SALDO",
+                        category="Transfers",
+                        status="PENDING",
+                        bill_forecast_month="2026-09",
+                    ),
+                    Transaction(
+                        id="caixa-september-payment",
+                        account_id="credit-caixa",
+                        date=date(2026, 8, 31),
+                        amount=Decimal("-8418.39"),
+                        description="AUT. PGTO. BOLETO REGISTRADO",
+                        category="Transfer - Bank Slip",
+                        status="PENDING",
+                        bill_forecast_month="2026-09",
+                    ),
+                ]
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = date(2026, 9, 1)
+                history_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+                history = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        months = {month["month"]: month for month in history["months"]}
+        self.assertEqual(history["latest_closed_invoice_month"], "2026-09")
+        self.assertNotIn("2026-10", months)
+        self.assertEqual(months["2026-09"]["invoice_display_total"], 13819.72)
+        self.assertFalse(months["2026-09"]["is_current_invoice"])
+        cards = {card["account_name"]: card["total"] for card in months["2026-09"]["cards"]}
+        self.assertEqual(cards["CAIXA ICONE VISA"], 8418.39)
+        self.assertEqual(cards["LATAM PASS ITAU MASTERCARD BLACK"], 5401.33)
+
     def test_caixa_previous_bill_marker_does_not_change_closed_history_or_payment(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")
@@ -593,7 +652,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         )
         self.assertNotIn("invoice_total_source", months["2026-08"])
         self.assertEqual(months["2026-08"]["invoice_display_total"], 1080.69)
-        self.assertEqual(months["2026-09"]["invoice_display_total"], 300.0)
+        self.assertNotIn("2026-09", months)
 
     def test_caixa_marker_is_excluded_from_available_to_spend(self):
         with Session(self.engine) as session:
@@ -695,7 +754,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertNotIn("2026-08", months)
         self.assertEqual(current["amount"], 900.0)
         self.assertEqual(september["total"], 900.0)
-        self.assertEqual(history["months"][0]["invoice_display_total"], 900.0)
+        self.assertEqual(history["months"][0]["invoice_display_total"], 1080.69)
         self.assertEqual(transaction_ids, {"itau-aug", "caixa-after-close"})
         self.assertNotIn("caixa-before-close", transaction_ids)
         september_cards = {card["account_id"]: card for card in september["cards"]}
@@ -848,8 +907,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         september = next(month for month in summary["months"] if month["month"] == "2026-09")
         self.assertAlmostEqual(current["amount"], 524.65)
         self.assertTrue(september["is_current_invoice"])
-        self.assertAlmostEqual(history["months"][0]["invoice_display_total"], 524.65)
-        self.assertAlmostEqual(history["months"][0]["classified_purchase_total"], 524.65)
+        self.assertAlmostEqual(history["months"][0]["invoice_display_total"], 1080.69)
         self.assertNotIn("invoice_total_source", history["months"][0])
         self.assertAlmostEqual(september["total"], 524.65)
         self.assertAlmostEqual(
@@ -879,7 +937,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         history_categories = {
             category["name"]: category for category in history["months"][0]["categories"]
         }
-        self.assertAlmostEqual(history_categories["Créditos / Estornos"]["total"], -23.35)
+        self.assertNotIn("Créditos / Estornos", history_categories)
 
         card = next(card for card in september["cards"] if card["account_id"] == "credit-caixa")
         self.assertAlmostEqual(card["total_amount"], 524.65)

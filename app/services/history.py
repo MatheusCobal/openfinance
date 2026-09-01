@@ -13,7 +13,11 @@ from app.models import (
     MonthlyBalanceMonth,
     Transaction,
 )
-from app.services.caixa_invoice import CAIXA_CREDIT_CATEGORY
+from app.services.caixa_invoice import (
+    caixa_transaction_invoice_month,
+    is_caixa_account,
+    is_caixa_statement_marker,
+)
 from app.services.invoice_month import (
     DEFAULT_CREDIT_CARD_DUE_DAY,
     invoice_month_from_payment,
@@ -290,24 +294,27 @@ def _credit_card_official_bill_totals_by_month(
         and bill.due_date is not None
         and month_key(bill.due_date) in selected_months
     ]
-    payment_rows: list[Transaction] = []
-    if selected_bills:
-        payment_window_start = min(bill.due_date for bill in selected_bills) - timedelta(days=10)
-        payment_window_end = max(bill.due_date for bill in selected_bills) + timedelta(days=5)
-        payment_rows = session.exec(
-            scope_query(
-                select(Transaction).where(
-                    Transaction.account_id.in_(credit_account_ids),
-                    Transaction.date >= payment_window_start,
-                    Transaction.date <= payment_window_end,
-                    Transaction.amount < 0,
-                    _non_duplicate_clause(),
-                ),
-                Transaction.user_id,
-                user_id,
-            )
-        ).all()
+    selected_starts = [_month_start_from_key(month) for month in selected_months]
+    payment_window_start = shift_month(min(selected_starts), -1)
+    payment_window_end = min(date.today(), shift_month(max(selected_starts), 1) - timedelta(days=1))
+    payment_rows = session.exec(
+        scope_query(
+            select(Transaction).where(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.date >= payment_window_start,
+                Transaction.date <= payment_window_end,
+                Transaction.amount < 0,
+                _non_duplicate_clause(),
+            ),
+            Transaction.user_id,
+            user_id,
+        )
+    ).all()
     classifier = TransactionClassifier.from_session(session, user_id=user_id)
+    accounts_by_id = {
+        account.id: account
+        for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
+    }
 
     def matched_credit_payment_total(bill: CreditCardBill) -> Decimal:
         if bill.due_date is None:
@@ -368,6 +375,81 @@ def _credit_card_official_bill_totals_by_month(
             }
         )
 
+    # Some connectors close a bill by returning only its payment transaction,
+    # without a usable CreditCardBill row.  A payment is strong evidence of a
+    # closed invoice and must be kept in History, while remaining excluded from
+    # the open/future invoice calculation.
+    inferred_payments: dict[tuple[str, str], dict[str, Any]] = {}
+    billed_accounts_by_month = {
+        (bill_month, str(bill["account_id"]))
+        for bill_month, bucket in totals_by_month.items()
+        for bill in bucket["bills"]
+    }
+    for tx in payment_rows:
+        account = accounts_by_id.get(tx.account_id)
+        caixa_statement_payment = is_caixa_account(account) and is_caixa_statement_marker(tx)
+        if not classifier.is_invoice_payment(tx) and not caixa_statement_payment:
+            continue
+
+        forecast_month = str(tx.bill_forecast_month or "")[:7]
+        if forecast_month in selected_months:
+            invoice_month = forecast_month
+        else:
+            due_day = (
+                account.credit_balance_due_date.day
+                if account is not None and account.credit_balance_due_date is not None
+                else DEFAULT_CREDIT_CARD_DUE_DAY
+            )
+            invoice_month = invoice_month_from_payment(tx.date, due_day)
+        if invoice_month not in selected_months:
+            continue
+        if (invoice_month, tx.account_id) in billed_accounts_by_month:
+            continue
+
+        key = (invoice_month, tx.account_id)
+        inferred = inferred_payments.setdefault(
+            key,
+            {
+                "total": Decimal("0"),
+                "transactions": [],
+                "source": (
+                    "caixa_statement_payment"
+                    if caixa_statement_payment
+                    else "matched_credit_payment"
+                ),
+            },
+        )
+        inferred["total"] += abs(tx.amount)
+        inferred["transactions"].append(tx)
+
+    for (invoice_month, account_id), inferred in inferred_payments.items():
+        effective_total = inferred["total"]
+        bucket = totals_by_month.setdefault(
+            invoice_month,
+            {
+                "total": Decimal("0"),
+                "bill_count": 0,
+                "due_dates": set(),
+                "bills": [],
+                "total_sources": set(),
+            },
+        )
+        bucket["total"] += effective_total
+        bucket["bill_count"] += 1
+        bucket["total_sources"].add(inferred["source"])
+        bucket["bills"].append(
+            {
+                "id": f"payment:{inferred['transactions'][0].id}",
+                "account_id": account_id,
+                "due_date": None,
+                "total_amount": float(effective_total),
+                "reported_total_amount": 0.0,
+                "recovered_payment_total": float(effective_total),
+                "total_source": inferred["source"],
+                "minimum_payment_amount": 0.0,
+            }
+        )
+
     return {
         month: {
             **bucket,
@@ -410,17 +492,31 @@ def credit_card_invoice_purchases_monthly_summary(
 ):
     """Return invoice history with display totals separated from classifications.
 
-    Historical months use Pluggy's official bill as the displayed invoice
-    total. The vigente month uses the same current-invoice source as the
-    Dashboard. Classified CREDIT purchases remain available for category
+    Only closed invoices belong to History. Pluggy official bills are the
+    preferred source; when a connector omits the bill row, an unambiguous card
+    payment recovers the closed amount. Open and future invoices belong only to
+    Dashboard/Upcoming. Classified purchases remain available for category
     breakdowns, averages and drilldowns.
     """
     today = date.today()
     from app.services.credit_card_invoice import _next_calendar_month
-    from app.services.current_card_invoice import current_card_invoice_summary
 
-    vigente_month = _next_calendar_month(today)
-    selected_months = _month_keys_ending_at(_month_start_from_key(vigente_month), months)
+    candidate_end = _month_start_from_key(_next_calendar_month(today))
+    candidate_months = _month_keys_ending_at(candidate_end, months + 2)
+    candidate_bills = _credit_card_official_bill_totals_by_month(
+        session,
+        set(candidate_months),
+        user_id=user_id,
+    )
+    latest_closed_month = (
+        max(candidate_bills)
+        if candidate_bills
+        else month_key(shift_month(today.replace(day=1), -1))
+    )
+    selected_months = _month_keys_ending_at(
+        _month_start_from_key(latest_closed_month),
+        months,
+    )
     selected_month_set = set(selected_months)
     first_selected_month = _month_start_from_key(selected_months[0])
     average_window_start = shift_month(first_selected_month, -12)
@@ -434,9 +530,6 @@ def credit_card_invoice_purchases_monthly_summary(
         selected_month_set,
         user_id=user_id,
     )
-    current_invoice = current_card_invoice_summary(session, today=today, user_id=user_id)
-    current_invoice_total = Decimal(str(current_invoice.get("amount") or 0))
-
     purchases = credit_card_spend_transactions(
         session,
         average_window_start,
@@ -492,7 +585,12 @@ def credit_card_invoice_purchases_monthly_summary(
 
         category_name = serialized.get("effective_category") or "Outros"
         amount = Decimal(str(serialized["amount_abs"]))
-        tx_month = month_key(tx.date)
+        account = accounts_by_id.get(tx.account_id)
+        tx_month = (
+            caixa_transaction_invoice_month(tx)
+            if is_caixa_account(account)
+            else month_key(tx.date)
+        )
         totals_by_month_category[tx_month][category_name] += amount
         counts_by_month_category[tx_month][category_name] += 1
 
@@ -502,23 +600,6 @@ def credit_card_invoice_purchases_monthly_summary(
 
         if tx_month in selected_month_set:
             selected_transactions_by_month[tx_month].append(serialized)
-
-    if vigente_month in selected_month_set:
-        selected_transactions_by_month[vigente_month] = [
-            {
-                **tx,
-                "amount_abs": float(tx.get("amount") or 0),
-                "invoice_contribution_amount": float(
-                    tx.get("signed_amount", tx.get("amount") or 0)
-                ),
-                "effective_category": (
-                    CAIXA_CREDIT_CATEGORY
-                    if float(tx.get("signed_amount", tx.get("amount") or 0)) < 0
-                    else tx.get("effective_category")
-                ),
-            }
-            for tx in current_invoice.get("raw_purchase_transactions", [])
-        ]
 
     def average_month_keys_for(selected_month: str) -> list[str]:
         selected_start = _month_start_from_key(selected_month)
@@ -551,31 +632,15 @@ def credit_card_invoice_purchases_monthly_summary(
         snapshot_invoice_total = (
             Decimal(snapshot_bucket["total"]) if snapshot_bucket is not None else None
         )
-        is_current_invoice = selected_month == vigente_month
-        if is_current_invoice:
-            month_invoice_display_total = current_invoice_total
-        elif official_bill_total is not None:
+        is_current_invoice = False
+        if official_bill_total is not None:
             month_invoice_display_total = official_bill_total
-        elif snapshot_invoice_total is not None:
-            month_invoice_display_total = snapshot_invoice_total
         else:
-            month_invoice_display_total = month_classified_total
+            month_invoice_display_total = Decimal("0")
         invoice_display_total += month_invoice_display_total
 
         card_buckets: dict[str, dict[str, Any]] = {}
-        if is_current_invoice:
-            for card in current_invoice.get("cards", []):
-                account_id = str(card.get("account_id") or "")
-                card_total = Decimal(str(card.get("total_amount") or 0))
-                card_count = int(card.get("transaction_count") or 0)
-                if not account_id or (card_total == 0 and card_count == 0):
-                    continue
-                card_buckets[account_id] = {
-                    "total": card_total,
-                    "count": card_count,
-                    "card": card,
-                }
-        elif bill_bucket is not None:
+        if bill_bucket is not None:
             for bill in bill_bucket["bills"]:
                 account_id = str(bill["account_id"])
                 bucket = card_buckets.setdefault(
@@ -754,7 +819,8 @@ def credit_card_invoice_purchases_monthly_summary(
         "months": output_months,
         "source": "credit_card_invoice_history",
         "classified_purchase_source": "credit_card_spend_transactions",
-        "current_invoice_month": vigente_month,
+        "current_invoice_month": _next_calendar_month(today),
+        "latest_closed_invoice_month": latest_closed_month,
         "average_window_months": 12,
         "purchase_boundary": {
             "account_type": "CREDIT",

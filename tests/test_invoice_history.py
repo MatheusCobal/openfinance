@@ -664,7 +664,8 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         months = {month["month"]: month for month in result["months"]}
         june = months["2026-06"]
 
-        self.assertAlmostEqual(june["total"], 170.0, places=2)
+        self.assertAlmostEqual(june["total"], 0.0, places=2)
+        self.assertAlmostEqual(june["classified_purchase_total"], 170.0, places=2)
         self.assertEqual(june["count"], 3)
         tx_ids = {tx["id"] for tx in june["transactions"]}
         self.assertEqual({"food-jun", "manual-jun", "shopping-jun"}, tx_ids)
@@ -844,7 +845,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(august["card_breakdown_total"], 15073.31, places=2)
         self.assertNotIn("card_breakdown_source", august)
 
-    def test_historical_month_uses_invoice_snapshot_when_official_bill_is_missing(self):
+    def test_snapshot_without_bill_or_payment_is_not_a_closed_invoice(self):
         with Session(self.engine) as session:
             _seed_base(session, due_date=datetime.date(2026, 6, 8))
             session.add(
@@ -872,22 +873,9 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 )
                 result = credit_card_invoice_purchases_monthly_summary(session, months=2)
 
-        june = {month["month"]: month for month in result["months"]}["2026-06"]
-
-        self.assertNotIn("invoice_total_source", june)
-        self.assertIsNone(june["official_bill_total"])
-        self.assertEqual(june["official_bill_count"], 0)
-        self.assertAlmostEqual(june["snapshot_invoice_total"], 31211.90, places=2)
-        self.assertEqual(june["snapshot_payment_count"], 3)
-        self.assertAlmostEqual(june["invoice_display_total"], 31211.90, places=2)
-        self.assertAlmostEqual(june["classified_purchase_total"], 44.0, places=2)
-        self.assertAlmostEqual(
-            june["classified_purchase_total"] - june["invoice_display_total"],
-            -31167.90,
-            places=2,
-        )
-        self.assertEqual(june["cards"], [])
-        self.assertNotIn("card_breakdown_source", june)
+        months = {month["month"]: month for month in result["months"]}
+        self.assertNotIn("2026-06", months)
+        self.assertEqual(result["latest_closed_invoice_month"], "2026-05")
 
     def test_snapshot_month_breaks_down_reconciled_card_payments(self):
         with Session(self.engine) as session:
@@ -923,7 +911,7 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(june["cards"][0]["total"], 500.0, places=2)
         self.assertAlmostEqual(june["card_breakdown_total"], 500.0, places=2)
 
-    def test_current_invoice_uses_dashboard_total_not_official_bill(self):
+    def test_history_uses_closed_official_bill_not_dashboard_current_invoice(self):
         with Session(self.engine) as session:
             _seed_base(session, due_date=datetime.date(2026, 6, 8))
             account = session.get(Account, CC_ACCOUNT_ID)
@@ -962,21 +950,21 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         july = result["months"][0]
 
         self.assertEqual(july["month"], "2026-07")
-        self.assertTrue(july["is_current_invoice"])
+        self.assertFalse(july["is_current_invoice"])
         self.assertNotIn("invoice_total_source", july)
         self.assertNotIn("dashboard_current_invoice_source", july)
-        self.assertAlmostEqual(july["invoice_display_total"], 400.0, places=2)
-        self.assertAlmostEqual(july["total"], 400.0, places=2)
-        self.assertAlmostEqual(july["classified_purchase_total"], 400.0, places=2)
+        self.assertAlmostEqual(july["invoice_display_total"], 9999.0, places=2)
+        self.assertAlmostEqual(july["total"], 9999.0, places=2)
+        self.assertAlmostEqual(july["classified_purchase_total"], 0.0, places=2)
         self.assertAlmostEqual(july["official_bill_total"], 9999.0, places=2)
-        self.assertNotEqual(july["invoice_display_total"], july["official_bill_total"])
+        self.assertEqual(july["invoice_display_total"], july["official_bill_total"])
         self.assertEqual(len(july["cards"]), 1)
         self.assertEqual(july["cards"][0]["account_id"], CC_ACCOUNT_ID)
-        self.assertAlmostEqual(july["cards"][0]["total"], 400.0, places=2)
-        self.assertAlmostEqual(july["card_breakdown_total"], 400.0, places=2)
+        self.assertAlmostEqual(july["cards"][0]["total"], 9999.0, places=2)
+        self.assertAlmostEqual(july["card_breakdown_total"], 9999.0, places=2)
         self.assertNotIn("card_breakdown_source", july)
 
-    def test_missing_historical_official_bill_uses_classified_fallback(self):
+    def test_classified_spend_without_bill_or_payment_is_not_a_closed_invoice(self):
         with Session(self.engine) as session:
             _seed_base(session)
             _add_card_transaction(
@@ -997,12 +985,9 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
                 )
                 result = credit_card_invoice_purchases_monthly_summary(session, months=2)
 
-        june = {month["month"]: month for month in result["months"]}["2026-06"]
-
-        self.assertNotIn("invoice_total_source", june)
-        self.assertIsNone(june["official_bill_total"])
-        self.assertAlmostEqual(june["invoice_display_total"], 44.0, places=2)
-        self.assertAlmostEqual(june["classified_purchase_total"], 44.0, places=2)
+        months = {month["month"]: month for month in result["months"]}
+        self.assertNotIn("2026-06", months)
+        self.assertEqual(result["latest_closed_invoice_month"], "2026-05")
 
     def test_endpoint_returns_classified_invoice_payload(self):
         def override_get_session():
@@ -1013,6 +998,12 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         try:
             with Session(self.engine) as session:
                 _seed_base(session)
+                _add_credit_card_bill(
+                    session,
+                    bill_id="bill-jun-endpoint",
+                    due_date=datetime.date(2026, 6, 8),
+                    total=Decimal("25.00"),
+                )
                 _add_card_transaction(
                     session,
                     tx_id="food-endpoint",
