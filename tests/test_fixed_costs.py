@@ -368,10 +368,10 @@ class FixedCostsTest(unittest.TestCase):
         by_id = {candidate["id"]: candidate for candidate in candidates}
         self.assertEqual(
             set(by_id),
-            {"credit-current", "credit-scheduled", "bank-current"},
+            {"credit-scheduled", "bank-current"},
         )
         self.assertEqual(by_id["bank-current"]["account_type"], "BANK")
-        self.assertEqual(by_id["credit-current"]["account_type"], "CREDIT")
+        self.assertEqual(by_id["credit-scheduled"]["account_type"], "CREDIT")
 
     def test_vigente_bank_payment_can_link_to_next_month_reference(self):
         from app.services.fixed_costs import (
@@ -1692,8 +1692,8 @@ class CurrentMonthOpenInvoiceCycleTest(unittest.TestCase):
     def tearDown(self):
         app.dependency_overrides.clear()
 
-    def test_future_month_variable_budget_uses_selected_calendar_month(self):
-        """A future month's variable goal must not borrow the open invoice cycle."""
+    def test_vigente_variable_budget_uses_reported_forming_cycle(self):
+        """The vigente goal follows the card cycle when a close date is available."""
         from app.services.planning import planning_month_summary
         from app.services.variable_budgets import upsert_goal
 
@@ -1733,10 +1733,10 @@ class CurrentMonthOpenInvoiceCycleTest(unittest.TestCase):
             )
 
         capacity = planning["capacity"]
-        self.assertEqual(planning["variable_budgets"]["remaining"], 500.0)
-        self.assertEqual(capacity["variable_budget_consumed"], 1000.0)
-        self.assertEqual(capacity["variable_budget_remaining"], 500.0)
-        self.assertEqual(capacity["variable_budget_uncommitted"], 500.0)
+        self.assertEqual(planning["variable_budgets"]["remaining"], 600.0)
+        self.assertEqual(capacity["variable_budget_consumed"], 900.0)
+        self.assertEqual(capacity["variable_budget_remaining"], 600.0)
+        self.assertEqual(capacity["variable_budget_uncommitted"], 600.0)
 
     # ── 1. bill_id-null in cycle are counted ──────────────────────────────────
 

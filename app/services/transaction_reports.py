@@ -266,14 +266,16 @@ def upcoming_summary(
         for tx in dashboard_invoice.get("raw_purchase_transactions", [])
         if tx.get("id") is not None
     }
+    vigente_month = month_key(shift_month(today.replace(day=1), 1))
     for tx in candidate_txs:
         if tx.id in current_invoice_transaction_ids or not classifier.is_card_purchase(tx):
             continue
         invoice_month = month_key(tx.date)
+        if invoice_month < vigente_month:
+            continue
         by_month[invoice_month].append(tx)
 
     months_out = []
-    vigente_month = month_key(shift_month(today.replace(day=1), 1))
     if vigente_month not in by_month:
         by_month[vigente_month] = []
 

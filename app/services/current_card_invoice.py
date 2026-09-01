@@ -49,6 +49,26 @@ def _invoice_month_end(year_month: str) -> datetime.date:
     return month_bounds(year_month)[1]
 
 
+def _forming_cycle_for_close_date(
+    close_date: datetime.date,
+    today: datetime.date,
+) -> tuple[datetime.date, datetime.date]:
+    """Return the cycle currently forming, advancing a stale close date."""
+    effective_close = close_date
+    while effective_close < today:
+        next_month = shift_year_month(effective_close.strftime("%Y-%m"), 1)
+        _, next_month_end = month_bounds(next_month)
+        effective_close = datetime.date(
+            next_month_end.year,
+            next_month_end.month,
+            min(close_date.day, next_month_end.day),
+        )
+
+    from app.services.credit_card_invoice import _billing_cycle_for_close_date
+
+    return _billing_cycle_for_close_date(effective_close)
+
+
 def _active_credit_accounts(
     session: Session,
     user_id: Optional[int] = None,
@@ -124,15 +144,18 @@ def pending_current_invoice_transactions(
 ) -> list[Transaction]:
     """Return the only transaction set allowed to compose the current invoice.
 
-    The current invoice is the next calendar month's invoice. Every eligible
-    CREDIT purchase still reported as PENDING up to the end of that invoice
-    month belongs to it. Later months are never included.
+    The current invoice is the next calendar month's invoice. Non-CAIXA cards
+    use their reported closing cycle when available. When the connector omits
+    the closing date, only eligible PENDING purchases dated inside the invoice
+    month are used; some connectors keep already closed purchases as PENDING
+    indefinitely, so a cutoff without a lower bound would accumulate old
+    invoices. CAIXA remains assigned by its connector-specific closing cycle.
     """
     from app.services.classification import TransactionClassifier
 
     today = today if today is not None else datetime.date.today()
     invoice_month = current_invoice_month(today)
-    cutoff = _invoice_month_end(invoice_month)
+    invoice_start, cutoff = month_bounds(invoice_month)
     accounts = _active_credit_accounts(session, user_id=user_id)
     accounts_by_id = {account.id: account for account in accounts}
     account_ids = {account.id for account in accounts}
@@ -164,9 +187,19 @@ def pending_current_invoice_transactions(
         ):
             continue
         account = accounts_by_id.get(tx.account_id)
-        if is_caixa_account(account) and (
-            is_caixa_statement_marker(tx) or caixa_transaction_invoice_month(tx) != invoice_month
-        ):
+        if is_caixa_account(account):
+            if is_caixa_statement_marker(tx) or (
+                caixa_transaction_invoice_month(tx) != invoice_month
+            ):
+                continue
+        elif account is not None and account.credit_balance_close_date is not None:
+            cycle_start, cycle_end = _forming_cycle_for_close_date(
+                account.credit_balance_close_date,
+                today,
+            )
+            if tx.date < cycle_start or tx.date > cycle_end:
+                continue
+        elif tx.date < invoice_start:
             continue
         transactions.append(tx)
     return transactions

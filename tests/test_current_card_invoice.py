@@ -94,7 +94,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             )
         )
 
-    def test_current_invoice_is_only_pending_through_invoice_month(self):
+    def test_current_invoice_excludes_stale_pending_from_previous_months(self):
         with Session(self.engine) as session:
             self._add_item(session)
             self._add_credit_account(session, balance=Decimal("99999"))
@@ -120,12 +120,12 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(summary["invoice_month"], "2026-07")
         self.assertEqual(summary["cutoff_date"], "2026-07-31")
         self.assertEqual(summary["source"], "pending_transactions")
-        self.assertEqual(summary["amount"], 600.0)
-        self.assertEqual(sum(category["total"] for category in summary["categories"]), 600.0)
-        self.assertEqual(summary["transaction_count"], 3)
+        self.assertEqual(summary["amount"], 300.0)
+        self.assertEqual(sum(category["total"] for category in summary["categories"]), 300.0)
+        self.assertEqual(summary["transaction_count"], 1)
         self.assertEqual(
             {tx["id"] for tx in summary["raw_purchase_transactions"]},
-            {"may", "jun", "jul"},
+            {"jul"},
         )
 
     def test_balance_and_bills_never_enter_current_invoice(self):
@@ -175,15 +175,12 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         with Session(self.engine) as session:
             summary = current_card_invoice_summary(session, today=date(2026, 6, 20))
 
-        self.assertEqual(sum(row["total"] for row in summary["categories"]), 500.0)
+        self.assertEqual(sum(row["total"] for row in summary["categories"]), 375.0)
         self.assertEqual(
             {row["id"] for row in summary["raw_purchase_transactions"]},
-            {"jun-food", "jul-health"},
+            {"jul-health"},
         )
-        self.assertEqual(
-            {row["id"] for row in summary["recent_purchase_transactions"]},
-            {"jun-food"},
-        )
+        self.assertEqual(summary["recent_purchase_transactions"], [])
         self.assertNotIn(
             "account_balance_reconciliation",
             {row.get("source") for row in summary["categories"]},
@@ -224,8 +221,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         with Session(self.engine) as session:
             summary = current_card_invoice_summary(session, today=date(2026, 6, 20))
 
-        self.assertEqual(summary["amount"], 100.0)
-        self.assertEqual(summary["transaction_count"], 1)
+        self.assertEqual(summary["amount"], 0.0)
+        self.assertEqual(summary["transaction_count"], 0)
 
     def test_planning_vigente_uses_pending_even_when_official_bill_exists(self):
         with Session(self.engine) as session:
@@ -251,8 +248,8 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             )
 
         self.assertEqual(invoice["source"], "pending_current_invoice")
-        self.assertEqual(invoice["amount"], 400.0)
-        self.assertEqual(invoice["transaction_count"], 2)
+        self.assertEqual(invoice["amount"], 300.0)
+        self.assertEqual(invoice["transaction_count"], 1)
 
     def test_future_month_keeps_official_invoice_logic(self):
         with Session(self.engine) as session:
@@ -296,12 +293,12 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertNotIn("next_invoice", summary)
         self.assertNotIn("total_count", summary)
         self.assertTrue(july["is_current_invoice"])
-        self.assertEqual(july["total"], 600.0)
-        self.assertEqual(sum(tx["amount"] for tx in july["transactions"]), 600.0)
-        self.assertEqual(july["count"], 3)
+        self.assertEqual(july["total"], 300.0)
+        self.assertEqual(sum(tx["amount"] for tx in july["transactions"]), 300.0)
+        self.assertEqual(july["count"], 1)
         self.assertEqual(
             {tx["id"] for tx in july["transactions"]},
-            {"may", "jun", "jul"},
+            {"jul"},
         )
         self.assertEqual(august["total"], 500.0)
         self.assertEqual({tx["id"] for tx in august["transactions"]}, {"aug"})
@@ -322,10 +319,10 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             for month in upcoming["months"]
             if "itau-aug" in {tx["id"] for tx in month["transactions"]}
         ]
-        self.assertEqual(current["amount"], 600.0)
+        self.assertEqual(current["amount"], 0.0)
         current_month = next(month for month in upcoming["months"] if month["is_current_invoice"])
-        self.assertEqual(current_month["total"], 600.0)
-        self.assertEqual(appearances, ["2026-09"])
+        self.assertEqual(current_month["total"], 0.0)
+        self.assertEqual(appearances, [])
 
     def test_upcoming_identifies_each_card_and_institution(self):
         with Session(self.engine) as session:
@@ -433,17 +430,16 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         expected_ids = {
             "caixa-similar-legitimate",
             "caixa-normal",
-            "itau-same-description",
         }
-        self.assertEqual(current["amount"], 370.0)
+        self.assertEqual(current["amount"], 290.0)
         self.assertEqual(
             {tx["id"] for tx in current["raw_purchase_transactions"]},
             expected_ids,
         )
         september = next(month for month in upcoming["months"] if month["month"] == "2026-09")
-        self.assertEqual(september["total"], 370.0)
+        self.assertEqual(september["total"], 290.0)
         self.assertEqual({tx["id"] for tx in september["transactions"]}, expected_ids)
-        self.assertEqual(sum(category["total"] for category in current["categories"]), 370.0)
+        self.assertEqual(sum(category["total"] for category in current["categories"]), 290.0)
 
     def test_caixa_automatic_boleto_payment_does_not_reduce_upcoming_invoice(self):
         with Session(self.engine) as session:
@@ -752,13 +748,13 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         transaction_ids = {tx["id"] for tx in september["transactions"]}
 
         self.assertNotIn("2026-08", months)
-        self.assertEqual(current["amount"], 900.0)
-        self.assertEqual(september["total"], 900.0)
+        self.assertEqual(current["amount"], 300.0)
+        self.assertEqual(september["total"], 300.0)
         self.assertEqual(history["months"][0]["invoice_display_total"], 1080.69)
-        self.assertEqual(transaction_ids, {"itau-aug", "caixa-after-close"})
+        self.assertEqual(transaction_ids, {"caixa-after-close"})
         self.assertNotIn("caixa-before-close", transaction_ids)
         september_cards = {card["account_id"]: card for card in september["cards"]}
-        self.assertEqual(september_cards["credit-1"]["total_amount"], 600.0)
+        self.assertEqual(september_cards["credit-1"]["total_amount"], 0.0)
         self.assertEqual(september_cards["credit-caixa"]["total_amount"], 300.0)
         self.assertNotIn("is_official", september_cards["credit-caixa"])
 
@@ -1075,11 +1071,11 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             )
 
         capacity = planning["capacity"]
-        self.assertEqual(planning["credit_card_invoice"]["amount"], 500.0)
+        self.assertEqual(planning["credit_card_invoice"]["amount"], 300.0)
         self.assertEqual(capacity["card_invoice_source"], "pending_current_invoice")
-        self.assertEqual(capacity["future_card_obligation_total"], 500.0)
-        self.assertEqual(capacity["variable_budget_consumed"], 500.0)
-        self.assertEqual(planning["variable_budgets"]["remaining"], 500.0)
+        self.assertEqual(capacity["future_card_obligation_total"], 300.0)
+        self.assertEqual(capacity["variable_budget_consumed"], 300.0)
+        self.assertEqual(planning["variable_budgets"]["remaining"], 700.0)
 
     def test_december_rolls_current_invoice_cutoff_into_january(self):
         with Session(self.engine) as session:
@@ -1094,10 +1090,10 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             summary = current_card_invoice_summary(session, today=date(2026, 12, 20))
 
         self.assertEqual(summary["invoice_month"], "2027-01")
-        self.assertEqual(summary["amount"], 300.0)
+        self.assertEqual(summary["amount"], 200.0)
         self.assertEqual(
             {tx["id"] for tx in summary["raw_purchase_transactions"]},
-            {"dec", "jan"},
+            {"jan"},
         )
 
 
