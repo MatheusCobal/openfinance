@@ -5,6 +5,7 @@ from collections import defaultdict
 from decimal import Decimal
 from typing import Any, Optional
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.categorization import normalize_description
@@ -145,11 +146,11 @@ def pending_current_invoice_transactions(
     """Return the only transaction set allowed to compose the current invoice.
 
     The current invoice is the next calendar month's invoice. Non-CAIXA cards
-    use their reported closing cycle when available. When the connector omits
-    the closing date, only eligible PENDING purchases dated inside the invoice
-    month are used; some connectors keep already closed purchases as PENDING
-    indefinitely, so a cutoff without a lower bound would accumulate old
-    invoices. CAIXA remains assigned by its connector-specific closing cycle.
+    use the explicitly reported invoice month first, then their closing cycle
+    when available. Without either, eligible PENDING purchases dated inside
+    the invoice month are used. This includes a first installment purchased
+    earlier but assigned to this invoice, without accumulating stale PENDING
+    purchases from older invoices. CAIXA keeps its connector-specific cycle.
     """
     from app.services.classification import TransactionClassifier
 
@@ -166,7 +167,10 @@ def pending_current_invoice_transactions(
         scope_query(
             select(Transaction).where(
                 Transaction.account_id.in_(account_ids),
-                Transaction.date <= cutoff,
+                or_(
+                    Transaction.date <= cutoff,
+                    Transaction.bill_forecast_month == invoice_month,
+                ),
                 _non_duplicate_clause(),
             ),
             Transaction.user_id,
@@ -191,6 +195,9 @@ def pending_current_invoice_transactions(
             if is_caixa_statement_marker(tx) or (
                 caixa_transaction_invoice_month(tx) != invoice_month
             ):
+                continue
+        elif tx.bill_forecast_month:
+            if tx.bill_forecast_month != invoice_month:
                 continue
         elif account is not None and account.credit_balance_close_date is not None:
             cycle_start, cycle_end = _forming_cycle_for_close_date(

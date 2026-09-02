@@ -128,6 +128,49 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             {"jul"},
         )
 
+    def test_itau_first_installment_uses_reported_invoice_month_on_all_surfaces(self):
+        with Session(self.engine) as session:
+            self._add_item(session)
+            self._add_credit_account(session, name="LATAM PASS ITAU MASTERCARD BLACK")
+            self._add_purchase(session, "october-installments", date(2026, 10, 6), 3624.86)
+            for tx_id, tx_date, amount, forecast in (
+                ("new-points", date(2026, 8, 29), "85.75", "2026-10"),
+                ("monthly-fee", date(2026, 8, 30), "113", "2026-10"),
+                ("old-pending", date(2026, 9, 8), "5079.65", "2026-09"),
+                ("other-invoice", date(2026, 10, 6), "200", "2026-11"),
+                ("next-points", date(2026, 11, 6), "85.75", "2026-11"),
+            ):
+                session.add(Transaction(
+                    id=tx_id,
+                    account_id="credit-1",
+                    date=tx_date,
+                    amount=Decimal(amount),
+                    description=tx_id,
+                    category="Shopping",
+                    status="PENDING",
+                    bill_forecast_month=forecast,
+                ))
+            session.commit()
+
+        with Session(self.engine) as session:
+            today = date(2026, 9, 2)
+            current = current_card_invoice_summary(session, today=today)
+            upcoming = upcoming_summary(session, today=today)
+            planning = planning_month_summary(session, "2026-10", today=today)
+
+        october = next(row for row in upcoming["months"] if row["month"] == "2026-10")
+        self.assertAlmostEqual(current["amount"], 3823.61)
+        self.assertAlmostEqual(october["total"], 3823.61)
+        self.assertAlmostEqual(planning["credit_card_invoice"]["amount"], 3823.61)
+        self.assertEqual(
+            {tx["id"] for tx in current["raw_purchase_transactions"]},
+            {"october-installments", "new-points", "monthly-fee"},
+        )
+        self.assertEqual(
+            {tx["id"] for tx in october["transactions"]},
+            {"october-installments", "new-points", "monthly-fee"},
+        )
+
     def test_balance_and_bills_never_enter_current_invoice(self):
         with Session(self.engine) as session:
             self._add_item(session)
