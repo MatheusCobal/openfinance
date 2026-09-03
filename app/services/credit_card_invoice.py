@@ -47,6 +47,7 @@ from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.models import Account, CreditCardBill, Transaction
+from app.services.itau_invoice import is_unconfirmed_itau_transaction
 from app.services.scoping import scope_query
 from app.services.transactions import _non_duplicate_clause
 
@@ -201,7 +202,13 @@ def _find_invoice_payment_transactions(
             user_id,
         ).order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
-    return [tx for tx in rows if classifier.is_invoice_payment(tx)]
+    accounts = {account.id: account for account in _active_credit_accounts(session, user_id=user_id)}
+    return [
+        tx
+        for tx in rows
+        if classifier.is_invoice_payment(tx)
+        and not is_unconfirmed_itau_transaction(tx, accounts.get(tx.account_id))
+    ]
 
 
 def _payment_status_from_transactions(

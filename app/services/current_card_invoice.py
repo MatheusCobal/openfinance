@@ -22,6 +22,7 @@ from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
 )
+from app.services.itau_invoice import is_itau_account
 from app.services.scoping import scope_query
 from app.services.transaction_classifier import serialize_transaction_classification
 from app.services.transactions import _non_duplicate_clause
@@ -114,6 +115,8 @@ def _serialize_current_invoice_transaction(
     tx: Transaction,
     account: Optional[Account] = None,
     item: Optional[Item] = None,
+    *,
+    is_invoice_payment: bool = False,
 ) -> dict[str, Any]:
     classification = serialize_transaction_classification(tx, account_type="CREDIT")
     effective_category = resolve_credit_internal_category(
@@ -121,6 +124,18 @@ def _serialize_current_invoice_transaction(
         account_type="CREDIT",
         current_internal_category=classification.get("internal_category"),
     )
+    invoice_fields = {}
+    if is_itau_account(account):
+        # Financial contribution is independent of expense categorization.
+        # Keep the provider's sign and the user's classification unchanged.
+        invoice_fields = {
+            "invoice_contribution_amount": float(tx.amount),
+            "invoice_category": (
+                "Pagamentos da fatura"
+                if tx.amount < 0 and is_invoice_payment
+                else (CAIXA_CREDIT_CATEGORY if tx.amount < 0 else effective_category or "Outros")
+            ),
+        }
     return {
         "id": tx.id,
         "date": tx.date.isoformat(),
@@ -135,6 +150,7 @@ def _serialize_current_invoice_transaction(
         "installment_number": tx.installment_number,
         "total_installments": tx.total_installments,
         **_card_identity(account, item),
+        **invoice_fields,
     }
 
 
@@ -145,12 +161,10 @@ def pending_current_invoice_transactions(
 ) -> list[Transaction]:
     """Return the only transaction set allowed to compose the current invoice.
 
-    The current invoice is the next calendar month's invoice. Non-CAIXA cards
-    use the explicitly reported invoice month first, then their closing cycle
-    when available. Without either, eligible PENDING purchases dated inside
-    the invoice month are used. This includes a first installment purchased
-    earlier but assigned to this invoice, without accumulating stale PENDING
-    purchases from older invoices. CAIXA keeps its connector-specific cycle.
+    The current invoice is the next calendar month's invoice. Itaú uses every
+    nonduplicate provider-PENDING entry dated through that month's end, with
+    its original sign, regardless of forecast month or expense classification.
+    Other cards retain their existing forecast/cycle rules, including CAIXA.
     """
     from app.services.classification import TransactionClassifier
 
@@ -180,6 +194,11 @@ def pending_current_invoice_transactions(
     classifier = TransactionClassifier.from_session(session, user_id=user_id)
     transactions = []
     for tx in rows:
+        account = accounts_by_id.get(tx.account_id)
+        if is_itau_account(account):
+            if str(tx.status or "").upper() == "PENDING" and tx.date <= cutoff:
+                transactions.append(tx)
+            continue
         if not (
             str(tx.status or "").upper() == "PENDING"
             and tx.amount > 0
@@ -190,7 +209,6 @@ def pending_current_invoice_transactions(
             and not _looks_like_refund(tx)
         ):
             continue
-        account = accounts_by_id.get(tx.account_id)
         if is_caixa_account(account):
             if is_caixa_statement_marker(tx) or (
                 caixa_transaction_invoice_month(tx) != invoice_month
@@ -235,6 +253,9 @@ def current_card_invoice_summary(
     non_caixa_transactions = [
         tx for tx in transactions if not is_caixa_account(accounts_by_id.get(tx.account_id))
     ]
+    from app.services.classification import TransactionClassifier
+
+    classifier = TransactionClassifier.from_session(session, user_id=user_id)
     serialized = [
         _serialize_current_invoice_transaction(
             tx,
@@ -242,14 +263,12 @@ def current_card_invoice_summary(
             items_by_id.get(accounts_by_id[tx.account_id].item_id)
             if tx.account_id in accounts_by_id
             else None,
+            is_invoice_payment=classifier.is_invoice_payment(tx),
         )
         for tx in non_caixa_transactions
     ]
     caixa_account_ids = {account.id for account in accounts if is_caixa_account(account)}
     if caixa_account_ids:
-        from app.services.classification import TransactionClassifier
-
-        classifier = TransactionClassifier.from_session(session, user_id=user_id)
         caixa_entries = caixa_invoice_entries_by_month(
             session,
             caixa_account_ids,
@@ -279,11 +298,14 @@ def current_card_invoice_summary(
     for tx in serialized:
         signed_amount = Decimal(str(tx.get("signed_amount", tx["amount"])))
         is_credit = signed_amount < 0
-        if tx.get("ignored_from_totals") or (
-            not is_credit and tx.get("cashflow_type") != "expense"
+        if not tx.get("invoice_category") and (
+            tx.get("ignored_from_totals")
+            or (not is_credit and tx.get("cashflow_type") != "expense")
         ):
             continue
-        name = CAIXA_CREDIT_CATEGORY if is_credit else tx.get("effective_category") or "Outros"
+        name = tx.get("invoice_category") or (
+            CAIXA_CREDIT_CATEGORY if is_credit else tx.get("effective_category") or "Outros"
+        )
         bucket = categories_by_name.setdefault(
             name,
             {

@@ -98,6 +98,35 @@ class CreditCardInvoicePaymentStatusTest(unittest.TestCase):
         self.assertEqual(invoice["matched_payment_transactions"], [])
         self.assertEqual(invoice["cards"][0]["payment_status"], "paid")
 
+    def test_itau_pending_payment_is_not_confirmation_of_payment(self):
+        from app.services.sync import upsert_transaction
+
+        with Session(self.engine) as session:
+            self._seed_credit_account(session)
+            account = session.get(Account, ACCOUNT_ID)
+            account.name = "LATAM PASS ITAU BLACK"
+            session.add(account)
+            self._add_bill(session)
+            raw = {
+                "id": "itau-payment", "date": "2026-05-15", "amount": -1000,
+                "description": "PAGAMENTO COM SALDO", "category": "Transfers",
+                "status": "PENDING",
+            }
+            upsert_transaction(raw, ACCOUNT_ID, session)
+            session.commit()
+            invoice = self._invoice(session)
+            self.assertEqual(invoice["payment_status"], "unknown")
+            self.assertEqual(invoice["paid_amount"], 0)
+
+            # A subsequent provider response, not the invoice calculation,
+            # is the only authority that can change the persisted status.
+            raw["status"] = "POSTED"
+            upsert_transaction(raw, ACCOUNT_ID, session)
+            session.commit()
+            invoice = self._invoice(session)
+            self.assertEqual(invoice["payment_status"], "paid")
+            self.assertEqual(invoice["paid_amount"], 1000)
+
     def test_partial_payment_by_bill_payments_total(self):
         with Session(self.engine) as session:
             self._seed_credit_account(session)

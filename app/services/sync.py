@@ -251,7 +251,7 @@ def upsert_transaction(
         "category": raw_tx.get("category"),
         "currency_code": raw_tx.get("currencyCode") or "BRL",
         "status": raw_tx.get("status"),
-        "bill_id": raw_tx.get("billId"),
+        "bill_id": metadata_value("billId"),
         "installment_number": installment_number,
         "total_installments": total_installments,
         "total_amount": Decimal(str(raw_total)) if raw_total is not None else None,

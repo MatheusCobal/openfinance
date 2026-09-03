@@ -52,14 +52,20 @@ def spending_capacity_summary(
         current_rows = current_invoice.get("raw_purchase_transactions", [])
         current_invoice_transaction_ids = {str(row["id"]) for row in current_rows if row.get("id")}
         gross_total = sum(
-            (Decimal(str(row.get("amount") or 0)) for row in current_rows),
+            (
+                Decimal(str(row.get("invoice_contribution_amount", row.get("amount") or 0)))
+                for row in current_rows
+            ),
             Decimal("0"),
         )
         discretionary_rows = [
             row for row in current_rows if row.get("id") not in fixed_cost_accounted_ids
         ]
         discretionary_total = sum(
-            (Decimal(str(row.get("amount") or 0)) for row in discretionary_rows),
+            (
+                Decimal(str(row.get("invoice_contribution_amount", row.get("amount") or 0)))
+                for row in discretionary_rows
+            ),
             Decimal("0"),
         )
         invoice = {

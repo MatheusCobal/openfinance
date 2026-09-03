@@ -22,6 +22,7 @@ from app.services.invoice_month import (
     DEFAULT_CREDIT_CARD_DUE_DAY,
     invoice_month_from_payment,
 )
+from app.services.itau_invoice import is_itau_account, is_unconfirmed_itau_transaction
 from app.services.credit_categories import (
     credit_category_payload,
     resolve_credit_internal_category,
@@ -326,6 +327,7 @@ def _credit_card_official_bill_totals_by_month(
                 abs(tx.amount)
                 for tx in payment_rows
                 if tx.account_id == bill.account_id
+                and not is_unconfirmed_itau_transaction(tx, accounts_by_id.get(tx.account_id))
                 and window_start <= tx.date <= window_end
                 and classifier.is_invoice_payment(tx)
             ),
@@ -377,8 +379,8 @@ def _credit_card_official_bill_totals_by_month(
 
     # Some connectors close a bill by returning only its payment transaction,
     # without a usable CreditCardBill row.  A payment is strong evidence of a
-    # closed invoice and must be kept in History, while remaining excluded from
-    # the open/future invoice calculation.
+    # closed invoice. Itaú requires the provider's POSTED confirmation; its
+    # PENDING payments remain in the current invoice's signed balance instead.
     inferred_payments: dict[tuple[str, str], dict[str, Any]] = {}
     billed_accounts_by_month = {
         (bill_month, str(bill["account_id"]))
@@ -387,6 +389,8 @@ def _credit_card_official_bill_totals_by_month(
     }
     for tx in payment_rows:
         account = accounts_by_id.get(tx.account_id)
+        if is_unconfirmed_itau_transaction(tx, account):
+            continue
         caixa_statement_payment = is_caixa_account(account) and is_caixa_statement_marker(tx)
         if not classifier.is_invoice_payment(tx) and not caixa_statement_payment:
             continue
@@ -544,6 +548,12 @@ def credit_card_invoice_purchases_monthly_summary(
         item.id: item
         for item in session.exec(scope_query(select(Item), Item.user_id, user_id)).all()
     }
+    bills_by_id = {
+        bill.id: bill
+        for bill in session.exec(
+            scope_query(select(CreditCardBill), CreditCardBill.user_id, user_id)
+        ).all()
+    }
     payment_cards_by_month: Dict[str, Dict[str, dict[str, Any]]] = defaultdict(dict)
     payment_window_start = shift_month(first_selected_month, -1)
     for payment in credit_card_payment_transactions(
@@ -554,6 +564,8 @@ def credit_card_invoice_purchases_monthly_summary(
     ):
         account = accounts_by_id.get(payment.account_id)
         if account is None or account.type != "CREDIT":
+            continue
+        if is_unconfirmed_itau_transaction(payment, account):
             continue
         due_day = (
             account.credit_balance_due_date.day
@@ -579,18 +591,28 @@ def credit_card_invoice_purchases_monthly_summary(
     first_purchase_month: date | None = None
 
     for tx in purchases:
+        account = accounts_by_id.get(tx.account_id)
+        if is_unconfirmed_itau_transaction(tx, account):
+            continue
         serialized = _history_card_purchase_transaction(tx, accounts_by_id)
         if serialized.get("ignored_from_totals") or serialized.get("cashflow_type") != "expense":
             continue
 
         category_name = serialized.get("effective_category") or "Outros"
         amount = Decimal(str(serialized["amount_abs"]))
-        account = accounts_by_id.get(tx.account_id)
         tx_month = (
             caixa_transaction_invoice_month(tx)
             if is_caixa_account(account)
             else month_key(tx.date)
         )
+        bill = bills_by_id.get(tx.bill_id)
+        if (
+            is_itau_account(account)
+            and bill is not None
+            and bill.account_id == tx.account_id
+            and bill.due_date is not None
+        ):
+            tx_month = month_key(bill.due_date)
         totals_by_month_category[tx_month][category_name] += amount
         counts_by_month_category[tx_month][category_name] += 1
 

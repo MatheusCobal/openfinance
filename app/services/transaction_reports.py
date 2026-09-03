@@ -40,13 +40,16 @@ from app.services.transactions import (
 def _upcoming_categories(transactions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     categories_by_name: Dict[str, dict[str, Any]] = {}
     for tx in transactions:
-        if tx.get("ignored_from_totals"):
-            continue
         signed_amount = Decimal(str(tx.get("signed_amount", tx.get("amount") or 0)))
         is_credit = signed_amount < 0
-        if not is_credit and tx.get("cashflow_type") != "expense":
+        if not tx.get("invoice_category") and (
+            tx.get("ignored_from_totals")
+            or (not is_credit and tx.get("cashflow_type") != "expense")
+        ):
             continue
-        name = CAIXA_CREDIT_CATEGORY if is_credit else tx.get("effective_category") or "Outros"
+        name = tx.get("invoice_category") or (
+            CAIXA_CREDIT_CATEGORY if is_credit else tx.get("effective_category") or "Outros"
+        )
         bucket = categories_by_name.setdefault(
             name,
             {

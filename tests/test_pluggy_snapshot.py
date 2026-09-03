@@ -827,6 +827,33 @@ class TransactionBillInstallmentTest(unittest.TestCase):
             self.assertEqual(tx.credit_card_last_four, "6849")
             self.assertEqual(tx.purchase_date, date(2026, 7, 24))
 
+    def test_nested_bill_id_never_infers_or_overrides_provider_status(self):
+        from app.services.sync import upsert_transaction
+
+        raw = {
+            "id": "itau-bill-link", "date": "2026-07-15", "amount": 300,
+            "description": "Compra", "status": "PENDING",
+            "creditCardMetadata": {"billId": "nested-bill"},
+        }
+        with Session(self.engine) as session:
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+            tx = session.get(Transaction, raw["id"])
+            self.assertEqual(tx.bill_id, "nested-bill")
+            self.assertEqual(tx.status, "PENDING")
+
+            raw["status"] = "POSTED"
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+            self.assertEqual(tx.status, "POSTED")
+            self.assertEqual(tx.bill_id, "nested-bill")
+
+            raw["billId"] = "top-level-bill"
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+            self.assertEqual(tx.bill_id, "top-level-bill")
+            self.assertEqual(tx.status, "POSTED")
+
     def test_upsert_transaction_null_fields_when_absent(self):
         from app.services.sync import upsert_transaction
 
