@@ -678,6 +678,80 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(cards["CAIXA ICONE VISA"], 8418.39)
         self.assertEqual(cards["LATAM PASS ITAU MASTERCARD BLACK"], 5401.33)
 
+    def test_itau_posted_early_payment_recovers_september_even_with_zero_official_bill(self):
+        from app.services.sync import upsert_transaction
+
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(
+                session, name="LATAM PASS ITAU BLACK", due_date=date(2026, 8, 6),
+            )
+            self._add_credit_account(
+                session, account_id="credit-caixa", name="CAIXA ICONE VISA",
+                due_date=date(2026, 9, 3),
+            )
+            session.add(Transaction(
+                id="caixa-paid", account_id="credit-caixa", date=date(2026, 8, 31),
+                amount=Decimal("-8418.39"), description="AUT. PGTO. BOLETO REGISTRADO",
+                category="Transfer - Bank Slip", status="PENDING", bill_forecast_month="2026-09",
+            ))
+            raw = {
+                "id": "itau-early-payment", "date": "2026-08-20T23:58:29.000Z",
+                "amount": -5401.33, "description": "PAGAMENTO COM SALDO",
+                "category": "Transfers", "status": "PENDING",
+                "creditCardMetadata": {"billForecastDate": "2026-09"},
+            }
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+
+            def september_cards():
+                with patch("app.services.history.date") as history_date:
+                    history_date.today.return_value = date(2026, 9, 6)
+                    history_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+                    history = credit_card_invoice_purchases_monthly_summary(session, months=2)
+                months = {month["month"]: month for month in history["months"]}
+                self.assertNotIn("2026-10", months)
+                itau_cards = [
+                    card for month in months.values() for card in month["cards"]
+                    if card["account_id"] == "credit-1"
+                ]
+                self.assertLessEqual(len(itau_cards), 1)
+                return {card["account_id"]: card["total"] for card in months["2026-09"]["cards"]}
+
+            self.assertEqual(september_cards(), {"credit-caixa": 8418.39})
+            raw["status"] = "POSTED"  # Simulate the next provider response, not a local inference.
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+            expected = {"credit-1": 5401.33, "credit-caixa": 8418.39}
+            self.assertEqual(september_cards(), expected)
+
+            # A paid bill may be reported with zero balance. The Aug 20 payment
+            # is earlier than the old 10-day matching window for a Sep 6 bill.
+            bill = CreditCardBill(
+                id="itau-september-bill", account_id="credit-1", due_date=date(2026, 9, 6),
+                total_amount=Decimal("0"),
+            )
+            session.add(bill)
+            session.commit()
+            self.assertEqual(september_cards(), expected)
+
+            # Once the provider supplies billId, it remains authoritative even
+            # if the forecast is absent (or still points at another month).
+            raw["creditCardMetadata"] = {"billId": bill.id}
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+            self.assertEqual(september_cards(), expected)
+
+            raw["creditCardMetadata"]["billForecastDate"] = "2026-08"
+            upsert_transaction(raw, "credit-1", session)
+            session.commit()
+            self.assertEqual(september_cards(), expected)
+
+            bill.total_amount = Decimal("5401.33")
+            session.add(bill)
+            session.commit()
+            self.assertEqual(september_cards(), expected)  # No double counting.
+
     def test_caixa_previous_bill_marker_does_not_change_closed_history_or_payment(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")

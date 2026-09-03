@@ -11,6 +11,7 @@ from app.categorization import normalize_description
 from app.models import Account, AccountSync, FixedCostTransactionMatch, Item, Transaction
 from app.pluggy_client import pluggy
 from app.services.classification import TRACKED_ACCOUNT_TYPES
+from app.services.itau_invoice import is_itau_account
 from app.services.pluggy_snapshot import (
     account_snapshot_values,
     sync_credit_card_bills,
@@ -322,9 +323,22 @@ def sync_account_transactions(
     result = AccountSyncResult()
     max_past_tx_date = sync_state.last_transaction_date
     from_date = sync_from_date(sync_state)
+    fetch_from_date = from_date
+    if from_date is not None and is_itau_account(session.get(Account, account_id)):
+        # Provider-PENDING entries can settle long after the incremental window.
+        # Revisit them to receive POSTED/billId; never infer that transition.
+        oldest_pending_date = session.exec(
+            select(Transaction.date).where(
+                Transaction.account_id == account_id,
+                Transaction.status == "PENDING",
+                Transaction.date < from_date,
+            ).order_by(Transaction.date).limit(1)
+        ).first()
+        if oldest_pending_date is not None:
+            fetch_from_date = oldest_pending_date
     remote_transactions = pluggy.list_transactions(
         account_id,
-        from_date=from_date,
+        from_date=fetch_from_date,
     )
     remote_transaction_ids = {str(raw_tx["id"]) for raw_tx in remote_transactions}
     for raw_tx in remote_transactions:
@@ -343,6 +357,7 @@ def sync_account_transactions(
         if tx_date <= date.today() and (max_past_tx_date is None or tx_date > max_past_tx_date):
             max_past_tx_date = tx_date
 
+    # Expanding the refresh must not expand deletion into older local history.
     result.deleted_transactions = _delete_missing_transactions(
         account_id,
         remote_transaction_ids,

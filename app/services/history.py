@@ -317,19 +317,29 @@ def _credit_card_official_bill_totals_by_month(
         for account in session.exec(scope_query(select(Account), Account.user_id, user_id)).all()
     }
 
+    def payment_matches_bill(tx: Transaction, bill: CreditCardBill) -> bool:
+        if tx.account_id != bill.account_id or not classifier.is_invoice_payment(tx):
+            return False
+        account = accounts_by_id.get(tx.account_id)
+        if is_itau_account(account):
+            if is_unconfirmed_itau_transaction(tx, account):
+                return False
+            # A payment made well before the due date still belongs to the
+            # provider's bill. A date-window guess must not discard that link.
+            if tx.bill_id:
+                return tx.bill_id == bill.id
+            if tx.bill_forecast_month:
+                return tx.bill_forecast_month[:7] == month_key(bill.due_date)
+        return bill.due_date - timedelta(days=10) <= tx.date <= bill.due_date + timedelta(days=5)
+
     def matched_credit_payment_total(bill: CreditCardBill) -> Decimal:
         if bill.due_date is None:
             return Decimal("0")
-        window_start = bill.due_date - timedelta(days=10)
-        window_end = bill.due_date + timedelta(days=5)
         return sum(
             (
                 abs(tx.amount)
                 for tx in payment_rows
-                if tx.account_id == bill.account_id
-                and not is_unconfirmed_itau_transaction(tx, accounts_by_id.get(tx.account_id))
-                and window_start <= tx.date <= window_end
-                and classifier.is_invoice_payment(tx)
+                if payment_matches_bill(tx, bill)
             ),
             Decimal("0"),
         )
@@ -387,6 +397,7 @@ def _credit_card_official_bill_totals_by_month(
         for bill_month, bucket in totals_by_month.items()
         for bill in bucket["bills"]
     }
+    bills_by_id = {bill.id: bill for bill in bills}
     for tx in payment_rows:
         account = accounts_by_id.get(tx.account_id)
         if is_unconfirmed_itau_transaction(tx, account):
@@ -396,7 +407,14 @@ def _credit_card_official_bill_totals_by_month(
             continue
 
         forecast_month = str(tx.bill_forecast_month or "")[:7]
-        if forecast_month in selected_months:
+        linked_bill = bills_by_id.get(tx.bill_id) if is_itau_account(account) else None
+        if (
+            linked_bill is not None
+            and linked_bill.account_id == tx.account_id
+            and linked_bill.due_date is not None
+        ):
+            invoice_month = month_key(linked_bill.due_date)
+        elif forecast_month in selected_months:
             invoice_month = forecast_month
         else:
             due_day = (
