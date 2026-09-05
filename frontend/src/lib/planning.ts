@@ -153,7 +153,6 @@ export function dashboardAvailableToSpend(
     ? planningCapacity.fixed_cost_planned_total ?? 0
     : planningCapacity.fixed_cost_reserved_total ?? 0;
   const fixedCostsPending = planningCapacity.fixed_cost_pending_total ?? fixedCosts;
-  const variableBudget = planningCapacity.variable_budget_total ?? 0;
   const planningAvailable = asMoneyNumber(
     planningCapacity.budget_available_to_spend ?? planningCapacity.available_to_spend,
   );
@@ -161,7 +160,6 @@ export function dashboardAvailableToSpend(
   const currentInvoiceRawAmount = cardInvoice?.amount ?? cardInvoice?.adjusted_total;
   const hasCurrentInvoiceAmount = Number.isFinite(Number(currentInvoiceRawAmount));
   const currentInvoiceAmount = hasCurrentInvoiceAmount ? asMoneyNumber(currentInvoiceRawAmount) : 0;
-  const variableUsed = planningCapacity.variable_budget_consumed ?? 0;
 
   // Same rule as the static Dashboard: Planejamento keeps its monthly capacity,
   // while Dashboard swaps only the invoice component for the operational current invoice.
@@ -179,8 +177,6 @@ export function dashboardAvailableToSpend(
     expectedIncome,
     fixedCosts,
     fixedCostsPending,
-    variableBudget,
-    variableUsed,
     availableToSpend,
     status,
   };

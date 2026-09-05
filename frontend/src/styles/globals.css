@@ -18,8 +18,14 @@
     min-width: 320px;
     min-height: 100vh;
     color-scheme: light;
-    overflow-x: hidden;
+    line-height: 1.5;
   }
+
+  html { scroll-padding-top: 7rem; }
+
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+
+  button:not(:disabled), a { touch-action: manipulation; }
 
   button,
   input,
@@ -56,12 +62,9 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Premium dark hero surface used by the Dashboard cockpit. */
+  /* One quiet, distinctive anchor for the financial summary. */
   .cockpit-surface {
-    background:
-      radial-gradient(1200px 380px at 85% -40%, rgba(37, 99, 235, 0.22), transparent 60%),
-      radial-gradient(800px 300px at -10% 120%, rgba(16, 185, 129, 0.1), transparent 55%),
-      linear-gradient(140deg, #0b1220 0%, #101a2e 55%, #0b1220 100%);
+    background: theme("colors.cockpit.DEFAULT");
   }
 
   /* Subtle grid overlay for the dark hero. Pair with `cockpit-surface`. */
@@ -74,13 +77,13 @@
 
   /* Animated fill for progress bars: start at width 0, transition to value. */
   .bar-fill {
-    transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: width 0.25s ease-out;
   }
 
   /* Section entrance: opacity + small rise. Honors reduced-motion. */
   @media (prefers-reduced-motion: no-preference) {
     .ofx-rise {
-      animation: ofx-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation: ofx-rise 0.2s ease-out both;
     }
   }
 
@@ -121,5 +124,24 @@
   .sidebar-scroll::-webkit-scrollbar-thumb {
     background: theme("colors.ink.700");
     border-radius: 999px;
+  }
+
+  .page-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-700;
+  }
+
+  .section-anchor { scroll-margin-top: 7rem; }
+
+  .skip-link {
+    @apply fixed left-4 top-4 z-[100] -translate-y-24 rounded-control bg-primary-700 px-4 py-3 text-sm font-semibold text-white shadow-overlay focus:translate-y-0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

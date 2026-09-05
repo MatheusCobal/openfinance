@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, ChevronDown, CreditCard, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarClock,
+  CalendarDays,
+  ChevronDown,
+  CreditCard,
+  Layers3,
+  RefreshCw,
+} from "lucide-react";
 import { getUpcoming } from "../api/proximos";
 import { BarChart } from "../components/charts/BarChart";
 import { PageContainer } from "../components/layout/PageContainer";
@@ -11,10 +19,10 @@ import { ChartCard } from "../components/ui/ChartCard";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { LoadingState } from "../components/ui/LoadingState";
-import { MetricCard } from "../components/ui/MetricCard";
 import { MonthStrip } from "../components/ui/MonthStrip";
 import { useAsync } from "../hooks/useAsync";
 import { categoryColor } from "../lib/categories";
+import { CHART_COLORS } from "../lib/chartTheme";
 import { formatDayLabel, formatMonthCompact, formatMonthLong } from "../lib/dates";
 import { pluralParcelas } from "../lib/labels";
 import { formatMoney } from "../lib/money";
@@ -71,22 +79,23 @@ function transactionList(transactions: UpcomingMonth["transactions"]) {
   return (
     <ul className="divide-y divide-ink-100">
       {transactions.map((tx) => (
-        <li key={tx.id} className="flex items-baseline justify-between gap-4 px-5 py-3">
+        <li key={tx.id} className="flex items-start justify-between gap-3 px-5 py-4 transition-colors hover:bg-surface-muted/60 sm:gap-5 sm:px-6">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-ink-900">{tx.description}</p>
-            <p className="mt-0.5 text-xs text-ink-500">
+            <p className="break-words text-sm font-semibold leading-relaxed text-ink-900">{tx.description}</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-500">
               {formatDayLabel(tx.date)}
               {tx.installment_number && tx.total_installments
                 ? ` · parcela ${tx.installment_number} de ${tx.total_installments}`
                 : ""}
-              {tx.is_projected ? " · prevista" : ""}
             </p>
-            <p className="mt-1 truncate text-xs font-medium text-primary-700">{cardLabel(tx)}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-primary-700">{cardLabel(tx)}</span>
+              {tx.is_projected ? <Badge tone="warning">Prevista</Badge> : null}
+            </div>
           </div>
           <p
-            className={`shrink-0 text-sm font-medium tabular ${
-              Number(tx.signed_amount ?? tx.amount) < 0 ? "text-positive-700" : "text-ink-900"
-            }`}
+            className={`shrink-0 pt-0.5 text-sm font-semibold tabular ${Number(tx.signed_amount ?? tx.amount) < 0 ? "text-positive-700" : "text-ink-900"
+              }`}
           >
             {formatMoney(tx.signed_amount ?? tx.amount)}
           </p>
@@ -114,24 +123,25 @@ export function ProximosPage() {
   const futureTotal = futureMonths.reduce((sum, month) => sum + Number(month.total || 0), 0);
   const futureCount = futureMonths.reduce((sum, month) => sum + Number(month.count || 0), 0);
   const barColors = months.map((month) =>
-    month.month === selectedMonth ? "#1d4ed8" : "#93c5fd",
+    month.month === selected?.month ? CHART_COLORS.primarySelected : CHART_COLORS.primarySoft,
   );
 
   return (
     <>
       <Topbar
+        subtitle="Fatura em aberto e parcelas dos próximos meses"
         actions={
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="size-9 px-0"
-            aria-label="Atualizar"
+            aria-label="Atualizar compromissos"
             title="Atualizar"
             onClick={() => void run()}
             loading={loading}
           >
             <RefreshCw className="size-4" aria-hidden="true" />
+            Atualizar
           </Button>
         }
       />
@@ -144,130 +154,180 @@ export function ProximosPage() {
         {data ? (
           months.length ? (
             <div className="space-y-6">
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <section className={`grid gap-5 ${currentInvoice && futureMonths.length ? "lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]" : "grid-cols-1"}`} aria-label="Resumo dos compromissos">
                 {currentInvoice ? (
-                  <MetricCard
-                    label="Fatura em aberto"
-                    value={formatMoney(currentInvoice.total)}
-                    subtitle={formatMonthLong(currentInvoice.month)}
-                    tone="primary"
-                    icon={<CreditCard className="size-4" aria-hidden="true" />}
-                  />
+                  <div className="cockpit-surface rounded-card p-6 text-white sm:p-7">
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-white/70">Fatura em aberto</p>
+                      <CreditCard className="size-5 text-white/70" aria-hidden="true" />
+                    </div>
+                    <p className="mt-4 text-3xl font-bold tracking-tight tabular sm:text-4xl">
+                      {formatMoney(currentInvoice.total)}
+                    </p>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-white/75">{formatMonthLong(currentInvoice.month)}</p>
+                      <Button type="button" variant="inverse" size="sm" onClick={() => setSelectedMonth(currentInvoice.month)}>
+                        Ver fatura <ArrowRight className="size-3.5" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
                 ) : null}
                 {futureMonths.length ? (
-                  <MetricCard
-                    label="Parcelas futuras"
-                    value={formatMoney(futureTotal)}
-                    subtitle={pluralParcelas(futureCount)}
-                    icon={<CalendarClock className="size-4" aria-hidden="true" />}
-                  />
+                  <Card className="flex flex-col justify-between p-6 sm:p-7">
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">Parcelas futuras</p>
+                      <span className="flex size-9 items-center justify-center rounded-control bg-warning-50 text-warning-700">
+                        <CalendarClock className="size-5" aria-hidden="true" />
+                      </span>
+                    </div>
+                    <p className="mt-3 text-3xl font-bold tracking-tight tabular text-ink-900">{formatMoney(futureTotal)}</p>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-sm text-ink-500">{pluralParcelas(futureCount)}</span>
+                      <span className="text-xs font-medium text-ink-500">Nos próximos meses</span>
+                    </div>
+                  </Card>
                 ) : null}
               </section>
 
               {months.length > 1 ? (
-                <>
-                  <ChartCard title="Faturas por mês">
-                    <BarChart
-                      labels={months.map((month) => formatMonthCompact(month.month))}
-                      ariaLabel="Compromissos de cartão por mês"
-                      datasets={[
-                        {
-                          label: "Comprometido",
-                          data: months.map((month) => month.total),
-                          backgroundColor: "#93c5fd",
-                          backgroundColors: barColors,
-                        },
-                      ]}
-                      tooltipValueOnly
-                      showValueLabels
-                      onBarClick={(index) => setSelectedMonth(months[index]?.month || null)}
-                    />
-                  </ChartCard>
-                  <MonthStrip
-                    months={months.map((month) => month.month)}
-                    value={selectedMonth}
-                    onChange={setSelectedMonth}
+                <ChartCard
+                  title="Faturas por mês"
+                  subtitle="Veja o que já está comprometido. Selecione um mês para explorar os detalhes."
+                  aside={<Badge tone="primary">{selected ? formatMonthCompact(selected.month) : ""}</Badge>}
+                >
+                  <BarChart
+                    labels={months.map((month) => formatMonthCompact(month.month))}
+                    ariaLabel="Compromissos de cartão por mês"
+                    datasets={[
+                      {
+                        label: "Comprometido",
+                        data: months.map((month) => month.total),
+                        backgroundColor: CHART_COLORS.primarySoft,
+                        backgroundColors: barColors,
+                      },
+                    ]}
+                    tooltipValueOnly
+                    showValueLabels
+                    onBarClick={(index) => setSelectedMonth(months[index]?.month || null)}
                   />
-                </>
+                </ChartCard>
               ) : null}
 
               {selected ? (
-                <>
-                  <Card className="p-5 sm:p-6">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="text-sm font-semibold text-ink-900">
-                            {formatMonthLong(selected.month)}
-                          </h2>
-                          {selected.is_current_invoice ? (
-                            <Badge tone="primary">Fatura em aberto</Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-2 text-3xl font-bold tracking-tight tabular text-ink-900">
-                          {formatMoney(selected.total)}
-                        </p>
-                        <p className="mt-1 text-xs text-ink-500">{pluralParcelas(selected.count || 0)}</p>
-                      </div>
+                <section className="space-y-4" aria-label="Detalhes da fatura selecionada">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-2">
+                      <CalendarDays className="size-4 text-primary-600" aria-hidden="true" />
+                      <h2 className="text-sm font-semibold text-ink-900">Explore suas faturas</h2>
                     </div>
-                    {selected.cards?.length ? (
-                      <div className="mt-4 grid gap-2 border-t border-ink-100 pt-4 sm:grid-cols-2">
-                        {selected.cards.map((card) => (
-                          <div
-                            key={card.account_id}
-                            className="flex items-center justify-between gap-3 rounded-control bg-surface-muted px-3 py-2.5"
-                          >
-                            <span className="min-w-0 truncate text-xs font-medium text-ink-700">
-                              {cardLabel(card)}
-                            </span>
-                            <span className="shrink-0 text-xs font-bold tabular text-ink-900">
-                              {formatMoney(card.total_amount)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                    {months.length > 1 ? (
+                      <MonthStrip
+                        months={months.map((month) => month.month)}
+                        value={selected.month}
+                        onChange={setSelectedMonth}
+                        captionFor={(ym) => formatMoney(months.find((month) => month.month === ym)?.total || 0)}
+                      />
                     ) : null}
-                  </Card>
+                  </div>
+                  <div className="grid items-start gap-5 xl:grid-cols-[minmax(270px,.8fr)_minmax(0,1.8fr)]">
+                    <Card className="overflow-hidden">
+                      <div className="border-b border-ink-100 p-5 sm:p-6">
+                        <Badge tone={selected.is_current_invoice ? "primary" : "warning"}>
+                          {selected.is_current_invoice ? "Fatura em aberto" : "Compromisso futuro"}
+                        </Badge>
+                        <h3 className="mt-4 text-sm font-semibold text-ink-900">{formatMonthLong(selected.month)}</h3>
+                        <p className="mt-2 text-3xl font-bold tracking-tight tabular text-ink-900">{formatMoney(selected.total)}</p>
+                        <p className="mt-2 text-xs text-ink-500">{pluralParcelas(selected.count || 0)}</p>
+                      </div>
+                      {selected.cards?.length ? (
+                        <div className="p-5 sm:p-6">
+                          <div className="mb-2 flex items-center gap-2">
+                            <CreditCard className="size-4 text-primary-600" aria-hidden="true" />
+                            <h4 className="text-xs font-semibold text-ink-600">Por cartão</h4>
+                          </div>
+                          <div className="divide-y divide-ink-100">
+                            {selected.cards.map((card) => (
+                              <div
+                                key={card.account_id}
+                                className="flex flex-wrap items-center justify-between gap-2 py-3"
+                              >
+                                <span className="min-w-0 text-xs font-medium leading-relaxed text-ink-700">
+                                  {cardLabel(card)}
+                                </span>
+                                <span className="shrink-0 text-xs font-bold tabular text-ink-900">
+                                  {formatMoney(card.total_amount)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </Card>
 
-                  {selected.categories?.length ? (
-                    <section className="space-y-3" aria-label="Compromissos por categoria">
-                      {selected.categories.map((category) => {
-                        const total = Number(category.total || 0);
-                        return (
-                          <details
-                            key={String(category.id ?? category.name)}
-                            name="proximos-categoria"
-                            className="group overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card"
-                          >
-                            <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
-                              <span
-                                className="size-2.5 shrink-0 rounded-[4px]"
-                                style={{ background: categoryColor(category.name) }}
-                                aria-hidden="true"
-                              />
-                              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink-900">
-                                {category.name || "Outros"}
-                              </span>
-                              <span className="text-xs text-ink-500">
-                                {pluralParcelas(category.count || 0)}
-                              </span>
-                              <span className="ml-3 text-sm font-bold tabular text-ink-900">
-                                {formatMoney(total)}
-                              </span>
-                              <ChevronDown
-                                className="ml-1 size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"
-                                aria-hidden="true"
-                              />
-                            </summary>
-                            {transactionList(category.transactions)}
-                          </details>
-                        );
-                      })}
-                    </section>
-                  ) : selected.transactions?.length ? (
-                    <Card className="overflow-hidden">{transactionList(selected.transactions)}</Card>
-                  ) : null}
-                </>
+                    {selected.categories?.length ? (
+                      <Card key={selected.month} className="overflow-hidden" aria-label="Compromissos por categoria">
+                        <div className="flex items-center gap-3 border-b border-ink-100 px-5 py-5 sm:px-6">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-primary-50 text-primary-700">
+                            <Layers3 className="size-4" aria-hidden="true" />
+                          </span>
+                          <div>
+                            <h3 className="text-sm font-semibold text-ink-900">Compromissos por categoria</h3>
+                            <p className="mt-1 text-xs text-ink-500">Abra uma categoria para ver compras e parcelas.</p>
+                          </div>
+                        </div>
+                        <div className="divide-y divide-ink-100">
+                          {selected.categories.map((category) => {
+                            const total = Number(category.total || 0);
+                            return (
+                              <details
+                                key={String(category.id ?? category.name)}
+                                name="proximos-categoria"
+                                className="group"
+                              >
+                                <summary className="grid cursor-pointer list-none grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-5 py-5 transition-colors hover:bg-surface-muted group-open:bg-primary-50/60 sm:px-6 [&::-webkit-details-marker]:hidden">
+                                  <span
+                                    className="size-2.5 shrink-0 rounded-[4px]"
+                                    style={{ background: categoryColor(category.name) }}
+                                    aria-hidden="true"
+                                  />
+                                  <span className="min-w-0">
+                                    <span className="block text-sm font-semibold text-ink-900">{category.name || "Outros"}</span>
+                                    <span className="mt-1 block text-xs text-ink-500">{pluralParcelas(category.count || 0)}</span>
+                                  </span>
+                                  <span className="text-sm font-bold tabular text-ink-900">
+                                    {formatMoney(total)}
+                                  </span>
+                                  <ChevronDown
+                                    className="size-4 shrink-0 text-ink-400 transition-transform group-open:rotate-180"
+                                    aria-hidden="true"
+                                  />
+                                </summary>
+                                <div className="border-t border-ink-100">
+                                  {transactionList(category.transactions) || (
+                                    <p className="px-5 py-5 text-sm text-ink-500">As transações detalhadas desta categoria ainda não estão disponíveis.</p>
+                                  )}
+                                </div>
+                              </details>
+                            );
+                          })}
+                        </div>
+                      </Card>
+                    ) : selected.transactions?.length ? (
+                      <Card className="overflow-hidden">
+                        <div className="border-b border-ink-100 px-5 py-5">
+                          <h3 className="text-sm font-semibold text-ink-900">Compras e parcelas</h3>
+                        </div>
+                        {transactionList(selected.transactions)}
+                      </Card>
+                    ) : (
+                      <EmptyState
+                        icon={<Layers3 className="size-5" aria-hidden="true" />}
+                        title="Detalhes ainda indisponíveis"
+                        detail="O total desta fatura está disponível. As compras e parcelas aparecerão aqui quando houver detalhamento."
+                      />
+                    )}
+                  </div>
+                </section>
               ) : null}
             </div>
           ) : (

@@ -4,17 +4,18 @@
  */
 
 export const CHART_COLORS = {
-  primary: "#2563eb",
-  primarySelected: "#1d4ed8",
-  primarySoft: "#93c5fd",
-  positive: "#10b981",
-  negative: "#f43f5e",
-  warning: "#f59e0b",
+  primary: "#18778a",
+  primarySelected: "#123e4b",
+  primarySoft: "#9bc7d0",
+  positive: "#159a73",
+  negative: "#e46358",
+  warning: "#d7942a",
   neutral: "#94a3b8",
   muted: "#cbd5e1",
-  grid: "#eef0f4",
-  tick: "#64748b",
-  valueLabel: "#334155",
+  grid: "#edf2f4",
+  tick: "#607582",
+  valueLabel: "#304958",
+  tooltip: "#123e4b",
 } as const;
 
 export const CHART_FONT = {

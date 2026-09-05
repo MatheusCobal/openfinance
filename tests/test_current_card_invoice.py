@@ -141,27 +141,39 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
                 # Forecast cannot pull November into October's pending balance.
                 ("next-points", date(2026, 11, 1), "85.75", "2026-10"),
             ):
-                session.add(Transaction(
-                    id=tx_id,
-                    account_id="credit-1",
-                    date=tx_date,
-                    amount=Decimal(amount),
-                    description=tx_id,
-                    category="Shopping",
-                    status="PENDING",
-                    bill_forecast_month=forecast,
-                ))
+                session.add(
+                    Transaction(
+                        id=tx_id,
+                        account_id="credit-1",
+                        date=tx_date,
+                        amount=Decimal(amount),
+                        description=tx_id,
+                        category="Shopping",
+                        status="PENDING",
+                        bill_forecast_month=forecast,
+                    )
+                )
             for tx_id, tx_date in (
                 ("transfer-installment-september", date(2026, 9, 6)),
                 ("transfer-installment-october", date(2026, 10, 31)),
             ):
                 self._add_purchase(
-                    session, tx_id, tx_date, 216.68, category="Transfers", ignored=True,
+                    session,
+                    tx_id,
+                    tx_date,
+                    216.68,
+                    category="Transfers",
+                    ignored=True,
                     description="PAGAMENTO*Mundo a 04/06",
                 )
             self._add_purchase(
-                session, "pending-payment", date(2026, 8, 20), -5401.33,
-                description="PAGAMENTO COM SALDO", category="Transfers", ignored=True,
+                session,
+                "pending-payment",
+                date(2026, 8, 20),
+                -5401.33,
+                description="PAGAMENTO COM SALDO",
+                category="Transfers",
+                ignored=True,
             )
             self._add_purchase(session, "posted", date(2026, 10, 6), 800, status="POSTED")
             self._add_purchase(session, "unknown", date(2026, 10, 6), 700, status=None)
@@ -174,7 +186,9 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             current = current_card_invoice_summary(session, today=today)
             upcoming = upcoming_summary(session, today=today)
             planning = planning_month_summary(session, "2026-10", today=today)
-            self.assertEqual(before, [tx.model_dump() for tx in session.exec(select(Transaction)).all()])
+            self.assertEqual(
+                before, [tx.model_dump() for tx in session.exec(select(Transaction)).all()]
+            )
 
         october = next(row for row in upcoming["months"] if row["month"] == "2026-10")
         self.assertAlmostEqual(current["amount"], 4040.29)
@@ -184,12 +198,20 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertAlmostEqual(sum(row["total"] for row in current["categories"]), 4040.29)
         self.assertAlmostEqual(sum(row["total"] for row in october["categories"]), 4040.29)
         self.assertEqual(
-            next(row for row in current["categories"] if row["name"] == "Pagamentos da fatura")["total"],
+            next(row for row in current["categories"] if row["name"] == "Pagamentos da fatura")[
+                "total"
+            ],
             -5401.33,
         )
         expected_ids = {
-            "october-installments", "new-points", "monthly-fee", "old-fee", "old-pending",
-            "transfer-installment-september", "transfer-installment-october", "pending-payment",
+            "october-installments",
+            "new-points",
+            "monthly-fee",
+            "old-fee",
+            "old-pending",
+            "transfer-installment-september",
+            "transfer-installment-october",
+            "pending-payment",
         }
         self.assertEqual(
             {tx["id"] for tx in current["raw_purchase_transactions"]},
@@ -204,25 +226,50 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")
             self._add_credit_account(session, name="Cartão Itaú Black")
-            session.add(CreditCardBill(
-                id="august-bill", account_id="credit-1", due_date=date(2026, 8, 6),
-                total_amount=Decimal("300"),
-            ))
-            session.add(Transaction(
-                id="closed-purchase", account_id="credit-1", date=date(2026, 7, 10),
-                amount=Decimal("300"), description="Compra", category="Shopping",
-                status="POSTED", bill_id="august-bill",
-            ))
-            session.add(Transaction(
-                id="still-pending", account_id="credit-1", date=date(2026, 8, 10),
-                amount=Decimal("100"), description="Compra pendente", category="Shopping",
-                status="PENDING", bill_id="august-bill",
-            ))
-            session.add(Transaction(
-                id="pending-payment", account_id="credit-1", date=date(2026, 8, 20),
-                amount=Decimal("-150"), description="PAGAMENTO COM SALDO", category="Transfers",
-                status="PENDING", bill_forecast_month="2026-09",
-            ))
+            session.add(
+                CreditCardBill(
+                    id="august-bill",
+                    account_id="credit-1",
+                    due_date=date(2026, 8, 6),
+                    total_amount=Decimal("300"),
+                )
+            )
+            session.add(
+                Transaction(
+                    id="closed-purchase",
+                    account_id="credit-1",
+                    date=date(2026, 7, 10),
+                    amount=Decimal("300"),
+                    description="Compra",
+                    category="Shopping",
+                    status="POSTED",
+                    bill_id="august-bill",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="still-pending",
+                    account_id="credit-1",
+                    date=date(2026, 8, 10),
+                    amount=Decimal("100"),
+                    description="Compra pendente",
+                    category="Shopping",
+                    status="PENDING",
+                    bill_id="august-bill",
+                )
+            )
+            session.add(
+                Transaction(
+                    id="pending-payment",
+                    account_id="credit-1",
+                    date=date(2026, 8, 20),
+                    amount=Decimal("-150"),
+                    description="PAGAMENTO COM SALDO",
+                    category="Transfers",
+                    status="PENDING",
+                    bill_forecast_month="2026-09",
+                )
+            )
             session.commit()
             with patch("app.services.history.date") as history_date:
                 history_date.today.return_value = date(2026, 9, 3)
@@ -551,7 +598,9 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual({tx["id"] for tx in september["transactions"]}, expected_ids)
         self.assertEqual(sum(category["total"] for category in current["categories"]), 370.0)
         self.assertEqual(
-            next(card for card in current["cards"] if card["account_id"] == "credit-caixa")["total_amount"],
+            next(card for card in current["cards"] if card["account_id"] == "credit-caixa")[
+                "total_amount"
+            ],
             290.0,
         )
 
@@ -684,21 +733,35 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")
             self._add_credit_account(
-                session, name="LATAM PASS ITAU BLACK", due_date=date(2026, 8, 6),
+                session,
+                name="LATAM PASS ITAU BLACK",
+                due_date=date(2026, 8, 6),
             )
             self._add_credit_account(
-                session, account_id="credit-caixa", name="CAIXA ICONE VISA",
+                session,
+                account_id="credit-caixa",
+                name="CAIXA ICONE VISA",
                 due_date=date(2026, 9, 3),
             )
-            session.add(Transaction(
-                id="caixa-paid", account_id="credit-caixa", date=date(2026, 8, 31),
-                amount=Decimal("-8418.39"), description="AUT. PGTO. BOLETO REGISTRADO",
-                category="Transfer - Bank Slip", status="PENDING", bill_forecast_month="2026-09",
-            ))
+            session.add(
+                Transaction(
+                    id="caixa-paid",
+                    account_id="credit-caixa",
+                    date=date(2026, 8, 31),
+                    amount=Decimal("-8418.39"),
+                    description="AUT. PGTO. BOLETO REGISTRADO",
+                    category="Transfer - Bank Slip",
+                    status="PENDING",
+                    bill_forecast_month="2026-09",
+                )
+            )
             raw = {
-                "id": "itau-early-payment", "date": "2026-08-20T23:58:29.000Z",
-                "amount": -5401.33, "description": "PAGAMENTO COM SALDO",
-                "category": "Transfers", "status": "PENDING",
+                "id": "itau-early-payment",
+                "date": "2026-08-20T23:58:29.000Z",
+                "amount": -5401.33,
+                "description": "PAGAMENTO COM SALDO",
+                "category": "Transfers",
+                "status": "PENDING",
                 "creditCardMetadata": {"billForecastDate": "2026-09"},
             }
             upsert_transaction(raw, "credit-1", session)
@@ -712,7 +775,9 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
                 months = {month["month"]: month for month in history["months"]}
                 self.assertNotIn("2026-10", months)
                 itau_cards = [
-                    card for month in months.values() for card in month["cards"]
+                    card
+                    for month in months.values()
+                    for card in month["cards"]
                     if card["account_id"] == "credit-1"
                 ]
                 self.assertLessEqual(len(itau_cards), 1)
@@ -728,7 +793,9 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             # A paid bill may be reported with zero balance. The Aug 20 payment
             # is earlier than the old 10-day matching window for a Sep 6 bill.
             bill = CreditCardBill(
-                id="itau-september-bill", account_id="credit-1", due_date=date(2026, 9, 6),
+                id="itau-september-bill",
+                account_id="credit-1",
+                due_date=date(2026, 9, 6),
                 total_amount=Decimal("0"),
             )
             session.add(bill)
@@ -1094,9 +1161,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertAlmostEqual(history["months"][0]["invoice_display_total"], 1080.69)
         self.assertNotIn("invoice_total_source", history["months"][0])
         self.assertAlmostEqual(september["total"], 524.65)
-        self.assertAlmostEqual(
-            sum(tx["signed_amount"] for tx in september["transactions"]), 524.65
-        )
+        self.assertAlmostEqual(sum(tx["signed_amount"] for tx in september["transactions"]), 524.65)
         self.assertEqual(september["count"], 3)
         transactions = {tx["id"]: tx for tx in september["transactions"]}
         self.assertEqual(

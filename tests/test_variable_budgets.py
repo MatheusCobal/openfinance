@@ -18,7 +18,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app.database import get_session
 from app.main import app
-from app.models import Account, Item, Transaction
+from app.models import Account, ExpectedIncome, Item, Transaction
 from app.services.fixed_costs import _month_bounds
 from app.services.variable_budgets import upsert_goal, variable_budget_progress
 
@@ -95,6 +95,51 @@ def _item(payload, category):
 class VariableBudgetServiceTest(unittest.TestCase):
     def setUp(self):
         self.engine = _make_engine()
+
+    def test_variable_goals_do_not_reduce_capacity_in_any_planning_mode(self):
+        from app.services.planning import planning_month_summary
+        from app.services.spending_capacity import spending_capacity_monthly_summary
+
+        for today in (
+            datetime.date(2026, 4, 12),  # future month
+            TODAY,  # current month
+            datetime.date(2026, 7, 12),  # past month
+        ):
+            with self.subTest(today=today), Session(_make_engine()) as session:
+                _seed_accounts(session)
+                session.add(
+                    ExpectedIncome(
+                        description="Salario",
+                        amount=Decimal("10000"),
+                        expected_day=5,
+                    )
+                )
+                session.commit()
+                _add_tx(session, "food", "700", "Mercado", "Groceries")
+                baseline = planning_month_summary(session, YEAR_MONTH, today=today)
+                monthly_before = spending_capacity_monthly_summary(session, today=today)
+                # Exercise both an exceeded target and a large unused reserve.
+                for target in (500, 20000):
+                    upsert_goal(session, YEAR_MONTH, "Alimentação", target)
+                    planning = planning_month_summary(session, YEAR_MONTH, today=today)
+                    for key in (
+                        "budget_available_to_spend",
+                        "daily_discretionary_remaining",
+                        "plan_status",
+                        "future_card_obligation_total",
+                        "card_invoice_remaining_to_include",
+                    ):
+                        self.assertEqual(planning["capacity"][key], baseline["capacity"][key])
+                    # Tracking is preserved even though goals no longer affect capacity.
+                    item = _item(planning["variable_budgets"], "Alimentação")
+                    self.assertEqual(item["spent"], 700.0)
+                    self.assertEqual(item["target"], target)
+                    self.assertEqual(item["remaining"], target - 700)
+                    monthly = spending_capacity_monthly_summary(session, today=today)
+                    self.assertEqual(
+                        monthly["summary"]["budget_available_to_spend"],
+                        monthly_before["summary"]["budget_available_to_spend"],
+                    )
 
     def test_empty_month_is_honest_empty_state(self):
         with Session(self.engine) as session:

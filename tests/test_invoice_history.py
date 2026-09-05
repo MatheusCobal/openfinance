@@ -1249,9 +1249,12 @@ class TestHistoricoPageLoads(unittest.TestCase):
     def test_historico_shows_selected_month_card_breakdown_from_chart_and_list(self):
         source = Path("frontend/src/pages/HistoricoPage.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("Cartões usados em", source)
+        self.assertIn("Cartões no mês", source)
         self.assertIn("<InvoiceCardDetails month={active} />", source)
-        self.assertIn("<InvoiceCardDetails month={item} compact />", source)
+        # The chart and month list now drive the same adjacent detail panel.
+        # Keep the selection contract covered without requiring duplicate cards.
+        self.assertIn("onClick={() => setSelectedMonth(item.month)}", source)
+        self.assertIn("aria-pressed={activeRow}", source)
         self.assertIn("onBarClick", source)
 
     def test_historico_separates_invoice_history_from_classified_spending_and_raw_bank_cashflow(
@@ -1264,7 +1267,11 @@ class TestHistoricoPageLoads(unittest.TestCase):
         self.assertIn("function CategorySpendingTab", source)
         self.assertIn("summarizeCreditCategories", source)
         self.assertIn("Últimos 12 meses", source)
-        self.assertIn("grid h-20 grid-cols-12", source)
+        # Category months remain individually explorable by mouse and keyboard;
+        # their visual height is a design decision, not a financial contract.
+        self.assertIn("category.months.map((month)", source)
+        self.assertIn("aria-label={`Gastos mensais em ${category.name}`}", source)
+        self.assertIn("month.transactions)", source)
         self.assertNotIn("Meses com gastos", source)
         self.assertIn("showValueLabels", source)
         self.assertIn('title="Entradas e saídas por mês"', source)

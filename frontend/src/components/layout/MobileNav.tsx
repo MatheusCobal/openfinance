@@ -14,7 +14,7 @@ export function MobileNav() {
           to={item.to}
           className={({ isActive }) =>
             classNames(
-              "flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[11px] font-medium transition-colors",
+              "flex min-h-16 flex-col items-center justify-center gap-1 px-1 text-[11px] font-medium transition-colors",
               isActive ? "text-primary-700" : "text-ink-500 hover:text-ink-700",
             )
           }
@@ -24,7 +24,7 @@ export function MobileNav() {
               <span
                 className={classNames(
                   "flex h-6 w-10 items-center justify-center rounded-full transition-colors",
-                  isActive ? "bg-primary-50" : "bg-transparent",
+                  isActive ? "bg-primary-100" : "bg-transparent",
                 )}
               >
                 <item.icon className="size-4" aria-hidden="true" />

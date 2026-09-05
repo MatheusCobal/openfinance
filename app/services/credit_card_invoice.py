@@ -202,7 +202,9 @@ def _find_invoice_payment_transactions(
             user_id,
         ).order_by(Transaction.date.asc(), Transaction.description.asc())
     ).all()
-    accounts = {account.id: account for account in _active_credit_accounts(session, user_id=user_id)}
+    accounts = {
+        account.id: account for account in _active_credit_accounts(session, user_id=user_id)
+    }
     return [
         tx
         for tx in rows

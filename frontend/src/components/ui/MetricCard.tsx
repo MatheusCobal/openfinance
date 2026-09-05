@@ -20,20 +20,28 @@ const iconTones: Record<Tone, string> = {
   danger: "bg-danger-50 text-danger-600",
 };
 
+const valueTones: Record<Tone, string> = {
+  neutral: "text-ink-900",
+  primary: "text-primary-900",
+  positive: "text-positive-700",
+  warning: "text-warning-800",
+  danger: "text-danger-700",
+};
+
 export function MetricCard({ label, value, subtitle, icon, tone = "neutral" }: MetricCardProps) {
   return (
-    <Card className="p-4 sm:p-5">
+    <Card className="relative overflow-hidden p-5 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-ink-500">{label}</p>
-          <div className="mt-1.5 text-3xl font-bold leading-tight tracking-tight text-ink-900 tabular">
+          <p className="text-xs font-medium leading-relaxed text-ink-500">{label}</p>
+          <div className={classNames("mt-2 break-words text-[clamp(1.5rem,2.3vw,2rem)] font-semibold leading-tight tracking-tight tabular", valueTones[tone])}>
             {value}
           </div>
         </div>
         {icon ? (
           <span
             className={classNames(
-              "inline-flex size-9 shrink-0 items-center justify-center rounded-control",
+              "inline-flex size-10 shrink-0 items-center justify-center rounded-xl",
               iconTones[tone],
             )}
             aria-hidden="true"
@@ -42,7 +50,7 @@ export function MetricCard({ label, value, subtitle, icon, tone = "neutral" }: M
           </span>
         ) : null}
       </div>
-      {subtitle ? <p className="mt-2 text-xs leading-relaxed text-ink-500">{subtitle}</p> : null}
+      {subtitle ? <div className="mt-3 border-t border-ink-100 pt-3 text-xs leading-relaxed text-ink-500">{subtitle}</div> : null}
     </Card>
   );
 }

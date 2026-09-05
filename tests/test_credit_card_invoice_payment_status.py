@@ -108,8 +108,11 @@ class CreditCardInvoicePaymentStatusTest(unittest.TestCase):
             session.add(account)
             self._add_bill(session)
             raw = {
-                "id": "itau-payment", "date": "2026-05-15", "amount": -1000,
-                "description": "PAGAMENTO COM SALDO", "category": "Transfers",
+                "id": "itau-payment",
+                "date": "2026-05-15",
+                "amount": -1000,
+                "description": "PAGAMENTO COM SALDO",
+                "category": "Transfers",
                 "status": "PENDING",
             }
             upsert_transaction(raw, ACCOUNT_ID, session)

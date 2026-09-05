@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, ChevronDown, Copy, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
+import { AlertCircle, ArrowDownLeft, ArrowUpRight, Calendar, CalendarClock, ChevronDown, Copy, CreditCard, Link2, MoreVertical, Pencil, Plus, RefreshCw, SlidersHorizontal, Wallet, X } from "lucide-react";
 import {
   createExpectedIncome,
   createFixedCost,
@@ -36,7 +36,6 @@ import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
 import { Input } from "../components/ui/Input";
 import { LoadingState } from "../components/ui/LoadingState";
-import { MetricCard } from "../components/ui/MetricCard";
 import { MonthStrip } from "../components/ui/MonthStrip";
 import { Select } from "../components/ui/Select";
 import { StatusPill } from "../components/ui/StatusPill";
@@ -131,8 +130,17 @@ async function loadPlanningData(selectedMonth: string): Promise<PlanningData> {
   };
 }
 
+function FormField({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <label className={classNames("block min-w-0 space-y-1.5 text-xs font-medium text-ink-600", className)}>
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
 /** "Plano do mês" — the decision panel at the top of the page. */
-function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
+function MonthPlanPanel({ capacity, onOpenTab }: { capacity: PlanningOverview; onOpenTab: (tab: PlanningTab) => void }) {
   const isFuture = isFuturePlanningMonth(capacity);
   const free = asMoneyNumber(
     capacity.budget_available_to_spend ?? capacity.available_to_spend,
@@ -141,19 +149,19 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
   const fixed = isFuture
     ? capacity.fixed_cost_planned_total || 0
     : capacity.fixed_cost_reserved_total || 0;
-  const variable = isFuture
-    ? asMoneyNumber(capacity.variable_budget_uncommitted ?? capacity.variable_budget_total)
-    : (capacity.variable_budget_consumed || 0) + (capacity.variable_budget_overage || 0);
   const card = invoiceIncludedAmount(capacity);
-  const hasPlanData = [income, fixed, variable, card].some((value) => Math.abs(value) > 0.009);
+  const hasPlanData = [income, fixed, card].some((value) => Math.abs(value) > 0.009);
 
   if (!hasPlanData) {
     return (
-      <EmptyState
-        icon={<Wallet className="size-5" aria-hidden="true" />}
-        title="Nenhum valor planejado"
-        detail="Adicione sua receita, custos fixos ou metas variáveis para montar este mês."
-      />
+      <Card className="p-6 sm:p-10">
+        <EmptyState
+          icon={<Wallet className="size-5" aria-hidden="true" />}
+          title="Vamos montar seu mês"
+          detail="Comece pela receita esperada e pelos compromissos recorrentes."
+          action={<Button variant="primary" onClick={() => onOpenTab("receita")}><Plus className="size-4" aria-hidden="true" />Planejar receita</Button>}
+        />
+      </Card>
     );
   }
 
@@ -167,97 +175,76 @@ function MonthPlanPanel({ capacity }: { capacity: PlanningOverview }) {
           : { label: "Saudável", tone: "positive" as const };
 
   return (
-    <div className="space-y-5">
-      <section className="cockpit-surface relative overflow-hidden rounded-card p-6 text-white shadow-cockpit">
-        <div className="cockpit-grid pointer-events-none absolute inset-0 opacity-40" aria-hidden="true" />
-        <div className="relative">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <p className="text-sm font-medium text-white/70">
-                  {isFuture ? "Sobra planejada" : "Disponível para gastar"}
-                </p>
-                <StatusPill label={status.label} tone={status.tone} inverse />
-              </div>
-              <p
-                className={classNames(
-                  "mt-3 text-5xl font-bold leading-none tracking-tight tabular",
-                  free < 0 ? "text-danger-300" : "text-white",
-                )}
-              >
-                {formatMoney(free)}
-              </p>
-            </div>
+    <section aria-label="Resumo do plano" className="grid overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div className="cockpit-surface flex min-w-0 flex-col justify-between p-5 text-white sm:p-7">
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-white/65">Seu plano do mês</span>
+            <StatusPill label={status.label} tone={status.tone} inverse />
+          </div>
+          <p className="mt-8 text-sm text-white/75">{isFuture ? "Sobra planejada" : "Disponível para gastar"}</p>
+          <p className={classNames("mt-2 break-words text-4xl font-semibold leading-tight tracking-tight tabular sm:text-5xl", free < 0 ? "text-danger-300" : "text-white")}>{formatMoney(free)}</p>
+          <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/65">{isFuture ? "A margem prevista para o mês que você está planejando." : "Acompanhe a margem do mês conforme os pagamentos acontecem."}</p>
             {capacity.days_remaining_in_month && capacity.daily_discretionary_remaining ? (
-              <div className="rounded-card border border-white/10 bg-white/[0.06] px-5 py-4 text-right backdrop-blur-sm">
-                <p className="text-2xl font-bold tabular text-white">
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-2 rounded-control border border-white/15 bg-white/[0.06] px-4 py-3">
+                <p className="text-xl font-semibold tabular text-white">
                   {formatMoney(capacity.daily_discretionary_remaining)}
-                  <span className="text-sm font-normal text-white/55"> /dia</span>
+                  <span className="text-xs font-normal text-white/65"> /dia</span>
                 </p>
-                <p className="mt-1 text-xs text-white/50">
+                <p className="text-xs text-white/65">
                   {pluralize(capacity.days_remaining_in_month, "dia restante", "dias restantes")}
                 </p>
               </div>
             ) : null}
-          </div>
-
+        </div>
           {income > 0 ? (
-            <>
               <FinancialFlow
                 inverse
-                className="mt-6"
+                className="mt-7 border-t border-white/15 pt-5"
                 total={income}
                 segments={[
-                  { key: "fixed", label: "Custos fixos", value: fixed, color: "#64748b" },
+                  { key: "fixed", label: "Custos fixos", value: fixed, color: "#fbbf24" },
                   {
                     key: "invoice",
                     label: isFuture ? "Fatura prevista" : "Fatura em aberto",
                     value: card,
-                    color: "#0ea5e9",
-                  },
-                  {
-                    key: "variable",
-                    label: isFuture ? "Meta variável" : "Variáveis usados",
-                    value: variable,
-                    color: "#a78bfa",
+                    color: "#fda4af",
                   },
                 ]}
                 remainder={{ label: isFuture ? "Sobra planejada" : "Disponível", value: free }}
               />
-              <p className="mt-4 border-t border-white/10 pt-3 text-xs text-white/40">
-                Receita esperada{" "}
-                <span className="font-semibold tabular text-white/75">{formatMoney(income)}</span>
-                {capacity.received_income_total
-                  ? ` · ${formatMoney(capacity.received_income_total)} já recebido`
-                  : ""}
-              </p>
-            </>
           ) : null}
-        </div>
-      </section>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          label="Receita esperada"
-          value={formatMoney(income)}
-          tone="positive"
-        />
-        <MetricCard
-          label="Custos fixos"
-          value={formatMoney(fixed)}
-        />
-        <MetricCard
-          label={isFuture ? "Meta variável" : "Gastos variáveis"}
-          value={formatMoney(variable)}
-          tone="warning"
-        />
-        <MetricCard
-          label={isFuture ? "Fatura prevista" : "Fatura em aberto"}
-          value={formatMoney(card)}
-          tone="primary"
-        />
       </div>
-    </div>
+      <div className="min-w-0 divide-y divide-ink-100 px-5 sm:px-7">
+        <div className="py-5 sm:py-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-ink-600"><ArrowDownLeft className="size-4 text-positive-700" aria-hidden="true" />Receita esperada</div>
+            <button className="text-xs font-semibold text-primary-700 hover:underline" onClick={() => onOpenTab("receita")}>Gerenciar</button>
+          </div>
+          <p className="mt-2 text-2xl font-semibold tracking-tight tabular text-ink-900">{formatMoney(income)}</p>
+          <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
+            <div><dt className="text-ink-500">Já recebido</dt><dd className="mt-1 font-medium tabular text-positive-700">{formatMoney(capacity.received_income_total || 0)}</dd></div>
+            <div><dt className="text-ink-500">A receber</dt><dd className="mt-1 font-medium tabular text-ink-700">{formatMoney(capacity.income_to_receive || 0)}</dd></div>
+          </dl>
+        </div>
+        <div className="py-5 sm:py-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-ink-600"><Wallet className="size-4" aria-hidden="true" />Custos fixos</div>
+            <button className="text-xs font-semibold text-primary-700 hover:underline" onClick={() => onOpenTab("custos")}>Ver compromissos</button>
+          </div>
+          <p className="mt-2 text-2xl font-semibold tracking-tight tabular text-ink-900">{formatMoney(fixed)}</p>
+          <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
+            <div><dt className="text-ink-500">Pagos</dt><dd className="mt-1 font-medium tabular text-positive-700">{formatMoney(capacity.fixed_cost_actual_total || 0)}</dd></div>
+            <div><dt className="text-ink-500">Pendentes</dt><dd className="mt-1 font-medium tabular text-ink-700">{formatMoney(capacity.fixed_cost_pending_total || 0)}</dd></div>
+          </dl>
+        </div>
+        <div className="py-5 sm:py-6">
+          <div className="flex items-center gap-2 text-sm font-medium text-ink-600"><CreditCard className="size-4 text-primary-700" aria-hidden="true" />{isFuture ? "Fatura prevista" : "Fatura em aberto"}</div>
+          <p className="mt-2 text-2xl font-semibold tracking-tight tabular text-ink-900">{formatMoney(card)}</p>
+          <p className="mt-2 text-xs leading-relaxed text-ink-500">Valor do cartão considerado no plano deste mês.</p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -290,10 +277,10 @@ function VariableBudgetRow({
   const over = item.spent > item.target && item.has_target;
 
   return (
-    <div className="group flex items-center gap-4 border-b border-ink-100 px-5 py-3.5 transition-colors last:border-0 hover:bg-surface-muted/40">
-      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+    <div className="group grid grid-cols-3 gap-x-3 gap-y-4 border-b border-ink-100 px-4 py-4 transition-colors last:border-0 hover:bg-surface-muted/40 sm:px-5 xl:grid-cols-[minmax(0,1fr)_minmax(70px,.6fr)_100px_105px_100px_112px] xl:items-center xl:gap-4">
+      <div className="col-span-2 flex min-w-0 items-center gap-2.5 xl:col-span-1">
         <span className="size-2.5 shrink-0 rounded-[4px]" style={{ backgroundColor: color }} aria-hidden="true" />
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold text-ink-900">{item.category}</p>
           <p className="text-xs text-ink-400">
             {item.transaction_count > 0
@@ -302,23 +289,26 @@ function VariableBudgetRow({
           </p>
         </div>
       </div>
-      <div className="w-48 shrink-0">
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-100">
+      <div className="order-last col-span-3 xl:order-none xl:col-span-1">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-ink-100" role="img" aria-label={`Progresso de ${item.category}: ${item.progress_percent ?? 0}% da meta`}>
           <div
             className="h-full rounded-full transition-all"
             style={{ width: `${progress}%`, backgroundColor: barColor }}
           />
         </div>
       </div>
-      <p className={classNames("w-28 shrink-0 text-right text-sm font-bold tabular", over ? "text-danger-700" : "text-ink-900")}>
+      <p className={classNames("min-w-0 text-sm font-semibold tabular xl:text-right", over ? "text-danger-700" : "text-ink-900")}>
+        <span className="mb-1 block text-[11px] font-normal text-ink-500 xl:hidden">Consumido</span>
         {formatMoney(item.spent)}
       </p>
-      <div className="w-24 shrink-0 text-right">
+      <div className="min-w-0 text-right">
+        <span className="mb-1 block text-[11px] text-ink-500 xl:hidden">Meta</span>
         {isEditing ? (
           <Input
             type="number"
             step="0.01"
             min="0"
+            aria-label={`Meta de ${item.category}`}
             defaultValue={item.target.toFixed(2)}
             className="w-full text-right text-sm font-semibold tabular"
             autoFocus
@@ -331,20 +321,23 @@ function VariableBudgetRow({
         ) : (
           <button
             type="button"
-            className="text-sm tabular text-ink-500 hover:text-ink-800 hover:underline"
+            aria-label={`Editar meta de ${item.category}: ${formatMoney(item.target)}`}
+            className="inline-flex min-h-6 items-center gap-1.5 text-sm font-medium tabular text-primary-700 hover:underline"
             onClick={onStartEdit}
           >
             {formatMoney(item.target)}
+            <Pencil className="size-3 shrink-0" aria-hidden="true" />
           </button>
         )}
       </div>
       <p className={classNames(
-        "w-24 shrink-0 text-right text-sm font-bold tabular",
+        "min-w-0 text-right text-sm font-semibold tabular",
         over ? "text-danger-700" : "text-positive-700",
       )}>
+        <span className="mb-1 block text-[11px] font-normal text-ink-500 xl:hidden">{over ? "Excedido" : "Sobra"}</span>
         {over ? `+${formatMoney(item.spent - item.target)}` : formatMoney(Math.max(item.remaining, 0))}
       </p>
-      <div className="flex w-24 shrink-0 items-center justify-end gap-1">
+      <div className="col-start-3 row-start-1 flex items-center justify-end gap-1 xl:col-auto xl:row-auto">
         {over ? (
           <span className="rounded-full bg-danger-50 px-2 py-0.5 text-[10px] font-semibold text-danger-700">Excedeu</span>
         ) : tone === "warning" ? (
@@ -355,7 +348,8 @@ function VariableBudgetRow({
         <button
           type="button"
           aria-label={`Remover meta de ${item.category}`}
-          className="ml-0.5 flex size-6 items-center justify-center rounded-control text-ink-300 opacity-0 transition-all hover:bg-danger-50 hover:text-danger-600 group-hover:opacity-100"
+          title={`Remover meta de ${item.category}`}
+          className="ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-control text-ink-400 transition-colors hover:bg-danger-50 hover:text-danger-600 focus-visible:text-danger-600"
           onClick={() => void onRemove(item.category)}
         >
           <X className="size-3.5" aria-hidden="true" />
@@ -459,9 +453,10 @@ function VariableBudgetsPanel({
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-ink-900">Metas de gastos variáveis</h2>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-xl font-semibold tracking-tight text-ink-900">Metas de gastos variáveis</h2>
+          <p className="mt-1 text-sm leading-relaxed text-ink-500">Limites por categoria para acompanhar suas escolhas ao longo do mês.</p>
           {budgeted.length > 0 ? (
             <p className="mt-1 text-sm text-ink-500">
               {budgeted.length} categorias com limite ·{" "}
@@ -469,7 +464,7 @@ function VariableBudgetsPanel({
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {availableToAdd.length > 0 ? (
             <Button type="button" variant="primary" size="sm" onClick={() => setShowAddGoal(true)}>
               <Plus className="size-3.5" aria-hidden="true" />
@@ -517,7 +512,7 @@ function VariableBudgetsPanel({
       </div>
 
       {/* Status filter chips */}
-      {budgeted.length >= 4 ? <div className="flex gap-2">
+      {budgeted.length >= 4 ? <div className="flex flex-wrap gap-2" aria-label="Filtrar metas por status">
         {(["Todas", "OK", "Atenção", "Excedido"] as const).map((f) => {
           const active = statusFilter === f;
           const dotCls = f === "OK" ? "bg-positive-500" : f === "Atenção" ? "bg-warning-500" : f === "Excedido" ? "bg-danger-500" : "bg-ink-400";
@@ -525,6 +520,7 @@ function VariableBudgetsPanel({
             <button
               key={f}
               type="button"
+              aria-pressed={active}
               onClick={() => setStatusFilter(f)}
               className={classNames(
                 "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
@@ -538,16 +534,56 @@ function VariableBudgetsPanel({
         })}
       </div> : null}
 
+      {/* Add goal form */}
+      {showAddGoal && availableToAdd.length > 0 ? <Card className="border-primary-200 bg-primary-50/30 p-5 sm:p-6">
+        <h3 className="mb-4 text-sm font-semibold text-ink-900">Nova meta mensal</h3>
+        <form
+          onSubmit={addGoal}
+          className="flex flex-col gap-3 lg:flex-row lg:items-end"
+        >
+          <label className="flex-1">
+            <span className="mb-1 block text-xs font-medium text-ink-600">Categoria</span>
+            <Select
+              value={newCategory}
+              onChange={(event) => setNewCategory(event.target.value)}
+            >
+              <option value="">Selecione uma categoria</option>
+              {availableToAdd.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </Select>
+          </label>
+          <label className="lg:w-40">
+            <span className="mb-1 block text-xs font-medium text-ink-600">Meta (R$)</span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0,00"
+              value={newAmount}
+              onChange={(event) => setNewAmount(event.target.value)}
+            />
+          </label>
+          <Button type="submit" variant="primary">
+            <Plus className="size-4" aria-hidden="true" />
+            Adicionar meta
+          </Button>
+          <Button type="button" onClick={() => setShowAddGoal(false)}>
+            Cancelar
+          </Button>
+        </form>
+      </Card> : null}
+
       {/* Budget list */}
       {shownBudgets.length > 0 ? (
         <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
-          <div className="flex items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5">
-            <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Categoria</span>
-            <span className="w-48 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Progresso</span>
-            <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Consumido</span>
-            <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Meta</span>
-            <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Sobra</span>
-            <span className="w-24 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Status</span>
+          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(70px,.6fr)_100px_105px_100px_112px] items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-3 xl:grid">
+            <span className="min-w-0 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Categoria</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Progresso</span>
+            <span className="text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Consumido</span>
+            <span className="text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Meta</span>
+            <span className="text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Sobra</span>
+            <span className="text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Status</span>
           </div>
           {shownBudgets.map((item) => (
             <VariableBudgetRow
@@ -582,45 +618,6 @@ function VariableBudgetsPanel({
         </Card>
       )}
 
-      {/* Add goal form */}
-      {showAddGoal && availableToAdd.length > 0 ? <Card className="p-5 sm:p-6">
-        <form
-          onSubmit={addGoal}
-          className="flex flex-col gap-2 sm:flex-row sm:items-end"
-        >
-          <label className="flex-1">
-            <span className="mb-1 block text-xs font-medium text-ink-600">Categoria</span>
-            <Select
-              value={newCategory}
-              onChange={(event) => setNewCategory(event.target.value)}
-            >
-              <option value="">Selecione uma categoria</option>
-              {availableToAdd.map((category) => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </Select>
-          </label>
-          <label className="sm:w-40">
-            <span className="mb-1 block text-xs font-medium text-ink-600">Meta (R$)</span>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="0,00"
-              value={newAmount}
-              onChange={(event) => setNewAmount(event.target.value)}
-            />
-          </label>
-          <Button type="submit" variant="primary">
-            <Plus className="size-4" aria-hidden="true" />
-            Adicionar meta
-          </Button>
-          <Button type="button" onClick={() => setShowAddGoal(false)}>
-            Cancelar
-          </Button>
-        </form>
-      </Card> : null}
-
       {/* Suggestions */}
       {suggestions.length > 0 ? (
         <div>
@@ -635,7 +632,7 @@ function VariableBudgetsPanel({
               <div
                 key={item.category}
                 className={classNames(
-                  "flex items-center gap-4 px-5 py-3.5",
+                  "flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5",
                   idx < suggestions.length - 1 ? "border-b border-ink-100" : "",
                 )}
               >
@@ -830,44 +827,43 @@ function FixedCostsAgenda({
   };
 
   if (!entries.length) {
-    return null;
+    return <Card className="p-5"><EmptyState icon={<CalendarClock className="size-5" aria-hidden="true" />} title="Nenhum compromisso previsto" detail="Cadastre um custo recorrente para organizar os vencimentos deste mês." /></Card>;
   }
 
   return (
     <div className="space-y-6">
       {/* Hero — total, live paid bar and month calendar */}
-      <section className="cockpit-surface ofx-rise relative overflow-hidden rounded-card p-6 text-white shadow-cockpit">
-        <div className="cockpit-grid pointer-events-none absolute inset-0 opacity-40" aria-hidden="true" />
-        <div className="relative grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <section className="relative overflow-hidden rounded-card border border-ink-200/70 bg-surface p-5 shadow-card sm:p-6">
+        <div className="relative grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_220px]">
           <div className="flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-2.5">
-                <span className="inline-flex size-8 items-center justify-center rounded-control bg-white/10 ring-1 ring-inset ring-white/15">
-                  <CalendarClock className="size-4 text-white/80" aria-hidden="true" />
+                <span className="inline-flex size-8 items-center justify-center rounded-control bg-primary-50 ring-1 ring-inset ring-primary-100">
+                  <CalendarClock className="size-4 text-primary-700" aria-hidden="true" />
                 </span>
-                <p className="text-sm font-medium text-white/70">
-                  Custos fixos · {formatMonthLong(selectedMonth)}
+                <p className="text-sm font-medium text-ink-600">
+                  Total previsto · {formatMonthLong(selectedMonth)}
                 </p>
               </div>
-              <p className="mt-4 text-4xl font-bold leading-none tracking-tight tabular sm:text-5xl">
+              <p className="mt-4 text-4xl font-semibold leading-tight tracking-tight tabular text-ink-900">
                 {formatMoney(total)}
               </p>
               {expectedIncome > 0 ? (
-                <p className="mt-3 text-sm text-white/55">
+                <p className="mt-3 text-sm text-ink-500">
                   {percent(incomeShare)} da receita esperada
                 </p>
               ) : null}
             </div>
-            <div className="mt-6">
-              <div className="flex items-center justify-between text-xs">
-                <span className="inline-flex items-center gap-1.5 font-medium text-white/70">
+            <div className="mt-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="inline-flex items-center gap-1.5 font-medium text-ink-600">
                   <span className="size-2 rounded-[3px] bg-positive-400" /> Pago {formatMoney(paidSum)}
                 </span>
-                <span className="inline-flex items-center gap-1.5 font-medium text-white/70">
-                  <span className="size-2 rounded-[3px] bg-white/30" /> A pagar {formatMoney(pendingSum)}
+                <span className="inline-flex items-center gap-1.5 font-medium text-ink-600">
+                  <span className="size-2 rounded-[3px] bg-ink-200" /> A pagar {formatMoney(pendingSum)}
                 </span>
               </div>
-              <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-ink-100">
                 <div
                   className="bar-fill h-full rounded-l-full"
                   style={{
@@ -876,15 +872,15 @@ function FixedCostsAgenda({
                   }}
                 />
               </div>
-              <p className="mt-2 text-[11px] text-white/45">
+              <p className="mt-2 text-[11px] text-ink-500">
                 {paidCount} de {entries.length} contas quitadas
               </p>
             </div>
           </div>
 
           {/* Mini calendar */}
-          <div className="rounded-card border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm">
-            <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase text-white/40">
+          <div className="mx-auto w-full max-w-[280px] rounded-control bg-surface-muted p-3 lg:max-w-none">
+            <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase text-ink-500">
               {WEEK_LABELS.map((label, i) => (
                 <div key={i}>{label}</div>
               ))}
@@ -908,10 +904,10 @@ function FixedCostsAgenda({
                     className={classNames(
                       "relative flex aspect-square flex-col items-center justify-center rounded-md text-[11px] tabular",
                       isToday
-                        ? "bg-primary-500 font-bold text-white"
+                        ? "bg-primary-700 font-bold text-white"
                         : items.length
-                          ? "bg-white/[0.06] text-white/80"
-                          : "text-white/60",
+                          ? "bg-primary-50 font-medium text-primary-800"
+                          : "text-ink-500",
                     )}
                   >
                     {day}
@@ -925,7 +921,7 @@ function FixedCostsAgenda({
                 );
               })}
             </div>
-            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-white/10 pt-2.5 text-[10px] text-white/50">
+            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-ink-200 pt-2.5 text-[10px] text-ink-500">
               <span className="inline-flex items-center gap-1">
                 <span className="size-1.5 rounded-full bg-positive-400" />pago
               </span>
@@ -942,8 +938,9 @@ function FixedCostsAgenda({
 
       {/* Timeline */}
       <div className="ofx-rise" style={{ animationDelay: "120ms" }}>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-ink-900">Linha do tempo de pagamentos</h3>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-ink-900">Vencimentos do mês</h3>
+          <p className="text-xs text-ink-500">Abra um compromisso para ajustar o valor ou vincular um pagamento.</p>
         </div>
         <div className="rounded-card border border-ink-200/70 bg-surface p-2 shadow-card">
           <ul>
@@ -962,21 +959,21 @@ function FixedCostsAgenda({
                       <span className="h-px flex-1 bg-primary-200" />
                     </div>
                   ) : null}
-                  <div className="group flex items-center gap-3 rounded-control px-3 py-2.5 transition-colors hover:bg-surface-muted">
+                  <div className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-control px-2 py-4 transition-colors hover:bg-surface-muted sm:flex sm:items-center sm:px-3">
                     <DayBadge day={item.due_day} tone={dayBadgeTone(status)} />
-                    <CatAvatar category={item.category_name} color={color} size={38} />
+                    <span className="hidden lg:block"><CatAvatar category={item.category_name} color={color} size={38} /></span>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <p
                           className={classNames(
-                            "truncate text-sm font-semibold",
+                            "min-w-0 break-words text-sm font-semibold",
                             isPaid ? "text-ink-500" : "text-ink-900",
                           )}
                         >
                           {item.description}
                         </p>
-                        <span className="text-xs text-ink-400">·</span>
-                        <span className="shrink-0 text-xs font-medium" style={{ color }}>
+                        <span className="hidden text-xs text-ink-400 sm:inline">·</span>
+                        <span className="text-xs font-medium" style={{ color }}>
                           {item.category_name}
                         </span>
                         {item.is_override ? <Badge tone="primary">Ajustado</Badge> : null}
@@ -995,10 +992,11 @@ function FixedCostsAgenda({
                           <span className="text-ink-400">sem pagamento vinculado</span>
                         )}
                       </p>
+                      <div className="mt-2 sm:hidden">{entryStatusPill(status)}</div>
                     </div>
                     <p
                       className={classNames(
-                        "shrink-0 text-sm font-bold tabular",
+                        "col-start-2 text-sm font-semibold tabular sm:shrink-0",
                         isPaid ? "text-ink-400" : "text-ink-900",
                       )}
                     >
@@ -1010,7 +1008,7 @@ function FixedCostsAgenda({
                       onClick={() => toggleExpand(item)}
                       aria-label={`Ajustes de ${item.description}`}
                       aria-expanded={expanded}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-400 transition-colors hover:bg-surface-muted hover:text-ink-700"
+                      className="col-start-3 row-start-1 flex size-8 shrink-0 items-center justify-center rounded-control border border-ink-200 text-ink-500 transition-colors hover:bg-surface-muted hover:text-ink-800"
                     >
                       <ChevronDown
                         className={classNames("size-4 transition-transform", expanded && "rotate-180")}
@@ -1111,9 +1109,9 @@ function FixedCostsAgenda({
                             {transactions.map((tx) => (
                               <div
                                 key={tx.id}
-                                className="flex items-center gap-2 rounded-control bg-surface px-2 py-1.5"
+                                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-control bg-surface p-3 sm:flex"
                               >
-                                <span className="w-14 shrink-0 text-xs text-ink-500">
+                                <span className="col-span-2 shrink-0 text-xs text-ink-500 sm:w-14">
                                   {formatDayLabel(tx.date)}
                                 </span>
                                 <div className="min-w-0 flex-1">
@@ -1142,7 +1140,7 @@ function FixedCostsAgenda({
                             <button
                               type="button"
                               onClick={() => setPickerVisible((v) => v + 10)}
-                              className="mt-2 w-full text-center text-xs text-primary-600 hover:text-primary-800"
+                                  className="mt-2 min-h-9 w-full text-center text-xs font-medium text-primary-700 hover:text-primary-800"
                             >
                               Ver mais ({filteredCandidates.length - pickerVisible} restantes)
                             </button>
@@ -1169,11 +1167,15 @@ function CostsBase({
   data,
   showInactive,
   setShowInactive,
+  showAddCostForm,
+  setShowAddCostForm,
   onReload,
 }: {
   data: PlanningData;
   showInactive: boolean;
   setShowInactive: (value: boolean) => void;
+  showAddCostForm: boolean;
+  setShowAddCostForm: (value: boolean) => void;
   onReload: () => Promise<unknown>;
 }) {
   const { showToast } = useToast();
@@ -1183,7 +1185,6 @@ function CostsBase({
   const [costDraft, setCostDraft] = useState<Partial<FixedCost>>({});
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
   const [catFilter, setCatFilter] = useState<string>("Todas");
-  const [showAddCostForm, setShowAddCostForm] = useState(false);
   const customCount = data.categories.filter((cat) => !cat.is_default).length;
   const catMap = useMemo(
     () => new Map(data.categories.map((c) => [c.id, c])),
@@ -1205,6 +1206,14 @@ function CostsBase({
       setQuickCost((current) => ({ ...current, category_id: data.categories[0].id }));
     }
   }, [data.categories, quickCost.category_id]);
+
+  useEffect(() => {
+    if (showAddCostForm) {
+      const form = document.getElementById("add-cost-form");
+      form?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      form?.querySelector<HTMLSelectElement>("select")?.focus({ preventScroll: true });
+    }
+  }, [showAddCostForm]);
 
   const addCategory = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1242,7 +1251,7 @@ function CostsBase({
 
   const costEditForm = (cost: FixedCost) => (
     <form
-      className="grid grid-cols-1 gap-2 px-5 py-3 lg:grid-cols-[160px_1fr_130px_90px_auto_auto]"
+      className="grid grid-cols-1 gap-3 rounded-card bg-primary-50/40 px-5 py-5 sm:grid-cols-2 xl:grid-cols-[minmax(120px,.8fr)_minmax(160px,1.4fr)_minmax(100px,.7fr)_90px]"
       onSubmit={async (event) => {
         event.preventDefault();
         await updateFixedCost(cost.id, {
@@ -1256,7 +1265,7 @@ function CostsBase({
         showToast("Custo atualizado.", "success");
       }}
     >
-      <Select
+      <FormField label="Categoria"><Select
         aria-label="Categoria"
         value={Number(costDraft.category_id ?? cost.category_id)}
         onChange={(event) => setCostDraft((c) => ({ ...c, category_id: Number(event.target.value) }))}
@@ -1264,39 +1273,40 @@ function CostsBase({
         {data.categories.map((cat) => (
           <option key={cat.id} value={cat.id}>{cat.name}</option>
         ))}
-      </Select>
-      <Input
+      </Select></FormField>
+      <FormField label="Descrição"><Input
         aria-label="Descrição"
         value={String(costDraft.description ?? cost.description)}
         onChange={(event) => setCostDraft((c) => ({ ...c, description: event.target.value }))}
-      />
-      <Input
+      /></FormField>
+      <FormField label="Valor (R$)"><Input
         aria-label="Valor"
         type="number"
         step="0.01"
         min="0.01"
         value={Number(costDraft.amount ?? cost.amount)}
         onChange={(event) => setCostDraft((c) => ({ ...c, amount: Number(event.target.value) }))}
-      />
-      <Input
+      /></FormField>
+      <FormField label="Dia de vencimento"><Input
         aria-label="Dia de vencimento"
         type="number"
         min="1"
         max="31"
         value={Number(costDraft.due_day ?? cost.due_day)}
         onChange={(event) => setCostDraft((c) => ({ ...c, due_day: Number(event.target.value) }))}
-      />
-      <Button type="submit" variant="primary">Salvar</Button>
-      <Button type="button" onClick={() => setEditingCost(null)}>Cancelar</Button>
+      /></FormField>
+      <div className="flex flex-wrap gap-2 pt-1 sm:col-span-2 xl:col-span-4"><Button type="submit" variant="primary">Salvar alterações</Button><Button type="button" onClick={() => setEditingCost(null)}>Cancelar</Button></div>
     </form>
   );
 
   return (
-    <div className="space-y-5" onClick={() => setMenuOpen(null)}>
+    <section id="recurring-costs" className="scroll-mt-28 space-y-5 border-t border-ink-200 pt-7" onClick={() => setMenuOpen(null)} onKeyDown={(event) => { if (event.key === "Escape") setMenuOpen(null); }}>
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-ink-900">Compromissos recorrentes</h2>
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary-700">Base recorrente</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink-900">Compromissos recorrentes</h2>
+          <p className="mt-1 text-sm text-ink-500">Valores e vencimentos que se repetem todos os meses.</p>
           {activeCosts.length > 0 ? (
             <p className="mt-1 text-sm text-ink-500">
               {activeCosts.length} custos ativos ·{" "}
@@ -1307,7 +1317,9 @@ function CostsBase({
         <Button
           type="button"
           variant="primary"
-          onClick={(e) => { e.stopPropagation(); setShowAddCostForm((current) => !current); }}
+          aria-expanded={showAddCostForm}
+          aria-controls="add-cost-form"
+          onClick={(e) => { e.stopPropagation(); setShowAddCostForm(!showAddCostForm); }}
         >
           <Plus className="size-4" aria-hidden="true" />
           Novo custo
@@ -1326,6 +1338,7 @@ function CostsBase({
               <button
                 key={cat}
                 type="button"
+                aria-pressed={isActive}
                 onClick={(e) => { e.stopPropagation(); setCatFilter(cat); }}
                 className={classNames(
                   "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
@@ -1344,6 +1357,7 @@ function CostsBase({
         {inactiveCosts.length > 0 ? (
         <button
           type="button"
+          aria-pressed={showInactive}
           onClick={(e) => { e.stopPropagation(); setShowInactive(!showInactive); }}
           className={classNames(
             "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
@@ -1357,9 +1371,124 @@ function CostsBase({
       </div>
       ) : null}
 
+      {showAddCostForm ? (
+      <Card id="add-cost-form" className="scroll-mt-28 border-primary-200 bg-primary-50/30 p-5 sm:p-6">
+        <h2 className="text-sm font-semibold text-ink-900">Adicionar custo fixo</h2>
+        <p className="mt-0.5 text-xs text-ink-500">
+          O valor se repete todos os meses. Ajustes pontuais ficam na agenda mensal.
+        </p>
+        {data.templates.length ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {data.templates.map((template) => (
+              <Button
+                key={template.label}
+                type="button"
+                size="sm"
+                onClick={() =>
+                  setQuickCost({
+                    category_id: template.category_id,
+                    description: template.description,
+                    amount: quickCost.amount,
+                    due_day: String(template.due_day),
+                  })
+                }
+              >
+                {template.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        <form className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(120px,.8fr)_minmax(160px,1.4fr)_minmax(100px,.7fr)_90px]" onSubmit={addCost}>
+          <FormField label="Categoria"><Select
+            aria-label="Categoria"
+            value={quickCost.category_id}
+            onChange={(event) =>
+              setQuickCost((current) => ({ ...current, category_id: Number(event.target.value) }))
+            }
+            required
+          >
+            {data.categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </Select></FormField>
+          <FormField label="Descrição"><Input
+            required
+            placeholder="Descrição (ex.: Aluguel)"
+            value={quickCost.description}
+            onChange={(event) => setQuickCost((current) => ({ ...current, description: event.target.value }))}
+          /></FormField>
+          <FormField label="Valor (R$)"><Input
+            required
+            type="number"
+            step="0.01"
+            min="0.01"
+            placeholder="Valor"
+            value={quickCost.amount}
+            onChange={(event) => setQuickCost((current) => ({ ...current, amount: event.target.value }))}
+          /></FormField>
+          <FormField label="Dia de vencimento"><Input
+            required
+            type="number"
+            min="1"
+            max="31"
+            placeholder="Dia"
+            aria-label="Dia de vencimento"
+            value={quickCost.due_day}
+            onChange={(event) => setQuickCost((current) => ({ ...current, due_day: event.target.value }))}
+          /></FormField>
+          <div className="flex flex-wrap gap-2 pt-1 sm:col-span-2 xl:col-span-4"><Button type="submit" variant="primary">
+            <Plus className="size-4" aria-hidden="true" />
+            Adicionar
+          </Button>
+          <Button type="button" onClick={() => setShowAddCostForm(false)}>
+            Cancelar
+          </Button></div>
+        </form>
+
+        <details className="mt-6 border-t border-ink-100 pt-5">
+          <summary className="cursor-pointer text-sm font-semibold text-ink-700">
+            Criar categoria personalizada
+          </summary>
+        <form className="mt-4" onSubmit={addCategory}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-ink-900">Nova categoria personalizada</h3>
+              <p className="mt-0.5 text-xs text-ink-500">Para agrupar custos do seu jeito.</p>
+            </div>
+            <span className="text-xs text-ink-500">
+              {customCount}/{MAX_CUSTOM_CATEGORIES} criadas
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
+            <FormField label="Nome da categoria"><Input
+              required
+              placeholder="Nome da categoria"
+              value={categoryForm.name}
+              onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))}
+            /></FormField>
+            <FormField label="Cor da categoria"><Input
+              type="color"
+              aria-label="Cor da categoria"
+              className="h-10 cursor-pointer p-1"
+              value={categoryForm.color}
+              onChange={(event) => setCategoryForm((current) => ({ ...current, color: event.target.value }))}
+            /></FormField>
+            <Button type="submit" className="self-end" disabled={customCount >= MAX_CUSTOM_CATEGORIES}>
+              Criar
+            </Button>
+          </div>
+        </form>
+        </details>
+      </Card>
+      ) : null}
+
+      {!filteredCosts.length ? <Card className="p-5"><EmptyState title={activeCosts.length ? "Nenhum compromisso nesta categoria" : "Sua base recorrente está vazia"} detail={activeCosts.length ? "Selecione outra categoria para ver os compromissos." : "Adicione aluguel, assinaturas e outros custos que se repetem."} /></Card> : null}
+
       {/* Active flat list */}
       {filteredCosts.length > 0 ? (
-        <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+        <div className="rounded-card border border-ink-200/70 bg-surface shadow-card">
           <div className="hidden items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5 md:flex">
             <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Compromisso</span>
             <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Valor / mês</span>
@@ -1377,8 +1506,8 @@ function CostsBase({
               >
                 <CatAvatar category={cat?.name} color={color} size={42} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-ink-900">{cost.description}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="min-w-0 break-words text-sm font-semibold text-ink-900">{cost.description}</p>
                     <span
                       className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-none"
                       style={{ background: color + "1A", color }}
@@ -1408,13 +1537,15 @@ function CostsBase({
                     <button
                       type="button"
                       title="Mais opções"
+                      aria-label={`Opções de ${cost.description}`}
+                      aria-expanded={menuOpen === cost.id}
                       className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-600 md:size-7 md:text-ink-300 md:group-hover:text-ink-500"
                       onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === cost.id ? null : cost.id); }}
                     >
                       <MoreVertical className="size-4" aria-hidden="true" />
                     </button>
                     {menuOpen === cost.id && (
-                      <div className="absolute right-0 top-8 z-30 min-w-[152px] overflow-hidden rounded-control border border-ink-200 bg-surface shadow-lift">
+                      <div className="absolute left-0 top-10 z-30 min-w-[168px] md:left-auto md:right-0 md:top-8 overflow-hidden rounded-control border border-ink-200 bg-surface shadow-lift">
                         <button
                           type="button"
                           className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-ink-700 hover:bg-surface-muted"
@@ -1462,7 +1593,7 @@ function CostsBase({
               {inactiveCosts.length}
             </span>
           </div>
-          <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+          <div className="rounded-card border border-ink-200/70 bg-surface shadow-card">
             {inactiveCosts.map((cost, idx) => {
               const cat = getCostCategory(cost);
               const color = categoryColor(cat?.name, cat?.color);
@@ -1512,119 +1643,8 @@ function CostsBase({
         </div>
       )}
 
-      {showAddCostForm ? (
-      <Card id="add-cost-form" className="p-5 sm:p-6">
-        <h2 className="text-sm font-semibold text-ink-900">Adicionar custo fixo</h2>
-        <p className="mt-0.5 text-xs text-ink-500">
-          O valor vira a base de todos os meses; ajustes pontuais ficam na lista acima.
-        </p>
-        {data.templates.length ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {data.templates.map((template) => (
-              <Button
-                key={template.label}
-                type="button"
-                size="sm"
-                onClick={() =>
-                  setQuickCost({
-                    category_id: template.category_id,
-                    description: template.description,
-                    amount: quickCost.amount,
-                    due_day: String(template.due_day),
-                  })
-                }
-              >
-                {template.label}
-              </Button>
-            ))}
-          </div>
-        ) : null}
-        <form className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-[170px_1fr_140px_90px_auto_auto]" onSubmit={addCost}>
-          <Select
-            aria-label="Categoria"
-            value={quickCost.category_id}
-            onChange={(event) =>
-              setQuickCost((current) => ({ ...current, category_id: Number(event.target.value) }))
-            }
-            required
-          >
-            {data.categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </Select>
-          <Input
-            required
-            placeholder="Descrição (ex.: Aluguel)"
-            value={quickCost.description}
-            onChange={(event) => setQuickCost((current) => ({ ...current, description: event.target.value }))}
-          />
-          <Input
-            required
-            type="number"
-            step="0.01"
-            min="0.01"
-            placeholder="Valor"
-            value={quickCost.amount}
-            onChange={(event) => setQuickCost((current) => ({ ...current, amount: event.target.value }))}
-          />
-          <Input
-            required
-            type="number"
-            min="1"
-            max="31"
-            placeholder="Dia"
-            aria-label="Dia de vencimento"
-            value={quickCost.due_day}
-            onChange={(event) => setQuickCost((current) => ({ ...current, due_day: event.target.value }))}
-          />
-          <Button type="submit" variant="primary">
-            <Plus className="size-4" aria-hidden="true" />
-            Adicionar
-          </Button>
-          <Button type="button" onClick={() => setShowAddCostForm(false)}>
-            Cancelar
-          </Button>
-        </form>
 
-        <details className="mt-6 border-t border-ink-100 pt-5">
-          <summary className="cursor-pointer text-sm font-semibold text-ink-700">
-            Criar categoria personalizada
-          </summary>
-        <form className="mt-4" onSubmit={addCategory}>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-ink-900">Nova categoria personalizada</h3>
-              <p className="mt-0.5 text-xs text-ink-500">Para agrupar custos do seu jeito.</p>
-            </div>
-            <span className="text-xs text-ink-500">
-              {customCount}/{MAX_CUSTOM_CATEGORIES} criadas
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
-            <Input
-              required
-              placeholder="Nome da categoria"
-              value={categoryForm.name}
-              onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))}
-            />
-            <Input
-              type="color"
-              aria-label="Cor da categoria"
-              className="h-10 cursor-pointer p-1"
-              value={categoryForm.color}
-              onChange={(event) => setCategoryForm((current) => ({ ...current, color: event.target.value }))}
-            />
-            <Button type="submit" disabled={customCount >= MAX_CUSTOM_CATEGORIES}>
-              Criar
-            </Button>
-          </div>
-        </form>
-        </details>
-      </Card>
-      ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -1647,6 +1667,16 @@ function IncomePlanning({
   const [entryDraft, setEntryDraft] = useState<Partial<ExpectedIncomeEntry>>({});
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
   const [showAddIncomeForm, setShowAddIncomeForm] = useState(false);
+
+  useEffect(() => {
+    if (!showAddIncomeForm) return;
+    const form = document.getElementById("add-income-form");
+    form?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+    form?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+  }, [showAddIncomeForm]);
 
   const addEntry = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1671,32 +1701,42 @@ function IncomePlanning({
   const shownEntries = showInactive ? data.incomeEntries : activeEntries;
 
   return (
-    <div className="space-y-6" onClick={() => setMenuOpen(null)}>
-      {/* Hero card */}
-      <Card className="border-positive-200 bg-positive-50/70 p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-positive-700">
-              Receita prevista · {formatMonthLong(selectedMonth)}
-            </p>
-            <p className="mt-2 text-4xl font-bold tabular tracking-tight text-positive-800">
-              {formatMoney(total)}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="primary"
-            className="bg-positive-600 hover:bg-positive-700"
-            onClick={(e) => { e.stopPropagation(); setShowAddIncomeForm((current) => !current); }}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            Nova entrada
-          </Button>
+    <div className="space-y-6" onClick={() => setMenuOpen(null)} onKeyDown={(event) => { if (event.key === "Escape") setMenuOpen(null); }}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight text-ink-900">Receitas do mês</h2>
+          <p className="mt-1 text-sm text-ink-500">Sua base de entradas para {formatMonthLong(selectedMonth).toLowerCase()}.</p>
+        </div>
+        <Button
+          type="button"
+          variant="primary"
+          aria-expanded={showAddIncomeForm}
+          aria-controls="add-income-form"
+          onClick={(e) => { e.stopPropagation(); setShowAddIncomeForm((current) => !current); }}
+        >
+          <Plus className="size-4" aria-hidden="true" />Nova entrada
+        </Button>
+      </div>
+      <Card className="grid divide-y divide-ink-100 sm:grid-cols-[1.2fr_1fr_1fr] sm:divide-x sm:divide-y-0">
+        <div className="p-5 sm:p-6">
+          <p className="flex items-center gap-2 text-xs font-medium text-ink-500"><ArrowDownLeft className="size-4 text-primary-700" aria-hidden="true" />Receita prevista</p>
+          <p className="mt-2 text-3xl font-semibold tabular tracking-tight text-ink-900">{formatMoney(total)}</p>
+          <p className="mt-2 text-xs text-ink-500">Total esperado para o mês</p>
+        </div>
+        <div className="p-5 sm:p-6">
+          <p className="text-xs font-medium text-ink-500">Já recebido</p>
+          <p className="mt-2 text-2xl font-semibold tabular tracking-tight text-positive-700">{formatMoney(data.capacity.received_income_total || 0)}</p>
+          <p className="mt-2 text-xs text-ink-500">Entradas realizadas no mês</p>
+        </div>
+        <div className="p-5 sm:p-6">
+          <p className="text-xs font-medium text-ink-500">A receber</p>
+          <p className="mt-2 text-2xl font-semibold tabular tracking-tight text-ink-900">{formatMoney(data.capacity.income_to_receive || 0)}</p>
+          <p className="mt-2 text-xs text-ink-500">Receita ainda prevista</p>
         </div>
       </Card>
 
       {/* List header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-ink-900">
           Entradas recorrentes
           {data.incomeEntries.length > 0 ? (
@@ -1708,6 +1748,7 @@ function IncomePlanning({
         {inactiveEntries.length > 0 ? (
         <button
           type="button"
+          aria-pressed={showInactive}
           onClick={(e) => { e.stopPropagation(); setShowInactive(!showInactive); }}
           className={classNames(
             "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
@@ -1720,9 +1761,52 @@ function IncomePlanning({
         ) : null}
       </div>
 
+      {showAddIncomeForm ? (
+      <Card id="add-income-form" className="border-primary-200 bg-primary-50/30 p-5 sm:p-6">
+        <h2 className="text-sm font-semibold text-ink-900">Nova entrada recorrente</h2>
+        <p className="mt-0.5 text-xs text-ink-500">A base que se repete todos os meses.</p>
+        <form
+          className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_130px]"
+          onSubmit={addEntry}
+        >
+          <FormField label="Descrição"><Input
+            required
+            placeholder="Descrição (ex.: Salário)"
+            value={entryForm.description}
+            onChange={(event) => setEntryForm((current) => ({ ...current, description: event.target.value }))}
+          /></FormField>
+          <FormField label="Valor (R$)"><Input
+            required
+            type="number"
+            step="0.01"
+            min="0.01"
+            placeholder="Valor"
+            value={entryForm.amount}
+            onChange={(event) => setEntryForm((current) => ({ ...current, amount: event.target.value }))}
+          /></FormField>
+          <FormField label="Dia esperado"><Input
+            required
+            type="number"
+            min="1"
+            max="31"
+            placeholder="Dia"
+            aria-label="Dia esperado"
+            value={entryForm.expected_day}
+            onChange={(event) => setEntryForm((current) => ({ ...current, expected_day: event.target.value }))}
+          /></FormField>
+          <div className="flex flex-wrap gap-2 pt-1 sm:col-span-2 lg:col-span-3"><Button type="submit" variant="primary">
+            Adicionar
+          </Button>
+          <Button type="button" onClick={() => setShowAddIncomeForm(false)}>
+            Cancelar
+          </Button></div>
+        </form>
+      </Card>
+      ) : null}
+
       {/* Entries list */}
       {shownEntries.length > 0 ? (
-        <div className="overflow-hidden rounded-card border border-ink-200/70 bg-surface shadow-card">
+        <div className="rounded-card border border-ink-200/70 bg-surface shadow-card">
           <div className="hidden items-center gap-4 border-b border-ink-100 bg-surface-muted/60 px-5 py-2.5 md:flex">
             <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Entrada</span>
             <span className="w-28 text-right text-[11px] font-semibold uppercase tracking-wider text-ink-400">Valor</span>
@@ -1736,7 +1820,7 @@ function IncomePlanning({
               return (
                 <div key={entry.id} className={classNames("px-5 py-3", !isLast ? "border-b border-ink-100" : "")}>
                   <form
-                    className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_100px_auto_auto]"
+                    className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_130px]"
                     onSubmit={async (event) => {
                       event.preventDefault();
                       await updateExpectedIncome(entry.id, {
@@ -1748,26 +1832,25 @@ function IncomePlanning({
                       await onReload();
                     }}
                   >
-                    <Input
+                    <FormField label="Descrição"><Input
                       aria-label="Descrição"
                       value={String(entryDraft.description ?? entry.description)}
                       onChange={(event) => setEntryDraft((c) => ({ ...c, description: event.target.value }))}
-                    />
-                    <Input
+                    /></FormField>
+                    <FormField label="Valor (R$)"><Input
                       aria-label="Valor"
                       type="number"
                       step="0.01"
                       value={Number(entryDraft.amount ?? entry.amount)}
                       onChange={(event) => setEntryDraft((c) => ({ ...c, amount: Number(event.target.value) }))}
-                    />
-                    <Input
+                    /></FormField>
+                    <FormField label="Dia esperado"><Input
                       aria-label="Dia esperado"
                       type="number"
                       value={Number(entryDraft.expected_day ?? entry.expected_day)}
                       onChange={(event) => setEntryDraft((c) => ({ ...c, expected_day: Number(event.target.value) }))}
-                    />
-                    <Button type="submit" variant="primary">Salvar</Button>
-                    <Button type="button" onClick={() => setEditingEntry(null)}>Cancelar</Button>
+                    /></FormField>
+                    <div className="flex flex-wrap gap-2 pt-1 sm:col-span-2 lg:col-span-3"><Button type="submit" variant="primary">Salvar alterações</Button><Button type="button" onClick={() => setEditingEntry(null)}>Cancelar</Button></div>
                   </form>
                 </div>
               );
@@ -1783,8 +1866,8 @@ function IncomePlanning({
               >
                 <DayBadge day={entry.expected_day} tone="neutral" size={38} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className={classNames("text-sm font-semibold", inactive ? "text-ink-400 line-through" : "text-ink-900")}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className={classNames("min-w-0 break-words text-sm font-semibold", inactive ? "text-ink-400 line-through" : "text-ink-900")}>
                       {entry.description}
                     </p>
                     {inactive && (
@@ -1810,13 +1893,15 @@ function IncomePlanning({
                     <button
                       type="button"
                       title="Mais opções"
+                      aria-label={`Opções de ${entry.description}`}
+                      aria-expanded={menuOpen === entry.id}
                       className="flex size-9 items-center justify-center rounded-control text-ink-400 transition-all hover:bg-surface-muted hover:text-ink-600 md:size-7 md:text-ink-300 md:group-hover:text-ink-500"
                       onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === entry.id ? null : entry.id); }}
                     >
                       <MoreVertical className="size-4" aria-hidden="true" />
                     </button>
                     {menuOpen === entry.id && (
-                      <div className="absolute right-0 top-8 z-30 min-w-[152px] overflow-hidden rounded-control border border-ink-200 bg-surface shadow-lift">
+                      <div className="absolute left-0 top-10 z-30 min-w-[168px] md:left-auto md:right-0 md:top-8 overflow-hidden rounded-control border border-ink-200 bg-surface shadow-lift">
                         <button
                           type="button"
                           className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-ink-700 hover:bg-surface-muted"
@@ -1862,48 +1947,7 @@ function IncomePlanning({
         </Card>
       )}
 
-      {showAddIncomeForm ? (
-      <Card id="add-income-form" className="p-5 sm:p-6">
-        <h2 className="text-sm font-semibold text-ink-900">Nova entrada recorrente</h2>
-        <p className="mt-0.5 text-xs text-ink-500">A base que se repete todos os meses.</p>
-        <form
-          className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_100px_auto_auto]"
-          onSubmit={addEntry}
-        >
-          <Input
-            required
-            placeholder="Descrição (ex.: Salário)"
-            value={entryForm.description}
-            onChange={(event) => setEntryForm((current) => ({ ...current, description: event.target.value }))}
-          />
-          <Input
-            required
-            type="number"
-            step="0.01"
-            min="0.01"
-            placeholder="Valor"
-            value={entryForm.amount}
-            onChange={(event) => setEntryForm((current) => ({ ...current, amount: event.target.value }))}
-          />
-          <Input
-            required
-            type="number"
-            min="1"
-            max="31"
-            placeholder="Dia"
-            aria-label="Dia esperado"
-            value={entryForm.expected_day}
-            onChange={(event) => setEntryForm((current) => ({ ...current, expected_day: event.target.value }))}
-          />
-          <Button type="submit" variant="primary">
-            Adicionar
-          </Button>
-          <Button type="button" onClick={() => setShowAddIncomeForm(false)}>
-            Cancelar
-          </Button>
-        </form>
-      </Card>
-      ) : null}
+
     </div>
   );
 }
@@ -1913,12 +1957,14 @@ export function PlanejamentoPage() {
   const [activeTab, setActiveTab] = useState<PlanningTab>(() => selectedTabFromLocation());
   const [showInactiveCosts, setShowInactiveCosts] = useState(false);
   const [showInactiveIncome, setShowInactiveIncome] = useState(false);
+  const [showAddCostForm, setShowAddCostForm] = useState(false);
   const months = useMemo(() => monthWindow(getDefaultPlanningMonth(), PLANNING_MONTH_WINDOW_SIZE + 1), []);
   const planningLoader = useCallback(
     () => loadPlanningData(selectedMonth),
     [selectedMonth],
   );
   const { data, loading, error, run } = useAsync(planningLoader);
+  const currentData = data?.selectedMonth === selectedMonth ? data : null;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -1930,7 +1976,7 @@ export function PlanejamentoPage() {
   return (
     <>
       <Topbar
-        subtitle={formatMonthLong(selectedMonth)}
+        subtitle={`${formatMonthLong(selectedMonth)} · planejamento mensal`}
         actions={
           <Button
             type="button"
@@ -1942,47 +1988,67 @@ export function PlanejamentoPage() {
             loading={loading}
           >
             <RefreshCw className="size-4" aria-hidden="true" />
+            Atualizar
           </Button>
         }
       />
-      <PageContainer narrow>
-        <div className="space-y-5">
-          <div className="flex flex-col gap-3">
+      <PageContainer>
+        <div className="space-y-6" aria-busy={loading}>
+          <div className="min-w-0 space-y-4">
+            <div>
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                <h2 className="text-lg font-semibold tracking-tight text-ink-900">{formatMonthLong(selectedMonth)}</h2>
+                <p className="text-xs text-ink-500">Selecione o mês que você quer planejar</p>
+              </div>
+              <MonthStrip months={months} value={selectedMonth} onChange={setSelectedMonth} />
+            </div>
             <Tabs<PlanningTab>
               value={activeTab}
               onChange={setActiveTab}
               items={[
-                { key: "overview", label: "Plano" },
-                { key: "custos", label: "Fixos" },
-                { key: "variaveis", label: "Variáveis" },
+                { key: "overview", label: "Plano do mês" },
+                { key: "custos", label: "Custos fixos" },
+                { key: "variaveis", label: "Gastos variáveis" },
                 { key: "receita", label: "Receita" },
               ]}
             />
-            <MonthStrip months={months} value={selectedMonth} onChange={setSelectedMonth} />
           </div>
 
-          {loading && !data ? <LoadingState label="Carregando planejamento..." /> : null}
-          {error && !data ? <ErrorState message={error} onRetry={() => void run()} /> : null}
-          {error && data ? (
+          {loading && !currentData ? <LoadingState label={`Carregando ${formatMonthLong(selectedMonth).toLowerCase()}...`} /> : null}
+          {error && !currentData ? <ErrorState message={error} onRetry={() => void run()} /> : null}
+          {error && currentData ? (
             <StaleDataWarning message={error} loading={loading} onRetry={() => void run()} />
           ) : null}
-          {data ? (
+          {currentData ? (
             <>
-              {activeTab === "overview" ? <MonthPlanPanel capacity={data.capacity} /> : null}
+              {activeTab === "overview" ? <MonthPlanPanel capacity={currentData.capacity} onOpenTab={setActiveTab} /> : null}
 
               {activeTab === "custos" ? (
                 <div className="space-y-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-primary-700">Neste mês</p>
+                      <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink-900">Agenda de pagamentos</h2>
+                      <p className="mt-1 text-sm text-ink-500">Acompanhe vencimentos e ajuste os valores deste mês.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={() => document.getElementById("recurring-costs")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Base recorrente<ArrowUpRight className="size-3.5" aria-hidden="true" /></Button>
+                      <Button variant="primary" onClick={() => { setShowAddCostForm(true); document.getElementById("add-cost-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }}><Plus className="size-4" aria-hidden="true" />Novo custo</Button>
+                    </div>
+                  </div>
                   <FixedCostsAgenda
-                    fixed={data.fixedMonth}
-                    expectedIncome={data.capacity.expected_income_total || 0}
+                    fixed={currentData.fixedMonth}
+                    expectedIncome={currentData.capacity.expected_income_total || 0}
                     selectedMonth={selectedMonth}
                     onReload={run}
                   />
 
                   <CostsBase
-                    data={data}
+                    data={currentData}
                     showInactive={showInactiveCosts}
                     setShowInactive={setShowInactiveCosts}
+                    showAddCostForm={showAddCostForm}
+                    setShowAddCostForm={setShowAddCostForm}
                     onReload={run}
                   />
                 </div>
@@ -1990,7 +2056,7 @@ export function PlanejamentoPage() {
 
               {activeTab === "variaveis" ? (
                 <VariableBudgetsPanel
-                  capacity={data.capacity}
+                  capacity={currentData.capacity}
                   selectedMonth={selectedMonth}
                   onReload={run}
                 />
@@ -1998,7 +2064,7 @@ export function PlanejamentoPage() {
 
               {activeTab === "receita" ? (
                 <IncomePlanning
-                  data={data}
+                  data={currentData}
                   selectedMonth={selectedMonth}
                   showInactive={showInactiveIncome}
                   setShowInactive={setShowInactiveIncome}

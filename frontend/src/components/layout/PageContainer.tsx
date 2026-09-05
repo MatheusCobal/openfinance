@@ -11,9 +11,11 @@ export function PageContainer({
 }) {
   return (
     <main
+      id="main-content"
+      tabIndex={-1}
       className={classNames(
-        "w-full px-4 py-5 pb-24 sm:px-6 sm:py-6 md:pb-8 lg:px-8",
-        narrow ? "max-w-5xl" : "max-w-7xl",
+        "w-full min-w-0 px-4 py-6 pb-28 focus-visible:outline-none sm:px-6 md:pb-10 lg:px-8 xl:px-10 xl:py-8",
+        narrow ? "max-w-5xl" : "max-w-[1440px]",
         "mx-auto",
         className,
       )}

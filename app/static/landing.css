@@ -1,6 +1,6 @@
 :root {
   color: #0f172a;
-  background: #020617;
+  background: #0b2b35;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -8,7 +8,7 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #020617; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: #0b2b35; -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 svg { display: block; }
 .lp-wrap { width: min(100% - 2rem, 72rem); margin-inline: auto; }
@@ -20,7 +20,7 @@ svg { display: block; }
   z-index: 100;
   padding: 0.625rem 1rem;
   border-radius: 0.5rem;
-  background: #2563eb;
+  background: #18778a;
   color: #fff;
   font-size: 0.875rem;
   font-weight: 600;
@@ -30,7 +30,7 @@ svg { display: block; }
 .lp-skip-link:focus { top: 0.75rem; }
 
 a:focus-visible {
-  outline: 2px solid #38bdf8;
+  outline: 2px solid #7fc0cb;
   outline-offset: 3px;
   border-radius: 0.5rem;
 }
@@ -43,7 +43,7 @@ a:focus-visible {
 }
 
 #lp-header.lp-scrolled {
-  background: rgba(2, 6, 23, 0.9);
+  background: rgba(11, 43, 53, 0.96);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -74,7 +74,7 @@ a:focus-visible {
   align-items: center;
   justify-content: center;
   border-radius: 0.5rem;
-  background: #2563eb;
+  background: #18778a;
 }
 
 .lp-brand-icon svg { width: 1rem; height: 1rem; }
@@ -87,25 +87,22 @@ a:focus-visible {
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
   border-radius: 0.625rem;
-  background: #2563eb;
+  background: #18778a;
   color: #fff;
   font-size: 0.9375rem;
   font-weight: 650;
-  box-shadow: 0 10px 28px -10px rgba(37, 99, 235, 0.7);
+  box-shadow: 0 10px 28px -10px rgba(18, 62, 75, 0.25);
   transition: background 0.15s ease, transform 0.15s ease;
 }
 
-.lp-button:hover { background: #1d4ed8; transform: translateY(-1px); }
+.lp-button:hover { background: #176073; transform: translateY(-1px); }
 .lp-button svg { width: 1rem; height: 1rem; }
 .lp-button-small { min-height: 2.25rem; padding: 0.5rem 1rem; font-size: 0.875rem; }
 
 .lp-hero {
   position: relative;
   overflow: hidden;
-  background:
-    radial-gradient(56rem 28rem at 78% -10%, rgba(37, 99, 235, 0.28), transparent 60%),
-    radial-gradient(40rem 22rem at 8% 18%, rgba(14, 165, 233, 0.13), transparent 55%),
-    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+  background: #123e4b;
 }
 
 .lp-hero::before {
@@ -124,12 +121,12 @@ a:focus-visible {
 .lp-hero-content {
   position: relative;
   padding-block: 10.5rem 7rem;
-  text-align: center;
+  text-align: left;
 }
 
 .lp-hero h1 {
   max-width: 56rem;
-  margin: 0 auto;
+  margin: 0;
   color: #fff;
   font-size: clamp(2.5rem, 7vw, 3.75rem);
   line-height: 1.08;
@@ -138,13 +135,13 @@ a:focus-visible {
 
 .lp-hero p {
   max-width: 42rem;
-  margin: 1.5rem auto 2.25rem;
+  margin: 1.5rem 0 2.25rem;
   color: #cbd5e1;
   font-size: 1.125rem;
   line-height: 1.65;
 }
 
-.lp-features { padding-block: 5rem; background: #fff; }
+.lp-features { padding-block: 5rem; background: #f3f7f8; }
 .lp-section-title {
   margin: 0;
   text-align: center;
@@ -157,7 +154,7 @@ a:focus-visible {
 .lp-feature-grid {
   margin-top: 3rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.25rem;
 }
 
@@ -171,7 +168,7 @@ a:focus-visible {
 
 .lp-feature-card:hover {
   transform: translateY(-3px);
-  border-color: #bfdbfe;
+  border-color: #b2dce2;
   box-shadow: 0 16px 36px -16px rgba(15, 23, 42, 0.18);
 }
 
@@ -180,16 +177,14 @@ a:focus-visible {
 
 .lp-security {
   padding-block: 4.5rem;
-  background:
-    radial-gradient(44rem 24rem at 85% 0%, rgba(14, 165, 233, 0.12), transparent 60%),
-    #0f172a;
+  background: #123e4b;
 }
 
 .lp-security-content { max-width: 48rem; text-align: center; }
 .lp-security h2 { margin: 0; color: #fff; font-size: clamp(1.5rem, 4vw, 1.875rem); letter-spacing: -0.025em; }
 .lp-security p { max-width: 42rem; margin: 1rem auto 0; color: #cbd5e1; font-size: 1rem; line-height: 1.65; }
 
-footer { border-top: 1px solid rgba(255, 255, 255, 0.08); background: #020617; }
+footer { border-top: 1px solid rgba(255, 255, 255, 0.08); background: #0b2b35; }
 .lp-footer-inner {
   min-height: 5rem;
   display: flex;
@@ -207,7 +202,7 @@ footer { border-top: 1px solid rgba(255, 255, 255, 0.08); background: #020617; }
 .lp-js .lp-reveal {
   opacity: 0;
   transform: translateY(1rem);
-  transition: opacity 0.55s ease, transform 0.55s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .lp-js .lp-reveal-visible { opacity: 1; transform: none; }
@@ -225,3 +220,7 @@ footer { border-top: 1px solid rgba(255, 255, 255, 0.08); background: #020617; }
   .lp-button:hover, .lp-feature-card:hover { transform: none; }
   .lp-js .lp-reveal { opacity: 1; transform: none; transition: none; }
 }
+
+.lp-eyebrow { display: block; margin-bottom: 1.5rem; color: #b2dce2; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; }
+.lp-feature-number { display: block; margin-bottom: 2rem; color: #18778a; font-size: 0.75rem; font-weight: 600; }
+@media (min-width: 48rem) and (max-width: 64rem) { .lp-feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

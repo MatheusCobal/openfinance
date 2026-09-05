@@ -20,7 +20,7 @@ interface FinancialFlowProps {
 
 /**
  * Financial Flow — the composition of the month in one strip:
- * receita → fixos → fatura → variáveis → disponível.
+ * receita → fixos → fatura → disponível.
  */
 export function FinancialFlow({ total, segments, remainder, inverse = false, className }: FinancialFlowProps) {
   const base = Math.max(total, 0);

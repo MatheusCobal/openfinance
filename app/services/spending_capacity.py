@@ -302,12 +302,8 @@ def spending_capacity_summary(
         future_card_obligation_source = "none"
         future_card_obligation_count = 0
 
-    # For future months: the forming invoice already captures spending on budgeted
-    # categories. Reserve only the per-category uncommitted portion (sum of
-    # max(goal - spent, 0) per category). Categories that exceeded their goal
-    # contribute 0 — their overage is already inside the invoice and must not be
-    # deducted again. Using the aggregate max(total_goal - total_spent, 0) would
-    # silently absorb per-category overages into other categories' remainders.
+    # Variable targets and consumption are informational for the Variaveis tab.
+    # Only fixed costs and the invoice component reduce spending capacity.
     variable_uncommitted = sum(
         max(Decimal(str(item["remaining"])), Decimal("0"))
         for item in variable_budgets.get("items", [])
@@ -316,17 +312,11 @@ def spending_capacity_summary(
 
     if planning_mode == "future_month":
         budget_available_to_spend = (
-            expected_income_total
-            - fixed_cost_planned_total
-            - future_card_obligation_total
-            - variable_uncommitted
+            expected_income_total - fixed_cost_planned_total - future_card_obligation_total
         )
     else:
         budget_available_to_spend = (
-            expected_income_total
-            - fixed_cost_reserved_total
-            - variable_budget_reserved
-            - card_invoice_remaining_to_include
+            expected_income_total - fixed_cost_reserved_total - card_invoice_remaining_to_include
         )
 
     if today > last_day:

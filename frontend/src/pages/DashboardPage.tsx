@@ -5,7 +5,7 @@ import {
   CreditCard,
   Link as LinkIcon,
   RefreshCw,
-  Tags,
+  Search,
   Wallet,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -26,6 +26,7 @@ import { CategoryBreakdown } from "../components/ui/CategoryBreakdown";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState, StaleDataWarning } from "../components/ui/ErrorState";
 import { FinancialFlow } from "../components/ui/FinancialFlow";
+import { Input } from "../components/ui/Input";
 import { LoadingState } from "../components/ui/LoadingState";
 import { Modal } from "../components/ui/Modal";
 import { SectionHeader } from "../components/ui/SectionHeader";
@@ -97,6 +98,7 @@ export function DashboardPage() {
   const { data, loading, error, run } = useAsync(loadDashboardData);
   const [selectedCategory, setSelectedCategory] = useState<InvoiceCategory | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [purchaseSearch, setPurchaseSearch] = useState("");
   const [visibleRecentPurchaseCount, setVisibleRecentPurchaseCount] = useState(
     INITIAL_RECENT_CARD_PURCHASE_LIMIT,
   );
@@ -171,8 +173,11 @@ export function DashboardPage() {
       (dashCap.expectedIncome > 0 ||
         dashCap.fixedCosts > 0 ||
         Number(invoiceAmount) !== 0 ||
-        dashCap.variableBudget > 0 ||
         data?.hasActiveConnection),
+  );
+  const searchTerm = purchaseSearch.trim().toLocaleLowerCase("pt-BR");
+  const filteredPurchases = (data?.recentCardPurchases || []).filter((tx) =>
+    `${tx.description} ${transactionDisplayCategory(tx) || ""}`.toLocaleLowerCase("pt-BR").includes(searchTerm),
   );
 
   return (
@@ -185,13 +190,13 @@ export function DashboardPage() {
               type="button"
               variant="ghost"
               size="sm"
-              className="size-9 px-0"
               aria-label="Atualizar"
               title="Atualizar"
               onClick={() => void run()}
               loading={loading}
             >
               <RefreshCw className="size-4" aria-hidden="true" />
+              Atualizar
             </Button>
             {data?.hasActiveConnection === false ? (
               <Button type="button" variant="primary" loading={connecting} onClick={connectBank}>
@@ -217,13 +222,22 @@ export function DashboardPage() {
         ) : null}
         {data && dashCap ? (
           hasFinancialData ? (
-            <div className="space-y-8">
-            {/* Cockpit hero */}
+            <div className="space-y-8" aria-busy={loading}>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="page-eyebrow">Visão geral</p>
+                <p className="mt-1 text-sm text-ink-600">Seu mês, dos compromissos à liberdade para gastar.</p>
+              </div>
+              <Link to="/historico" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-700 hover:text-primary-900">
+                Explorar histórico <ArrowUpRight className="size-4" aria-hidden="true" />
+              </Link>
+            </div>
+            <div className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
             <section
               aria-label="Resumo do mês"
               className="cockpit-surface rounded-card p-6 text-white shadow-cockpit sm:p-8"
             >
-              <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)] xl:gap-12">
+              <div className="grid grid-cols-1 gap-7">
                 <div className="flex flex-col justify-between gap-6">
                   <div>
                     <div className="flex flex-wrap items-center gap-2.5">
@@ -231,7 +245,7 @@ export function DashboardPage() {
                       <StatusPill inverse tone={statusMeta.tone} label={statusMeta.label} />
                     </div>
                     <p
-                      className={`mt-3 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight tabular sm:text-5xl xl:text-6xl ${
+                      className={`mt-4 break-words text-[clamp(1.8rem,4vw,3.5rem)] font-semibold leading-tight tracking-tight tabular ${
                         dashCap.availableToSpend < 0 ? "text-danger-300" : "text-white"
                       }`}
                     >
@@ -240,12 +254,12 @@ export function DashboardPage() {
                   </div>
                   <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
                     <span className="inline-flex items-center gap-1.5 text-white/70">
-                      <CalendarClock className="size-4 text-white/40" aria-hidden="true" />
+                      <CalendarClock className="size-4 text-primary-200" aria-hidden="true" />
                       {pluralize(daysRemaining, "dia restante", "dias restantes")}
                     </span>
                     {perDay ? (
                       <span className="inline-flex items-center gap-1.5 text-white/70">
-                        <Wallet className="size-4 text-white/40" aria-hidden="true" />
+                        <Wallet className="size-4 text-primary-200" aria-hidden="true" />
                         <span>
                           <span className="font-semibold tabular text-white/90">{formatMoney(perDay)}</span>{" "}
                           por dia
@@ -256,13 +270,13 @@ export function DashboardPage() {
                       to="/planejamento"
                       className="inline-flex items-center gap-1 font-medium text-primary-300 transition-colors hover:text-primary-200"
                     >
-                      Ajustar plano do mês
+                      Abrir planejamento
                       <ArrowUpRight className="size-3.5" aria-hidden="true" />
                     </Link>
                   </div>
                 </div>
-                <div className="rounded-card border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">
+                <div className="border-t border-white/15 pt-5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-100/80">
                     Composição do mês
                   </p>
                   <FinancialFlow
@@ -270,13 +284,12 @@ export function DashboardPage() {
                     inverse
                     total={dashCap.expectedIncome}
                     segments={[
-                      { key: "fixed", label: "Custos fixos", value: dashCap.fixedCosts, color: "#64748b" },
-                      { key: "invoice", label: "Fatura vigente", value: Number(invoiceAmount), color: "#38bdf8" },
-                      { key: "variable", label: "Meta variável", value: dashCap.variableBudget, color: "#a78bfa" },
+                      { key: "fixed", label: "Custos fixos", value: dashCap.fixedCosts, color: "#fbbf24" },
+                      { key: "invoice", label: "Fatura vigente", value: Number(invoiceAmount), color: "#fda4af" },
                     ]}
                     remainder={{ label: "Disponível", value: dashCap.availableToSpend }}
                   />
-                  <p className="mt-4 border-t border-white/10 pt-3 text-xs text-white/50">
+                  <p className="mt-4 text-xs text-primary-100/80">
                     Receita esperada de{" "}
                     <span className="font-semibold tabular text-white/80">
                       {formatMoney(dashCap.expectedIncome)}
@@ -287,44 +300,49 @@ export function DashboardPage() {
               </div>
             </section>
 
-            {/* Invoice first, with the remaining monthly indicators alongside it. */}
             <section
               aria-label={`Indicadores de ${formatMonthShort(data.planningMonth)}`}
-              className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_repeat(2,minmax(0,1fr))]"
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1"
             >
-              <Card className="min-w-0 border-primary-200 bg-gradient-to-br from-primary-50 to-surface p-5 sm:col-span-2 sm:p-6 xl:col-span-1">
+              <Card className="flex min-w-0 flex-col justify-between p-5 sm:p-6">
                 <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-sm font-semibold text-primary-800">Fatura em aberto</h2>
-                  <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-control bg-primary-600 text-white">
+                  <h2 className="text-sm font-medium text-ink-600">Fatura em aberto</h2>
+                  <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-control bg-danger-50 text-danger-600">
                     <CreditCard className="size-5" aria-hidden="true" />
                   </span>
                 </div>
-                <p className="mt-3 text-4xl font-bold leading-tight tracking-tight tabular text-primary-900 sm:text-[2.5rem]">
+                <p className="mt-3 break-words text-3xl font-semibold leading-tight tracking-tight tabular text-ink-900">
                   {formatMoney(invoiceAmount)}
                 </p>
+                <Link to="/proximos" className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-primary-700 hover:underline">
+                  Ver faturas e parcelas <ArrowUpRight className="size-3.5" aria-hidden="true" />
+                </Link>
               </Card>
               {[
                 { label: "Custos fixos a pagar", value: dashCap.fixedCostsPending, Icon: Wallet },
-                { label: "Variável usado", value: dashCap.variableUsed, Icon: Tags },
               ].map(({ label, value, Icon }) => (
                 <Card key={label} className="flex min-w-0 flex-col justify-between gap-3 p-5 sm:p-6">
                   <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-xs font-medium text-ink-500">{label}</h2>
-                    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-control bg-ink-100 text-ink-600">
+                    <h2 className="text-sm font-medium text-ink-600">{label}</h2>
+                    <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-control bg-warning-50 text-warning-700">
                       <Icon className="size-4" aria-hidden="true" />
                     </span>
                   </div>
                   <p className="text-2xl font-bold leading-tight tracking-tight tabular text-ink-900 lg:text-3xl">
                     {formatMoney(value)}
                   </p>
+                  <Link to="/planejamento?tab=custos" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-700 hover:underline">
+                    Gerenciar custos recorrentes <ArrowUpRight className="size-3.5" aria-hidden="true" />
+                  </Link>
                 </Card>
               ))}
             </section>
+            </div>
 
             {/* Categories use the full width, without an empty invoice column. */}
             {data.categories.length ? (
               <section aria-label="Categorias da fatura">
-                <SectionHeader title="Categorias da fatura" />
+                <SectionHeader title="Onde se concentram os gastos" subtitle="Categorias da fatura · selecione uma categoria para ver os lançamentos." />
                 <CategoryBreakdown
                   className="sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
                   items={data.categories.map((category) => ({
@@ -350,7 +368,12 @@ export function DashboardPage() {
             {/* Recent card purchases */}
             {data.recentCardPurchases.length ? (
               <section>
-                <SectionHeader title="Últimas compras do cartão" />
+                <SectionHeader title="Últimas compras do cartão" subtitle="Acompanhe os lançamentos mais recentes e suas categorias." action={
+                  <label className="relative block w-full sm:w-64">
+                    <Search className="pointer-events-none absolute left-3 top-3 size-4 text-ink-400" aria-hidden="true" />
+                    <Input aria-label="Buscar nas últimas compras" placeholder="Buscar compra ou categoria" className="pl-9" value={purchaseSearch} onChange={(event) => { setPurchaseSearch(event.target.value); setVisibleRecentPurchaseCount(INITIAL_RECENT_CARD_PURCHASE_LIMIT); }} />
+                  </label>
+                } />
                 <Card className="overflow-hidden">
                   <Table>
                     <thead className="bg-surface-muted text-left text-xs font-medium uppercase tracking-wide text-ink-500">
@@ -362,7 +385,7 @@ export function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-ink-100 bg-surface">
-                      {data.recentCardPurchases
+                      {filteredPurchases
                         .slice(0, visibleRecentPurchaseCount)
                         .map((tx) => (
                           <tr key={tx.id} className="transition-colors hover:bg-surface-muted">
@@ -370,7 +393,7 @@ export function DashboardPage() {
                               {formatDayLabel(tx.date)}
                             </td>
                             <td className="px-5 py-3.5">
-                              <p className="max-w-[34rem] truncate text-sm font-medium text-ink-900">
+                              <p className="min-w-40 max-w-[34rem] text-sm font-medium text-ink-900">
                                 {tx.description}
                               </p>
                               {tx.installment_number && tx.total_installments ? (
@@ -380,7 +403,7 @@ export function DashboardPage() {
                               ) : null}
                             </td>
                             <td className="px-5 py-3.5 text-sm text-ink-600">
-                              {transactionDisplayCategory(tx) || "Sem categoria"}
+                              <span className="inline-flex rounded-md bg-surface-sunken px-2 py-1 text-xs font-medium text-ink-600">{transactionDisplayCategory(tx) || "Sem categoria"}</span>
                               {tx.classification_source === "manual_override" ? (
                                 <span className="block text-xs text-ink-400">Ajuste manual</span>
                               ) : null}
@@ -392,7 +415,8 @@ export function DashboardPage() {
                         ))}
                     </tbody>
                   </Table>
-                  {visibleRecentPurchaseCount < data.recentCardPurchases.length ? (
+                  {!filteredPurchases.length ? <p className="px-5 py-10 text-center text-sm text-ink-500">Nenhuma compra corresponde à busca. Tente outro nome ou categoria.</p> : null}
+                  {visibleRecentPurchaseCount < filteredPurchases.length ? (
                     <div className="flex justify-center border-t border-ink-100 bg-surface px-5 py-4">
                       <Button
                         type="button"
@@ -465,7 +489,7 @@ export function DashboardPage() {
             </li>
           ))}
           {selectedCategory?.transactions?.length ? null : (
-            <li className="px-5 py-8 text-center text-sm text-ink-500">Sem compras detalhadas.</li>
+            <li className="px-5 py-8 text-center text-sm text-ink-500">Não há lançamentos detalhados disponíveis para esta categoria na fatura atual.</li>
           )}
         </ul>
       </Modal>

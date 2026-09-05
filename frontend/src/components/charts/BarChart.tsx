@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import Chart from "chart.js/auto";
 import type { Chart as ChartInstance, Plugin } from "chart.js";
 import { CHART_COLORS, CHART_FONT } from "../../lib/chartTheme";
+import { formatMoney } from "../../lib/money";
 
 interface BarDataset {
   label: string;
@@ -38,6 +39,10 @@ function compactCurrency(value: number) {
 const valueLabelPlugin: Plugin<"bar"> = {
   id: "value-labels",
   afterDatasetsDraw(chart: ChartInstance<"bar">) {
+    // At narrow widths, tooltips and the value table stay readable while
+    // labels above adjacent bars would run into one another.
+    const columnCount = (chart.data.labels?.length || 1) * chart.data.datasets.length;
+    if (chart.chartArea.width / columnCount < 56) return;
     const { ctx } = chart;
     ctx.save();
     ctx.font = `600 10px ${CHART_FONT.family}`;
@@ -68,6 +73,7 @@ export function BarChart({
   tooltipValueOnly = false,
 }: BarChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const tableId = useId();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -79,7 +85,7 @@ export function BarChart({
         datasets: datasets.map(({ backgroundColors, ...dataset }) => ({
           ...dataset,
           backgroundColor: backgroundColors ?? dataset.backgroundColor,
-          borderRadius: 6,
+          borderRadius: 5,
           borderSkipped: false,
           maxBarThickness: 34,
         })),
@@ -88,6 +94,7 @@ export function BarChart({
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? false : { duration: 400 },
         layout: showValueLabels ? { padding: { top: 16 } } : undefined,
         onClick: (_event, elements) => {
           if (elements.length > 0) {
@@ -113,11 +120,13 @@ export function BarChart({
             },
           },
           tooltip: {
-            backgroundColor: "#0b1220",
+            mode: "index",
+            intersect: false,
+            backgroundColor: CHART_COLORS.tooltip,
             titleFont: { ...CHART_FONT, weight: "bold" },
             bodyFont: { ...CHART_FONT },
-            padding: 10,
-            cornerRadius: 8,
+            padding: 12,
+            cornerRadius: 10,
             displayColors: datasets.length > 1,
             callbacks: {
               label: (ctx) => {
@@ -161,5 +170,56 @@ export function BarChart({
     return () => chart.destroy();
   }, [datasets, labels, onBarClick, showValueLabels, stacked, tooltipValueOnly]);
 
-  return <canvas ref={canvasRef} role="img" aria-label={ariaLabel} />;
+  return (
+    <div className="relative flex h-full min-h-0 flex-col">
+      <div className="relative min-h-0 flex-1">
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label={ariaLabel || "Evolução dos valores por período"}
+          aria-describedby={tableId}
+        />
+      </div>
+      <details className="group mt-2 shrink-0 text-xs">
+        <summary className="w-fit cursor-pointer rounded-md py-1 text-ink-500 transition-colors hover:text-primary-700">
+          {onBarClick ? "Ver valores e selecionar período" : "Ver tabela de valores"}
+        </summary>
+        <div className="absolute inset-x-0 bottom-8 z-20 max-h-60 overflow-auto rounded-xl border border-ink-200 bg-surface shadow-lift">
+          <table className="w-full text-left text-xs">
+            <caption className="sr-only">{ariaLabel || "Valores por período"}</caption>
+            <thead className="sticky top-0 bg-surface-muted text-ink-600">
+              <tr>
+                <th scope="col" className="px-4 py-3 font-semibold">Período</th>
+                {datasets.map((dataset, index) => (
+                  <th key={index} scope="col" className="px-4 py-3 text-right font-semibold">{dataset.label || "Valor"}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ink-100">
+              {labels.map((label, index) => (
+                <tr key={`${label}-${index}`} className="hover:bg-primary-50/50">
+                  <th scope="row" className="px-4 py-2 font-medium text-ink-700">{label}</th>
+                  {datasets.map((dataset, datasetIndex) => (
+                    <td key={datasetIndex} className="whitespace-nowrap px-4 py-2 text-right tabular text-ink-900">
+                      {onBarClick ? (
+                        <button
+                          type="button"
+                          onClick={() => onBarClick(index, datasetIndex)}
+                          className="min-h-9 rounded-md px-2 py-1 font-semibold text-primary-700 underline decoration-primary-200 underline-offset-4 hover:bg-primary-50"
+                          aria-label={`${label}, ${dataset.label}: ${formatMoney(dataset.data[index] ?? 0)}. Selecionar período`}
+                        >
+                          {formatMoney(dataset.data[index] ?? 0)}
+                        </button>
+                      ) : formatMoney(dataset.data[index] ?? 0)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      <p id={tableId} className="sr-only">Os valores do gráfico estão disponíveis na tabela abaixo. {onBarClick ? "Use os botões na tabela para selecionar um período." : ""}</p>
+    </div>
+  );
 }

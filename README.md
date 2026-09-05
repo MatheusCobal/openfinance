@@ -11,9 +11,10 @@ Backend em FastAPI + SQLModel/SQLAlchemy + SQLite; landing pública estática em
 ### Dashboard (`/dashboard`)
 Tela inicial do app. Resumo executivo com:
 - Disponível para gastar
-- Fatura em aberto em destaque via `/credit-card/current-invoice`
-- Custos fixos a pagar e uso de orçamento variável
-- Categorias da fatura distribuídas por toda a largura da página
+- Composição do mês entre custos fixos, fatura vigente e sobra
+- Fatura em aberto e custos fixos a pagar
+- Categorias da fatura com acesso aos lançamentos
+- Busca e carregamento progressivo das compras recentes
 
 A Dashboard consulta `/items` apenas para identificar conexões ativas; o antigo resumo de saldo bancário foi removido. Receitas recebidas continuam disponíveis no Planejamento e no Histórico, onde ainda são usadas. A resposta de `/upcoming` mantém faturas e parcelas em `months`, sem o resumo duplicado `next_invoice` nem a contagem global dos cards removidos.
 
@@ -27,22 +28,40 @@ Os contratos da API acompanham a limpeza da interface:
 As fontes operacionais usadas para escolher a fatura correta, as regras de classificação, os snapshots históricos e os dados persistidos são preservados. O seletor de 13 meses permanece inalterado.
 
 ### Planejamento (`/planejamento`)
-Tela de planejamento e controle mensal. Visão mensal futura com:
+Central de planejamento e controle mensal, organizada nas abas Plano do mês,
+Custos fixos, Gastos variáveis e Receita. A visão mensal futura apresenta:
 - Receita esperada
-- Custos fixos
-- Metas variáveis (budgets)
+- Receita recebida e restante
+- Custos fixos previstos, pagos e pendentes
+- Metas variáveis (budgets), usadas para acompanhamento informativo
 - Fatura planejada do cartão
 - Resultado/sobra planejada
 
+As metas variáveis não reduzem a disponibilidade: o cálculo considera receita,
+custos fixos e fatura. A aba de gastos variáveis preserva meta, consumo e saldo
+por categoria para acompanhamento.
+
 ### Próximos (`/proximos`)
-- Parcelas e faturas futuras do cartão
-- Agrupamento por mês
-- Lista de próximos compromissos financeiros
+- Fatura em aberto e total de parcelas futuras
+- Evolução dos compromissos por mês
+- Detalhamento por cartão e categoria, com compras e parcelas expansíveis
 
 ### Histórico (`/historico`)
-- Faturas do cartão por mês
-- Categorias abaixo das faturas
-- Histórico de receitas bancárias
+- Comparação das faturas do cartão por mês e por cartão
+- Evolução dos gastos por categoria, com acesso aos lançamentos
+- Entradas e saídas bancárias por mês
+- Busca de transações e edição da classificação existente
+
+### Interface e design system
+
+A área interna usa uma identidade em azul petróleo, cores semânticas para estados
+financeiros e componentes compartilhados de navegação, cards, métricas, tabelas,
+gráficos, formulários, modais e estados de carregamento/erro/vazio. O layout se
+adapta a desktop, notebook, tablet e telas menores, com navegação inferior no
+mobile e alternativas acessíveis aos valores dos gráficos.
+
+O relatório da reformulação, incluindo escopo, arquivos, validação e pendências,
+está em [`docs/frontend-redesign.md`](docs/frontend-redesign.md).
 
 ### Sync Pluggy
 - Sincronização de dados via API Pluggy preservada no backend
@@ -461,9 +480,11 @@ O app recusa iniciar se `OPENFINANCE_ENV=production` e `OPENFINANCE_REQUIRE_AUTH
 
 ---
 
-## Deploy em VPS com Caddy — scaffold
+## Deploy em VPS com Caddy
 
-> ⚠️ Esta seção é um **scaffold** (arquivos prontos para deploy futuro). Não há deploy automático. O deploy real exige uma VPS acessível, domínio configurado e execução manual dos comandos abaixo.
+> Não há deploy automático no GitHub Actions. Um push em `main` executa os testes;
+> a atualização da aplicação em produção exige acesso à VPS, domínio configurado
+> e a execução manual dos comandos abaixo.
 
 ### Arquivos do scaffold
 
@@ -571,8 +592,7 @@ DATABASE_URL=sqlite:////tmp/openfinance-ci.db .venv/bin/alembic upgrade head
 Estado atual:
 
 ```text
-Ran 175 tests in ~3.7s
-OK
+543 passed
 ```
 
 Os testes cobrem:
@@ -643,9 +663,11 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 
 ## Histórico recente
 
+- A interface foi reformulada com design system em azul petróleo e hierarquia responsiva
 - `/dashboard` é o resumo executivo e a entrada principal da área autenticada
 - `/planejamento` segue como tela de planejamento e controle mensal
 - A navegação mantém Dashboard, Planejamento, Próximos e Histórico
+- Metas variáveis são informativas e não reduzem a disponibilidade financeira
 - O projeto passou a usar Alembic para migrações de schema
 - `seed_dev.py` foi removido do projeto
 
@@ -655,7 +677,7 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 
 - Auth desativada por padrão (local-first); login próprio (sessão por cookie `HttpOnly`) disponível — veja [Autenticação](#autenticação-antes-de-expor-publicamente) antes de expor publicamente
 - Em `OPENFINANCE_ENV=production`, app recusa iniciar se auth estiver desativada (guardrail de startup)
-- Single-tenant: a auth protege o acesso, mas os dados financeiros ainda são compartilhados (sem `user_id` por usuário); crie apenas um usuário até o isolamento por usuário existir
+- Os dados financeiros são isolados por usuário; operações administrativas e de restauração continuam exigindo cuidado com o banco persistente
 - Filtro de contas hardcoded em `type == "CREDIT"` (foco em cartão; conta corrente fica de fora)
 - Sync incremental com janela de segurança de 7 dias para capturar alterações recentes
 - Webhooks dependem do ngrok rodando junto com o app local
@@ -664,7 +686,8 @@ Use `/sync/health` para revisar locks de sync (`idle`, `running`, `stale`) e fal
 
 ## Roadmap técnico
 
-- Adicionar GitHub Actions para rodar testes automaticamente
+- Adicionar uma etapa de deploy após o GitHub Actions quando houver um destino de produção definido
+- Criar testes E2E para os principais fluxos da interface
 - Expandir política operacional de backup/sync quando necessário
 - Melhorar documentação de sync Pluggy
 - Revisar e mover scripts auxiliares para `scripts/`

@@ -831,8 +831,11 @@ class TransactionBillInstallmentTest(unittest.TestCase):
         from app.services.sync import upsert_transaction
 
         raw = {
-            "id": "itau-bill-link", "date": "2026-07-15", "amount": 300,
-            "description": "Compra", "status": "PENDING",
+            "id": "itau-bill-link",
+            "date": "2026-07-15",
+            "amount": 300,
+            "description": "Compra",
+            "status": "PENDING",
             "creditCardMetadata": {"billId": "nested-bill"},
         }
         with Session(self.engine) as session:

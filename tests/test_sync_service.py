@@ -234,43 +234,71 @@ class SyncServiceTest(unittest.TestCase):
     def test_itau_sync_revisits_old_pending_without_expanding_deletion_window(self):
         with Session(self.engine) as session:
             session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
-            session.add(Account(
-                id="credit-1", item_id="item-1", name="LATAM PASS ITAU BLACK", type="CREDIT",
-            ))
+            session.add(
+                Account(
+                    id="credit-1",
+                    item_id="item-1",
+                    name="LATAM PASS ITAU BLACK",
+                    type="CREDIT",
+                )
+            )
             sync_state = AccountSync(account_id="credit-1", last_transaction_date=date(2026, 8, 30))
             session.add(sync_state)
-            session.add_all([
-                Transaction(
-                    id="old-pending-payment", account_id="credit-1", date=date(2026, 8, 20),
-                    amount=Decimal("-5401.33"), description="PAGAMENTO COM SALDO",
-                    category="Transfers", status="PENDING", bill_forecast_month="2026-09",
-                ),
-                Transaction(
-                    id="older-history", account_id="credit-1", date=date(2026, 7, 30),
-                    amount=Decimal("105"), description="Mensalidade", status="PENDING",
-                ),
-                Transaction(
-                    id="deleted-in-recent-window", account_id="credit-1", date=date(2026, 8, 29),
-                    amount=Decimal("50"), description="Removed by provider", status="PENDING",
-                ),
-            ])
+            session.add_all(
+                [
+                    Transaction(
+                        id="old-pending-payment",
+                        account_id="credit-1",
+                        date=date(2026, 8, 20),
+                        amount=Decimal("-5401.33"),
+                        description="PAGAMENTO COM SALDO",
+                        category="Transfers",
+                        status="PENDING",
+                        bill_forecast_month="2026-09",
+                    ),
+                    Transaction(
+                        id="older-history",
+                        account_id="credit-1",
+                        date=date(2026, 7, 30),
+                        amount=Decimal("105"),
+                        description="Mensalidade",
+                        status="PENDING",
+                    ),
+                    Transaction(
+                        id="deleted-in-recent-window",
+                        account_id="credit-1",
+                        date=date(2026, 8, 29),
+                        amount=Decimal("50"),
+                        description="Removed by provider",
+                        status="PENDING",
+                    ),
+                ]
+            )
             session.commit()
             remote = {
-                "id": "old-pending-payment", "date": "2026-08-20", "amount": -5401.33,
-                "description": "PAGAMENTO COM SALDO", "category": "Transfers", "status": "POSTED",
+                "id": "old-pending-payment",
+                "date": "2026-08-20",
+                "amount": -5401.33,
+                "description": "PAGAMENTO COM SALDO",
+                "category": "Transfers",
+                "status": "POSTED",
                 "creditCardMetadata": {"billForecastDate": "2026-09", "billId": "september-bill"},
             }
 
             def remote_transactions(account_id, from_date=None):
                 return [remote] if from_date is None or from_date <= date(2026, 8, 20) else []
 
-            with patch.object(self.fake_pluggy, "list_transactions", side_effect=remote_transactions) as fetch:
+            with patch.object(
+                self.fake_pluggy, "list_transactions", side_effect=remote_transactions
+            ) as fetch:
                 result = sync_service.sync_account_transactions("credit-1", sync_state, session)
                 session.commit()
                 fetch.assert_called_once_with("credit-1", from_date=date(2026, 7, 30))
 
             self.assertEqual(session.get(Transaction, "old-pending-payment").status, "POSTED")
-            self.assertEqual(session.get(Transaction, "old-pending-payment").bill_id, "september-bill")
+            self.assertEqual(
+                session.get(Transaction, "old-pending-payment").bill_id, "september-bill"
+            )
             self.assertEqual(session.get(Transaction, "older-history").status, "PENDING")
             self.assertEqual(result.deleted_transactions, 1)
             self.assertIsNone(session.get(Transaction, "deleted-in-recent-window"))
@@ -279,15 +307,26 @@ class SyncServiceTest(unittest.TestCase):
     def test_caixa_sync_keeps_existing_lookback_with_old_pending(self):
         with Session(self.engine) as session:
             session.add(Item(id="item-1", connector_id=200, status="UPDATED"))
-            session.add(Account(
-                id="credit-1", item_id="item-1", name="CAIXA ICONE VISA", type="CREDIT",
-            ))
+            session.add(
+                Account(
+                    id="credit-1",
+                    item_id="item-1",
+                    name="CAIXA ICONE VISA",
+                    type="CREDIT",
+                )
+            )
             sync_state = AccountSync(account_id="credit-1", last_transaction_date=date(2026, 8, 30))
             session.add(sync_state)
-            session.add(Transaction(
-                id="old-caixa-payment", account_id="credit-1", date=date(2026, 8, 20),
-                amount=Decimal("-8418.39"), description="Pagamento", status="PENDING",
-            ))
+            session.add(
+                Transaction(
+                    id="old-caixa-payment",
+                    account_id="credit-1",
+                    date=date(2026, 8, 20),
+                    amount=Decimal("-8418.39"),
+                    description="Pagamento",
+                    status="PENDING",
+                )
+            )
             session.commit()
             with patch.object(self.fake_pluggy, "list_transactions", return_value=[]) as fetch:
                 sync_service.sync_account_transactions("credit-1", sync_state, session)

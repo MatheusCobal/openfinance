@@ -25,8 +25,11 @@ venv/
 # Local database files — data lives in the openfinance_data Docker volume
 openfinance.db
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+tmp/
 
 # Local backup files — backups live in the openfinance_backups Docker volume
 backups/

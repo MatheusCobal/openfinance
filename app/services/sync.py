@@ -328,11 +328,14 @@ def sync_account_transactions(
         # Provider-PENDING entries can settle long after the incremental window.
         # Revisit them to receive POSTED/billId; never infer that transition.
         oldest_pending_date = session.exec(
-            select(Transaction.date).where(
+            select(Transaction.date)
+            .where(
                 Transaction.account_id == account_id,
                 Transaction.status == "PENDING",
                 Transaction.date < from_date,
-            ).order_by(Transaction.date).limit(1)
+            )
+            .order_by(Transaction.date)
+            .limit(1)
         ).first()
         if oldest_pending_date is not None:
             fetch_from_date = oldest_pending_date

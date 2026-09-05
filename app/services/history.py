@@ -336,11 +336,7 @@ def _credit_card_official_bill_totals_by_month(
         if bill.due_date is None:
             return Decimal("0")
         return sum(
-            (
-                abs(tx.amount)
-                for tx in payment_rows
-                if payment_matches_bill(tx, bill)
-            ),
+            (abs(tx.amount) for tx in payment_rows if payment_matches_bill(tx, bill)),
             Decimal("0"),
         )
 
@@ -355,9 +351,7 @@ def _credit_card_official_bill_totals_by_month(
         if bill.total_amount is None and effective_total <= 0:
             continue
         total_source = (
-            "matched_credit_payment"
-            if recovered_payment_total > 0
-            else "pluggy_official_bill"
+            "matched_credit_payment" if recovered_payment_total > 0 else "pluggy_official_bill"
         )
 
         bucket = totals_by_month.setdefault(
@@ -619,9 +613,7 @@ def credit_card_invoice_purchases_monthly_summary(
         category_name = serialized.get("effective_category") or "Outros"
         amount = Decimal(str(serialized["amount_abs"]))
         tx_month = (
-            caixa_transaction_invoice_month(tx)
-            if is_caixa_account(account)
-            else month_key(tx.date)
+            caixa_transaction_invoice_month(tx) if is_caixa_account(account) else month_key(tx.date)
         )
         bill = bills_by_id.get(tx.bill_id)
         if (
@@ -656,10 +648,7 @@ def credit_card_invoice_purchases_monthly_summary(
     for selected_month in selected_months:
         txs = selected_transactions_by_month[selected_month]
         month_classified_total = sum(
-            (
-                Decimal(str(tx.get("invoice_contribution_amount", tx["amount_abs"])))
-                for tx in txs
-            ),
+            (Decimal(str(tx.get("invoice_contribution_amount", tx["amount_abs"]))) for tx in txs),
             Decimal("0"),
         )
         classified_purchase_total += month_classified_total
@@ -758,9 +747,7 @@ def credit_card_invoice_purchases_monthly_summary(
 
         categories_by_name: Dict[str, dict[str, Any]] = {}
         for tx in txs:
-            contribution = Decimal(
-                str(tx.get("invoice_contribution_amount", tx["amount_abs"]))
-            )
+            contribution = Decimal(str(tx.get("invoice_contribution_amount", tx["amount_abs"])))
             category_name = tx.get("effective_category") or "Outros"
             bucket = categories_by_name.setdefault(
                 category_name,

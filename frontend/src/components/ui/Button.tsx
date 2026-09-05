@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { classNames } from "../../lib/classNames";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "success" | "inverse";
-type Size = "sm" | "md";
+type Size = "sm" | "md" | "icon";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -13,8 +13,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variants: Record<Variant, string> = {
   primary:
-    "bg-primary-600 text-white border-primary-600 hover:bg-primary-700 hover:border-primary-700 shadow-sm",
-  secondary: "bg-surface text-ink-700 border-ink-200 hover:bg-ink-50 hover:text-ink-900 shadow-sm",
+    "bg-primary-700 text-white border-primary-700 hover:bg-primary-800 hover:border-primary-800 shadow-sm",
+  secondary: "bg-surface text-ink-700 border-ink-200 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-900 shadow-sm",
   ghost: "bg-transparent text-ink-600 border-transparent hover:bg-ink-100 hover:text-ink-900",
   danger: "bg-danger-600 text-white border-danger-600 hover:bg-danger-700 shadow-sm",
   success: "bg-positive-600 text-white border-positive-600 hover:bg-positive-700 shadow-sm",
@@ -22,8 +22,9 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "min-h-8 px-2.5 py-1 text-xs",
-  md: "min-h-9 px-3.5 py-1.5 text-sm",
+  sm: "min-h-9 px-3 py-1.5 text-xs",
+  md: "min-h-10 px-4 py-2 text-sm",
+  icon: "size-10 p-0 text-sm",
 };
 
 export function Button({
@@ -38,15 +39,16 @@ export function Button({
   return (
     <button
       className={classNames(
-        "inline-flex items-center justify-center gap-2 rounded-control border font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-55",
+        "inline-flex items-center justify-center gap-2 rounded-control border font-semibold transition duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0 motion-reduce:transition-none [&>svg]:shrink-0",
         sizes[size],
         variants[variant],
         className,
       )}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
     >
-      {loading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+      {loading ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
       {children}
     </button>
   );

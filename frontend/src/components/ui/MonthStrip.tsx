@@ -1,5 +1,6 @@
+import { useRef } from "react";
 import { classNames } from "../../lib/classNames";
-import { formatMonthShort } from "../../lib/dates";
+import { formatMonthLong, formatMonthShort } from "../../lib/dates";
 
 interface MonthStripProps {
   months: string[];
@@ -11,13 +12,14 @@ interface MonthStripProps {
 }
 
 export function MonthStrip({ months, value, onChange, captionFor, className }: MonthStripProps) {
+  const monthRefs = useRef<Array<HTMLButtonElement | null>>([]);
   return (
     <div
-      className={classNames("chip-strip flex gap-1.5 overflow-x-auto pb-1.5", className)}
+      className={classNames("chip-strip flex gap-2 overflow-x-auto pb-1.5", className)}
       role="tablist"
       aria-label="Selecionar mês"
     >
-      {months.map((ym) => {
+      {months.map((ym, index) => {
         const active = ym === value;
         const caption = captionFor?.(ym);
         return (
@@ -26,12 +28,24 @@ export function MonthStrip({ months, value, onChange, captionFor, className }: M
             type="button"
             role="tab"
             aria-selected={active}
+            aria-label={formatMonthLong(ym)}
+            tabIndex={active || (!months.includes(value ?? "") && index === 0) ? 0 : -1}
+            ref={(element) => { monthRefs.current[index] = element; }}
             onClick={() => onChange(ym)}
+            onKeyDown={(event) => {
+              const next = event.key === "ArrowRight" ? (index + 1) % months.length
+                : event.key === "ArrowLeft" ? (index - 1 + months.length) % months.length
+                : event.key === "Home" ? 0 : event.key === "End" ? months.length - 1 : null;
+              if (next === null) return;
+              event.preventDefault();
+              onChange(months[next]);
+              monthRefs.current[next]?.focus();
+            }}
             className={classNames(
-              "shrink-0 rounded-control border px-3 py-1.5 text-left transition-colors duration-150",
+              "min-h-11 shrink-0 rounded-control border px-4 py-2 text-left transition-colors duration-150",
               active
-                ? "border-ink-900 bg-ink-900 text-white shadow-sm"
-                : "border-ink-200 bg-surface text-ink-600 hover:border-ink-300 hover:text-ink-900",
+                ? "border-primary-800 bg-primary-800 text-white shadow-sm"
+                : "border-ink-200 bg-surface text-ink-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-900",
             )}
           >
             <span className="block text-sm font-semibold capitalize leading-tight">
@@ -40,8 +54,8 @@ export function MonthStrip({ months, value, onChange, captionFor, className }: M
             {caption ? (
               <span
                 className={classNames(
-                  "block text-[11px] tabular leading-tight",
-                  active ? "text-white/70" : "text-ink-400",
+                  "mt-1 block text-[11px] tabular leading-tight",
+                  active ? "text-white/80" : "text-ink-500",
                 )}
               >
                 {caption}

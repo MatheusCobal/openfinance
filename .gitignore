@@ -3,12 +3,15 @@ __pycache__/
 .venv/
 venv/
 *.db
+*.db-shm
+*.db-wal
 *.db.backup*
 *.backup.db
 *.bak.db
 *.sqlite
 *.sqlite3
 backups/
+tmp/
 .env
 .env.local
 .env.production
