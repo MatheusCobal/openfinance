@@ -324,8 +324,30 @@ def _credit_card_official_bill_totals_by_month(
         if is_itau_account(account):
             if is_unconfirmed_itau_transaction(tx, account):
                 return False
+            # Pluggy may later relink an older Itaú payment to the newest bill.
+            # Prefer the bill whose due-date window contains the payment so a
+            # closed invoice cannot be recovered with an adjacent month's total.
+            window_bills = [
+                candidate
+                for candidate in bills
+                if candidate.account_id == tx.account_id
+                and candidate.due_date is not None
+                and candidate.due_date - timedelta(days=10)
+                <= tx.date
+                <= candidate.due_date + timedelta(days=5)
+            ]
+            if window_bills:
+                closest_bill = min(
+                    window_bills,
+                    key=lambda candidate: (
+                        abs((candidate.due_date - tx.date).days),
+                        candidate.id != tx.bill_id,
+                        candidate.id,
+                    ),
+                )
+                return closest_bill.id == bill.id
             # A payment made well before the due date still belongs to the
-            # provider's bill. A date-window guess must not discard that link.
+            # provider's bill when no adjacent bill matches by date.
             if tx.bill_id:
                 return tx.bill_id == bill.id
             if tx.bill_forecast_month:

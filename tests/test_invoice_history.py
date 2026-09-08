@@ -845,6 +845,69 @@ class TestCreditCardHistoryMonthly(unittest.TestCase):
         self.assertAlmostEqual(august["card_breakdown_total"], 15073.31, places=2)
         self.assertNotIn("card_breakdown_source", august)
 
+    def test_itau_relinked_previous_payment_is_not_summed_into_zeroed_bill(self):
+        with Session(self.engine) as session:
+            _seed_base(session, due_date=datetime.date(2026, 8, 6))
+            account = session.get(Account, CC_ACCOUNT_ID)
+            account.name = "LATAM PASS ITAU MASTERCARD BLACK"
+            session.add(account)
+            session.add_all(
+                [
+                    CreditCardBill(
+                        id="itau-july-official",
+                        account_id=CC_ACCOUNT_ID,
+                        due_date=datetime.date(2026, 7, 6),
+                        total_amount=Decimal("14278.94"),
+                    ),
+                    CreditCardBill(
+                        id="itau-august-zeroed",
+                        account_id=CC_ACCOUNT_ID,
+                        due_date=datetime.date(2026, 8, 6),
+                        total_amount=Decimal("0"),
+                    ),
+                    Transaction(
+                        id="itau-july-payment-relinked",
+                        account_id=CC_ACCOUNT_ID,
+                        date=datetime.date(2026, 6, 27),
+                        amount=Decimal("-14278.94"),
+                        description="PAGAMENTO COM SALDO",
+                        category="Transfers",
+                        status="POSTED",
+                        bill_id="itau-august-zeroed",
+                        bill_forecast_month="2026-08",
+                    ),
+                    Transaction(
+                        id="itau-august-payment",
+                        account_id=CC_ACCOUNT_ID,
+                        date=datetime.date(2026, 7, 28),
+                        amount=Decimal("-13992.62"),
+                        description="PAGAMENTO COM SALDO",
+                        category="Transfers",
+                        status="POSTED",
+                        bill_id="itau-august-zeroed",
+                        bill_forecast_month="2026-08",
+                    ),
+                ]
+            )
+            session.commit()
+
+            with patch("app.services.history.date") as history_date:
+                history_date.today.return_value = datetime.date(2026, 9, 8)
+                history_date.side_effect = lambda *args, **kwargs: datetime.date(
+                    *args,
+                    **kwargs,
+                )
+                result = credit_card_invoice_purchases_monthly_summary(session, months=2)
+
+        months = {month["month"]: month for month in result["months"]}
+        self.assertAlmostEqual(months["2026-07"]["invoice_display_total"], 14278.94, places=2)
+        self.assertAlmostEqual(months["2026-08"]["invoice_display_total"], 13992.62, places=2)
+        self.assertAlmostEqual(
+            months["2026-08"]["official_bills"][0]["recovered_payment_total"],
+            13992.62,
+            places=2,
+        )
+
     def test_snapshot_without_bill_or_payment_is_not_a_closed_invoice(self):
         with Session(self.engine) as session:
             _seed_base(session, due_date=datetime.date(2026, 6, 8))
