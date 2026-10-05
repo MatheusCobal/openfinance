@@ -4,7 +4,9 @@ version = "0.1.0"
 dependencies = [
     "alembic",
     "fastapi[standard]",
-    "sqlmodel",
+    # 0.0.47 changed plain ``datetime`` fields to require timezone-aware
+    # values, while this app and its existing SQLite data use naive UTC.
+    "sqlmodel==0.0.34",
     "httpx",
     "pydantic-settings",
     "argon2-cffi",
