@@ -128,7 +128,7 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             {"jul"},
         )
 
-    def test_itau_all_signed_pending_through_cutoff_match_on_all_surfaces(self):
+    def test_itau_pending_without_invoice_payments_matches_on_all_surfaces(self):
         with Session(self.engine) as session:
             self._add_item(session, connector_name="MeuPluggy")
             self._add_credit_account(session, name="LATAM PASS ITAU MASTERCARD BLACK")
@@ -191,18 +191,12 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             )
 
         october = next(row for row in upcoming["months"] if row["month"] == "2026-10")
-        self.assertAlmostEqual(current["amount"], 4040.29)
-        self.assertAlmostEqual(october["total"], 4040.29)
-        self.assertAlmostEqual(planning["credit_card_invoice"]["amount"], 4040.29)
-        self.assertAlmostEqual(planning["capacity"]["card_invoice_gross_total"], 4040.29)
-        self.assertAlmostEqual(sum(row["total"] for row in current["categories"]), 4040.29)
-        self.assertAlmostEqual(sum(row["total"] for row in october["categories"]), 4040.29)
-        self.assertEqual(
-            next(row for row in current["categories"] if row["name"] == "Pagamentos da fatura")[
-                "total"
-            ],
-            -5401.33,
-        )
+        self.assertAlmostEqual(current["amount"], 9441.62)
+        self.assertAlmostEqual(october["total"], 9441.62)
+        self.assertAlmostEqual(planning["credit_card_invoice"]["amount"], 9441.62)
+        self.assertAlmostEqual(planning["capacity"]["card_invoice_gross_total"], 9441.62)
+        self.assertAlmostEqual(sum(row["total"] for row in current["categories"]), 9441.62)
+        self.assertAlmostEqual(sum(row["total"] for row in october["categories"]), 9441.62)
         expected_ids = {
             "october-installments",
             "new-points",
@@ -211,7 +205,6 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
             "old-pending",
             "transfer-installment-september",
             "transfer-installment-october",
-            "pending-payment",
         }
         self.assertEqual(
             {tx["id"] for tx in current["raw_purchase_transactions"]},
@@ -220,6 +213,44 @@ class CurrentCardInvoicePendingTest(unittest.TestCase):
         self.assertEqual(
             {tx["id"] for tx in october["transactions"]},
             expected_ids,
+        )
+
+    def test_itau_stale_pending_payment_does_not_reduce_november_invoice(self):
+        with Session(self.engine) as session:
+            self._add_item(session, connector_name="MeuPluggy")
+            self._add_credit_account(session, name="LATAM PASS ITAU MASTERCARD BLACK")
+            self._add_purchase(
+                session, "november-purchases", date(2026, 10, 10), 2863.62
+            )
+            self._add_purchase(
+                session,
+                "stale-payment",
+                date(2026, 9, 30),
+                -4040.29,
+                description="PAGAMENTO COM SALDO",
+                category="Transfers",
+            )
+            self._add_purchase(
+                session,
+                "posted-payment",
+                date(2026, 9, 30),
+                -4040.29,
+                description="Pagamento recebido",
+                category="Credit card payment",
+                status="POSTED",
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            current = current_card_invoice_summary(session, today=date(2026, 10, 13))
+            upcoming = upcoming_summary(session, today=date(2026, 10, 13))
+
+        november = next(row for row in upcoming["months"] if row["month"] == "2026-11")
+        self.assertEqual(current["amount"], 2863.62)
+        self.assertEqual(november["total"], 2863.62)
+        self.assertEqual(
+            {tx["id"] for tx in current["raw_purchase_transactions"]},
+            {"november-purchases"},
         )
 
     def test_itau_history_excludes_pending_and_groups_posted_by_official_bill(self):

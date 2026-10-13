@@ -115,8 +115,6 @@ def _serialize_current_invoice_transaction(
     tx: Transaction,
     account: Optional[Account] = None,
     item: Optional[Item] = None,
-    *,
-    is_invoice_payment: bool = False,
 ) -> dict[str, Any]:
     classification = serialize_transaction_classification(tx, account_type="CREDIT")
     effective_category = resolve_credit_internal_category(
@@ -131,9 +129,7 @@ def _serialize_current_invoice_transaction(
         invoice_fields = {
             "invoice_contribution_amount": float(tx.amount),
             "invoice_category": (
-                "Pagamentos da fatura"
-                if tx.amount < 0 and is_invoice_payment
-                else (CAIXA_CREDIT_CATEGORY if tx.amount < 0 else effective_category or "Outros")
+                CAIXA_CREDIT_CATEGORY if tx.amount < 0 else effective_category or "Outros"
             ),
         }
     return {
@@ -163,7 +159,8 @@ def pending_current_invoice_transactions(
 
     The current invoice is the next calendar month's invoice. Itaú uses every
     nonduplicate provider-PENDING entry dated through that month's end, with
-    its original sign, regardless of forecast month or expense classification.
+    its original sign, excluding invoice payments. Forecast month and expense
+    classification do not otherwise affect inclusion.
     Other cards retain their existing forecast/cycle rules, including CAIXA.
     """
     from app.services.classification import TransactionClassifier
@@ -196,7 +193,11 @@ def pending_current_invoice_transactions(
     for tx in rows:
         account = accounts_by_id.get(tx.account_id)
         if is_itau_account(account):
-            if str(tx.status or "").upper() == "PENDING" and tx.date <= cutoff:
+            if (
+                str(tx.status or "").upper() == "PENDING"
+                and tx.date <= cutoff
+                and not classifier.is_invoice_payment(tx)
+            ):
                 transactions.append(tx)
             continue
         if not (
@@ -263,7 +264,6 @@ def current_card_invoice_summary(
             items_by_id.get(accounts_by_id[tx.account_id].item_id)
             if tx.account_id in accounts_by_id
             else None,
-            is_invoice_payment=classifier.is_invoice_payment(tx),
         )
         for tx in non_caixa_transactions
     ]
